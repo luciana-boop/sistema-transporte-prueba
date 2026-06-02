@@ -1,5 +1,4 @@
 // FILE: src/lib/axios.ts
-
 import axios from 'axios';
 
 const api = axios.create({
@@ -12,6 +11,8 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     if (typeof window !== 'undefined') {
+      // Lee auth_token: clave dedicada escrita por auth.store.ts en setAuth.
+      // No se acopla a los internos de Zustand persist (auth-storage).
       const token = localStorage.getItem('auth_token');
       if (token) config.headers.Authorization = `Bearer ${token}`;
     }
@@ -25,8 +26,11 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401 && typeof window !== 'undefined') {
+      // Limpiamos tanto las claves manuales como el storage de Zustand,
+      // para que el store quede en estado inicial y no haya sesión fantasma.
       localStorage.removeItem('auth_token');
       localStorage.removeItem('auth_user');
+      localStorage.removeItem('auth-storage'); // ← NUEVO: limpia Zustand persist
       window.location.href = '/login';
     }
     return Promise.reject(error);
