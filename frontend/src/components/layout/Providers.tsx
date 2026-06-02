@@ -19,7 +19,18 @@ export function Providers({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+    // Cambios en ThemeProvider:
+    // 1. disableTransitionOnChange: evita que el cambio de tema
+    //    dispare transiciones CSS durante la hidratación inicial
+    // 2. enableSystem eliminado: el sistema operativo no es accesible
+    //    en el servidor, causaba mismatch garantizado en cada carga
+    // 3. defaultTheme="dark" se mantiene: el tema oscuro es el correcto
+    //    para este sistema y es predecible en servidor y cliente
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="dark"
+      disableTransitionOnChange
+    >
       <QueryClientProvider client={queryClient}>
         {children}
         <Toaster
