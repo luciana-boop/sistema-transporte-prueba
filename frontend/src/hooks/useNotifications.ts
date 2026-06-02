@@ -1,0 +1,177 @@
+// FILE: src/hooks/useNotifications.ts
+// MODIFICADO: usa ConfiguracionAlerta desde BD para días de anticipación dinámicos
+'use client';
+
+import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { vehiculosApi, conductoresApi, cobranzaApi, configuracionApi } from '@/services/api';
+
+export interface Notification {
+  id: string;
+  type: 'warning' | 'danger' | 'info';
+  category: 'soat' | 'licencia' | 'revision' | 'cobranza' | 'mantenimiento';
+  title: string;
+  message: string;
+  read: boolean;
+}
+
+function diasHasta(fechaStr: string): number {
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const fecha = new Date(fechaStr);
+  return Math.ceil((fecha.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+export function useNotifications() {
+  const [readIds, setReadIds] = useState<Set<string>>(new Set());
+
+  const { data: vehiculos = [] } = useQuery({
+    queryKey: ['vehiculos'],
+    queryFn: () => vehiculosApi.listar().then((r) => r.data.data).catch(() => []),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: conductores = [] } = useQuery({
+    queryKey: ['conductores'],
+    queryFn: () => conductoresApi.listar().then((r) => r.data.data).catch(() => []),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: cpc = [] } = useQuery({
+    queryKey: ['cuentas-por-cobrar'],
+    queryFn: () => cobranzaApi.cuentasPorCobrar().then((r) => r.data.data).catch(() => []),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Leer configuración de alertas desde BD
+  const { data: alertasConfig = [] } = useQuery({
+    queryKey: ['config', 'alertas'],
+    queryFn: () => configuracionApi.getAlertas().then((r) => r.data.data).catch(() => []),
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Build a map for quick lookup: clave -> { diasAnticipacion, activo, nivel }
+  const alertaMap = useMemo(() => {
+    const map: Record<string, { dias: number; activo: boolean; nivel: string }> = {
+      soat_vencimiento:      { dias: 30, activo: true, nivel: 'warning' },
+      revision_vencimiento:  { dias: 30, activo: true, nivel: 'warning' },
+      licencia_vencimiento:  { dias: 30, activo: true, nivel: 'warning' },
+      factura_vencida:       { dias: 0,  activo: true, nivel: 'danger' },
+      mantenimiento_proximo: { dias: 15, activo: true, nivel: 'info' },
+    };
+    for (const a of alertasConfig) {
+      map[a.clave] = { dias: a.diasAnticipacion, activo: a.activo, nivel: a.nivel };
+    }
+    return map;
+  }, [alertasConfig]);
+
+  const notifications = useMemo<Notification[]>(() => {
+    const items: Notification[] = [];
+
+    const cfg = (clave: string) => alertaMap[clave] ?? { dias: 30, activo: true, nivel: 'warning' };
+
+    // SOAT vehículos
+    const cfgSoat = cfg('soat_vencimiento');
+    if (cfgSoat.activo) {
+      vehiculos.forEach((v: any) => {
+        if (v.vencimientoSoat) {
+          const dias = diasHasta(v.vencimientoSoat);
+          if (dias <= cfgSoat.dias) {
+            items.push({
+              id: `soat-${v.id}`,
+              type: dias <= 0 ? 'danger' : (cfgSoat.nivel as any),
+              category: 'soat',
+              title: `SOAT ${dias <= 0 ? 'vencido' : 'por vencer'}`,
+              message: `Vehículo ${v.placa}: ${dias <= 0 ? `vencido hace ${Math.abs(dias)}d` : `vence en ${dias}d`}`,
+              read: false,
+            });
+          }
+        }
+      });
+    }
+
+    // Revisión técnica
+    const cfgRev = cfg('revision_vencimiento');
+    if (cfgRev.activo) {
+      vehiculos.forEach((v: any) => {
+        if (v.vencimientoRevision) {
+          const dias = diasHasta(v.vencimientoRevision);
+          if (dias <= cfgRev.dias) {
+            items.push({
+              id: `rev-${v.id}`,
+              type: dias <= 0 ? 'danger' : (cfgRev.nivel as any),
+              category: 'revision',
+              title: `Rev. técnica ${dias <= 0 ? 'vencida' : 'por vencer'}`,
+              message: `Vehículo ${v.placa}: ${dias <= 0 ? `vencida hace ${Math.abs(dias)}d` : `vence en ${dias}d`}`,
+              read: false,
+            });
+          }
+        }
+      });
+    }
+
+    // Mantenimiento próximo
+    const cfgMant = cfg('mantenimiento_proximo');
+    if (cfgMant.activo) {
+      vehiculos.forEach((v: any) => {
+        if (v.proximoMantenimiento) {
+          const dias = diasHasta(v.proximoMantenimiento);
+          if (dias >= 0 && dias <= cfgMant.dias) {
+            items.push({
+              id: `mant-${v.id}`,
+              type: cfgMant.nivel as any,
+              category: 'mantenimiento',
+              title: 'Mantenimiento próximo',
+              message: `Vehículo ${v.placa}: mantenimiento en ${dias}d`,
+              read: false,
+            });
+          }
+        }
+      });
+    }
+
+    // Licencias conductores
+    const cfgLic = cfg('licencia_vencimiento');
+    if (cfgLic.activo) {
+      conductores.forEach((c: any) => {
+        if (c.vencimientoLicencia) {
+          const dias = diasHasta(c.vencimientoLicencia);
+          if (dias <= cfgLic.dias) {
+            items.push({
+              id: `lic-${c.id}`,
+              type: dias <= 0 ? 'danger' : (cfgLic.nivel as any),
+              category: 'licencia',
+              title: `Licencia ${dias <= 0 ? 'vencida' : 'por vencer'}`,
+              message: `${c.nombre}: ${dias <= 0 ? `vencida hace ${Math.abs(dias)}d` : `vence en ${dias}d`}`,
+              read: false,
+            });
+          }
+        }
+      });
+    }
+
+    // Facturas vencidas
+    const cfgFac = cfg('factura_vencida');
+    if (cfgFac.activo) {
+      const vencidas = cpc.filter((c: any) => c.vencida);
+      if (vencidas.length > 0) {
+        items.push({
+          id: 'facturas-vencidas',
+          type: cfgFac.nivel as any,
+          category: 'cobranza',
+          title: 'Facturas vencidas',
+          message: `${vencidas.length} factura${vencidas.length > 1 ? 's' : ''} con saldo pendiente y vencidas`,
+          read: false,
+        });
+      }
+    }
+
+    return items.map((n) => ({ ...n, read: readIds.has(n.id) }));
+  }, [vehiculos, conductores, cpc, alertaMap, readIds]);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
+  const markRead = (id: string) => setReadIds((prev) => new Set([...prev, id]));
+  const markAllRead = () => setReadIds(new Set(notifications.map((n) => n.id)));
+
+  return { notifications, unreadCount, markRead, markAllRead };
+}

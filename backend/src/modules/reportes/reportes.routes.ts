@@ -1,0 +1,29 @@
+// FILE: src/modules/reportes/reportes.routes.ts
+
+import { Router } from 'express';
+import { reportesController } from './reportes.controller';
+import { verificarToken, adminOSecretario } from '../../middleware/auth.middleware';
+
+const router = Router();
+
+router.use(verificarToken, adminOSecretario);
+
+// GET /api/reportes/dashboard
+router.get('/dashboard', reportesController.dashboard.bind(reportesController));
+
+// GET /api/reportes/pedidos?desde=2024-01-01&hasta=2024-12-31&clienteId=1
+router.get('/pedidos', reportesController.pedidos.bind(reportesController));
+
+// GET /api/reportes/facturacion?desde=2024-01-01&hasta=2024-12-31
+router.get('/facturacion', reportesController.facturacion.bind(reportesController));
+
+// GET /api/reportes/cobranza?desde=2024-01-01&hasta=2024-12-31
+router.get('/cobranza', reportesController.cobranza.bind(reportesController));
+
+// GET /api/reportes/caja?desde=2024-01-01&hasta=2024-12-31
+router.get('/caja', reportesController.caja.bind(reportesController));
+
+// GET /api/reportes/gastos?desde=2024-01-01&hasta=2024-12-31
+router.get('/gastos', reportesController.gastos.bind(reportesController));
+
+export default router;
