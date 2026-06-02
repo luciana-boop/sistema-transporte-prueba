@@ -19,26 +19,32 @@ export const useAuthStore = create<AuthStore>()(
       token: null,
       usuario: null,
       isAuthenticated: false,
-
-      // Flag de hidratación — inicia en false, pasa a true
-      // cuando Zustand termina de leer localStorage
       _hasHydrated: false,
       setHasHydrated: (state) => set({ _hasHydrated: state }),
 
       setAuth: (token, usuario) => {
-        // Se eliminó la escritura manual duplicada en localStorage.
-        // El middleware persist ya maneja esto bajo 'auth-storage'.
-        // Si algún archivo del proyecto lee 'auth_token' directamente,
-        // avisame y lo migramos en ese archivo — no acá.
+        if (typeof window !== 'undefined') {
+          // auth_token: clave dedicada que lee el interceptor de Axios.
+          // Es la única fuente que axios.ts conoce — no puede leer
+          // los internos de Zustand persist directamente.
+          // auth_user se elimina: nadie más lo lee, Zustand persist
+          // ya guarda el usuario en auth-storage.
+          localStorage.setItem('auth_token', token);
+        }
         set({ token, usuario, isAuthenticated: true });
       },
 
       logout: () => {
-        // Solo limpiamos lo que persist no maneja automáticamente.
-        // persist borrará 'auth-storage' al detectar el estado reseteado.
         if (typeof window !== 'undefined') {
+          // Limpiamos auth_token (interceptor) y auth-storage (Zustand).
+          // auth_user ya no se escribe, pero lo removemos por compatibilidad
+          // con sesiones anteriores que sí lo tenían.
           localStorage.removeItem('auth_token');
           localStorage.removeItem('auth_user');
+          // auth-storage lo limpia Zustand persist automáticamente
+          // al detectar el estado reseteado, pero lo forzamos
+          // para garantizar consistencia inmediata.
+          localStorage.removeItem('auth-storage');
         }
         set({ token: null, usuario: null, isAuthenticated: false });
       },
@@ -50,11 +56,8 @@ export const useAuthStore = create<AuthStore>()(
         usuario: state.usuario,
         isAuthenticated: state.isAuthenticated,
         // _hasHydrated NO se persiste — siempre arranca en false
-        // y solo pasa a true cuando onRehydrateStorage se dispara
       }),
       onRehydrateStorage: () => (state) => {
-        // Este callback se ejecuta cuando Zustand termina de leer
-        // localStorage. Recién en este momento es seguro evaluar auth.
         state?.setHasHydrated(true);
       },
     }
