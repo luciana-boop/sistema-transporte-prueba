@@ -81,6 +81,9 @@ model Usuario {
   gastos         Gasto[]
   logs           LogActividad[]
 
+  permisosModulos  PermisoModulo[]
+  permisosAcciones PermisoAccion[]
+
   @@map("usuarios")
 }
 
@@ -456,4 +459,43 @@ model TipoVehiculoConfig {
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
 
   @@map("tipos_vehiculo_config")
+}
+// ─── PERMISOS DE MÓDULOS ──────────────────────────────────────────────────────
+// Una fila por módulo que el usuario tiene habilitado.
+// Solo se crean filas para SECRETARIO; ADMIN siempre tiene acceso total.
+// moduloKey usa string libre para no necesitar migración al agregar módulos.
+// Valores posibles: dashboard | clientes | pedidos | conductores | vehiculos |
+//   facturacion | cobranza | liquidaciones | combustible | caja | gastos |
+//   reportes | configuracion | backups | usuarios
+model PermisoModulo {
+  id         Int      @id @default(autoincrement())
+  usuarioId  Int      @map("usuario_id")
+  moduloKey  String   @map("modulo_key")   // key única del módulo, ej: "facturacion"
+  habilitado Boolean  @default(true)
+  creadoEn   DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  usuario    Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, moduloKey])           // un registro por usuario+módulo
+  @@map("permisos_modulos")
+}
+
+// ─── PERMISOS DE ACCIONES ESPECIALES ────────────────────────────────────────
+// Una fila por acción sensible que el usuario tiene habilitada.
+// Solo se crean filas para SECRETARIO; ADMIN siempre puede todo.
+// accionKey valores posibles: anular_factura | anular_boleta | anular_servicio |
+//   anular_cobranza | anular_comprobante
+model PermisoAccion {
+  id         Int      @id @default(autoincrement())
+  usuarioId  Int      @map("usuario_id")
+  accionKey  String   @map("accion_key")   // key de la acción, ej: "anular_factura"
+  habilitado Boolean  @default(false)       // acciones de anulación OFF por defecto
+  creadoEn   DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  usuario    Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, accionKey])           // un registro por usuario+acción
+  @@map("permisos_acciones")
 }
