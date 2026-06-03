@@ -1,7 +1,7 @@
 // FILE: src/app/(auth)/login/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -13,18 +13,37 @@ import { useAuthStore } from '@/store/auth.store';
 import { getErrorMessage } from '@/lib/utils';
 
 const loginSchema = z.object({
-  email: z.string().email('Email inválido'),
-  password: z.string().min(1, 'Contraseña requerida'),
+  email:    z.string().min(1, 'El email es requerido').email('Email inválido'),
+  password: z.string().min(1, 'La contraseña es requerida'),
 });
 type LoginForm = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
-  const router = useRouter();
-  const setAuth = useAuthStore((s) => s.setAuth);
+  const router           = useRouter();
+  const setAuth          = useAuthStore((s) => s.setAuth);
+  const isAuthenticated  = useAuthStore((s) => s.isAuthenticated);
+  const _hasHydrated     = useAuthStore((s) => s._hasHydrated);
   const [showPass, setShowPass] = useState(false);
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginForm>({
+  // ── NUEVO: reemplaza el patrón mounted/useEffect por _hasHydrated ──
+  // Antes: mounted=false → return null → fondo azul vacío visible 1 frame
+  // Ahora: el formulario renderiza desde el primer frame. Solo redirigimos
+  // cuando Zustand confirma que hay sesión activa (_hasHydrated=true).
+  useEffect(() => {
+    if (_hasHydrated && isAuthenticated) {
+      router.replace('/dashboard');
+    }
+  }, [_hasHydrated, isAuthenticated, router]);
+  // ──────────────────────────────────────────────────────────────────
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
+    mode: 'onSubmit',
+    reValidateMode: 'onChange',
   });
 
   const onSubmit = async (data: LoginForm) => {
@@ -57,17 +76,20 @@ export default function LoginPage() {
         <h2 className="text-lg font-semibold mb-1">Iniciar sesión</h2>
         <p className="text-sm text-muted-foreground mb-6">Ingresa tus credenciales para continuar</p>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
+        <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium">Email</label>
             <input
               type="email"
               autoComplete="email"
-              placeholder="admin@transportes.com"
-              className="w-full px-3 py-2.5 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+              placeholder="usuario@transportes.com"
+              className="w-full px-3 py-2.5 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all aria-invalid:border-destructive"
+              aria-invalid={!!errors.email}
               {...register('email')}
             />
-            {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+            {errors.email && (
+              <p className="text-xs text-destructive">{errors.email.message}</p>
+            )}
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -77,18 +99,22 @@ export default function LoginPage() {
                 type={showPass ? 'text' : 'password'}
                 autoComplete="current-password"
                 placeholder="••••••••"
-                className="w-full px-3 py-2.5 pr-10 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                className="w-full px-3 py-2.5 pr-10 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all aria-invalid:border-destructive"
+                aria-invalid={!!errors.password}
                 {...register('password')}
               />
               <button
                 type="button"
+                tabIndex={-1}
                 onClick={() => setShowPass(!showPass)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
               >
                 {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+            {errors.password && (
+              <p className="text-xs text-destructive">{errors.password.message}</p>
+            )}
           </div>
 
           <button
@@ -100,30 +126,6 @@ export default function LoginPage() {
             {isSubmitting ? 'Ingresando...' : 'Ingresar'}
           </button>
         </form>
-
-        <div className="mt-6 pt-5 border-t border-border">
-          <p className="text-xs text-muted-foreground text-center mb-2">Credenciales de prueba</p>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { label: 'Admin', email: 'admin@transportes.com', pass: 'admin123' },
-              { label: 'Secretario', email: 'secretario@transportes.com', pass: 'secretario123' },
-            ].map((c) => (
-              <button
-                key={c.label}
-                type="button"
-                onClick={() => {
-                  const emailInput = document.querySelector<HTMLInputElement>('input[type="email"]');
-                  const passInput = document.querySelector<HTMLInputElement>('input[type="password"], input[type="text"]');
-                  if (emailInput) emailInput.value = c.email;
-                  if (passInput) passInput.value = c.pass;
-                }}
-                className="text-xs bg-muted hover:bg-accent py-1.5 px-2 rounded-md transition-colors text-muted-foreground hover:text-foreground"
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );
