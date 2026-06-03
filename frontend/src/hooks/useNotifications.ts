@@ -1,10 +1,10 @@
 // FILE: src/hooks/useNotifications.ts
-// MODIFICADO: usa ConfiguracionAlerta desde BD para días de anticipación dinámicos
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { vehiculosApi, conductoresApi, cobranzaApi, configuracionApi } from '@/services/api';
+import { useAuthStore } from '@/store/auth.store';
 
 export interface Notification {
   id: string;
@@ -25,39 +25,47 @@ function diasHasta(fechaStr: string): number {
 export function useNotifications() {
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
 
+  // ── NUEVO: queries solo se ejecutan cuando auth está confirmada ──
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const _hasHydrated    = useAuthStore((s) => s._hasHydrated);
+  const canFetch = _hasHydrated && isAuthenticated;
+  // ────────────────────────────────────────────────────────────────
+
   const { data: vehiculos = [] } = useQuery({
     queryKey: ['vehiculos'],
     queryFn: () => vehiculosApi.listar().then((r) => r.data.data).catch(() => []),
     staleTime: 5 * 60 * 1000,
+    enabled: canFetch, // ← NUEVO
   });
 
   const { data: conductores = [] } = useQuery({
     queryKey: ['conductores'],
     queryFn: () => conductoresApi.listar().then((r) => r.data.data).catch(() => []),
     staleTime: 5 * 60 * 1000,
+    enabled: canFetch, // ← NUEVO
   });
 
   const { data: cpc = [] } = useQuery({
     queryKey: ['cuentas-por-cobrar'],
     queryFn: () => cobranzaApi.cuentasPorCobrar().then((r) => r.data.data).catch(() => []),
     staleTime: 5 * 60 * 1000,
+    enabled: canFetch, // ← NUEVO
   });
 
-  // Leer configuración de alertas desde BD
   const { data: alertasConfig = [] } = useQuery({
     queryKey: ['config', 'alertas'],
     queryFn: () => configuracionApi.getAlertas().then((r) => r.data.data).catch(() => []),
     staleTime: 10 * 60 * 1000,
+    enabled: canFetch, // ← NUEVO
   });
 
-  // Build a map for quick lookup: clave -> { diasAnticipacion, activo, nivel }
   const alertaMap = useMemo(() => {
     const map: Record<string, { dias: number; activo: boolean; nivel: string }> = {
       soat_vencimiento:      { dias: 30, activo: true, nivel: 'warning' },
       revision_vencimiento:  { dias: 30, activo: true, nivel: 'warning' },
       licencia_vencimiento:  { dias: 30, activo: true, nivel: 'warning' },
-      factura_vencida:       { dias: 0,  activo: true, nivel: 'danger' },
-      mantenimiento_proximo: { dias: 15, activo: true, nivel: 'info' },
+      factura_vencida:       { dias: 0,  activo: true, nivel: 'danger'  },
+      mantenimiento_proximo: { dias: 15, activo: true, nivel: 'info'    },
     };
     for (const a of alertasConfig) {
       map[a.clave] = { dias: a.diasAnticipacion, activo: a.activo, nivel: a.nivel };
@@ -67,10 +75,8 @@ export function useNotifications() {
 
   const notifications = useMemo<Notification[]>(() => {
     const items: Notification[] = [];
-
     const cfg = (clave: string) => alertaMap[clave] ?? { dias: 30, activo: true, nivel: 'warning' };
 
-    // SOAT vehículos
     const cfgSoat = cfg('soat_vencimiento');
     if (cfgSoat.activo) {
       vehiculos.forEach((v: any) => {
@@ -90,7 +96,6 @@ export function useNotifications() {
       });
     }
 
-    // Revisión técnica
     const cfgRev = cfg('revision_vencimiento');
     if (cfgRev.activo) {
       vehiculos.forEach((v: any) => {
@@ -110,7 +115,6 @@ export function useNotifications() {
       });
     }
 
-    // Mantenimiento próximo
     const cfgMant = cfg('mantenimiento_proximo');
     if (cfgMant.activo) {
       vehiculos.forEach((v: any) => {
@@ -130,7 +134,6 @@ export function useNotifications() {
       });
     }
 
-    // Licencias conductores
     const cfgLic = cfg('licencia_vencimiento');
     if (cfgLic.activo) {
       conductores.forEach((c: any) => {
@@ -150,7 +153,6 @@ export function useNotifications() {
       });
     }
 
-    // Facturas vencidas
     const cfgFac = cfg('factura_vencida');
     if (cfgFac.activo) {
       const vencidas = cpc.filter((c: any) => c.vencida);
@@ -170,7 +172,7 @@ export function useNotifications() {
   }, [vehiculos, conductores, cpc, alertaMap, readIds]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
-  const markRead = (id: string) => setReadIds((prev) => new Set([...prev, id]));
+  const markRead    = (id: string) => setReadIds((prev) => new Set([...prev, id]));
   const markAllRead = () => setReadIds(new Set(notifications.map((n) => n.id)));
 
   return { notifications, unreadCount, markRead, markAllRead };
