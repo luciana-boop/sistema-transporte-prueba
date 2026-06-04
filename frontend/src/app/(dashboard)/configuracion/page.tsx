@@ -1,4 +1,10 @@
 // FILE: src/app/(dashboard)/configuracion/page.tsx
+// CAMBIOS:
+//   - TABS: agrega 'unidades' (Unidades de Medida) y 'codigos' (Códigos de Factura)
+//   - TIPOS_TABLA: agrega 'unidad_medida' y 'codigo_factura' para visibilidad en Tablas Maestras
+//   - Nuevos tabs con CRUD completo (crear, editar, activar/desactivar)
+//   - Queries y mutations para unidades y códigos usando TablaMaestra
+//   - Modales reutilizados del patrón existente
 'use client';
 
 import { MonedasTab, TiposPagoTab, CuentasTab } from './CuentasTabs';
@@ -31,6 +37,8 @@ const TABS = [
   { id: 'alertas',    label: 'Alertas',        icon: Bell       },
   { id: 'vehiculos',  label: 'Tipos Vehículo', icon: Car        },
   { id: 'tablas',     label: 'Tablas Maestras',icon: Database   },
+  { id: 'unidades',   label: 'Unid. Medida',  icon: Database   },
+  { id: 'codigos',    label: 'Cód. Factura',   icon: FileText   },
   { id: 'pdf',        label: 'Config. PDF',    icon: Settings2  },
   { id: 'monedas',    label: 'Monedas',        icon: Database   },
   { id: 'tipospago',  label: 'Tipos de Pago',  icon: Database   },
@@ -45,6 +53,8 @@ const TIPOS_TABLA = [
   { tipo: 'tipo_credito',         label: 'Tipos de crédito' },
   { tipo: 'tipo_carga',           label: 'Tipos de carga' },
   { tipo: 'proveedor_combustible',label: 'Proveedores combustible' },
+  { tipo: 'unidad_medida',        label: 'Unidades de medida' },
+  { tipo: 'codigo_factura',       label: 'Códigos de facturación' },
 ];
 
 const NIVEL_COLOR: Record<string, string> = {
@@ -171,6 +181,20 @@ export default function ConfiguracionPage() {
     enabled: tab === 'tablas',
   });
 
+  // ── Unidades de medida ────────────────────────────────────────────────────
+  const { data: unidadesData = [], isLoading: loadUnidades } = useQuery({
+    queryKey: ['config', 'tabla', 'unidad_medida'],
+    queryFn: () => configuracionApi.getTablaMaestra('unidad_medida').then(r => r.data.data),
+    enabled: tab === 'unidades',
+  });
+
+  // ── Códigos de facturación ────────────────────────────────────────────────
+  const { data: codigosData = [], isLoading: loadCodigos } = useQuery({
+    queryKey: ['config', 'tabla', 'codigo_factura'],
+    queryFn: () => configuracionApi.getTablaMaestra('codigo_factura').then(r => r.data.data),
+    enabled: tab === 'codigos',
+  });
+
   // ── Mutations ─────────────────────────────────────────────────────────────────
   const inv = (key: string) => qc.invalidateQueries({ queryKey: ['config', key] });
 
@@ -279,6 +303,32 @@ export default function ConfiguracionPage() {
   const deleteTablaMutation = useMutation({
     mutationFn: (id: number) => configuracionApi.deleteTablaMaestra(id),
     onSuccess: () => { toast.success('Eliminado'); inv('tabla'); },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  // Unidades de medida mutations
+  const createUnidadMutation = useMutation({
+    mutationFn: () => configuracionApi.createTablaMaestra({ tipo: 'unidad_medida', codigo: formData.codigo?.toUpperCase(), nombre: formData.nombre, descripcion: formData.descripcion }),
+    onSuccess: () => { toast.success('Unidad creada'); setShowModal(null); setFormData({}); qc.invalidateQueries({ queryKey: ['config', 'tabla', 'unidad_medida'] }); },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  const updateUnidadMutation = useMutation({
+    mutationFn: (activo?: boolean) => configuracionApi.updateTablaMaestra(editingItem?.id, activo !== undefined ? { activo } : { nombre: formData.nombre, descripcion: formData.descripcion }),
+    onSuccess: () => { toast.success('Actualizado'); setShowModal(null); setEditingItem(null); setFormData({}); qc.invalidateQueries({ queryKey: ['config', 'tabla', 'unidad_medida'] }); },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  // Códigos de facturación mutations
+  const createCodigoMutation = useMutation({
+    mutationFn: () => configuracionApi.createTablaMaestra({ tipo: 'codigo_factura', codigo: formData.codigo, nombre: formData.codigo, descripcion: formData.descripcion }),
+    onSuccess: () => { toast.success('Código creado'); setShowModal(null); setFormData({}); qc.invalidateQueries({ queryKey: ['config', 'tabla', 'codigo_factura'] }); },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  const updateCodigoMutation = useMutation({
+    mutationFn: (activo?: boolean) => configuracionApi.updateTablaMaestra(editingItem?.id, activo !== undefined ? { activo } : { descripcion: formData.descripcion }),
+    onSuccess: () => { toast.success('Actualizado'); setShowModal(null); setEditingItem(null); setFormData({}); qc.invalidateQueries({ queryKey: ['config', 'tabla', 'codigo_factura'] }); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
@@ -672,6 +722,93 @@ export default function ConfiguracionPage() {
       )}
 
       {/* ── TAB: MONEDAS ────────────────────────────────────────────────────── */}
+      {/* ── TAB: UNIDADES DE MEDIDA ─────────────────────────────────────────── */}
+      {tab === 'unidades' && (
+        <div className="flex flex-col gap-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-sm font-semibold">Unidades de medida</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Se usan en las líneas de detalle de las facturas. Solo las activas aparecen al facturar.
+              </p>
+            </div>
+            <Button size="sm" onClick={() => openCreate('unidad')}>
+              <Plus className="w-4 h-4" /> Nueva unidad
+            </Button>
+          </div>
+          {loadUnidades ? <TableSkeleton rows={4} cols={4} /> : (
+            <Table>
+              <thead>
+                <tr><Th>Código</Th><Th>Nombre</Th><Th>Descripción</Th><Th>Activo</Th></tr>
+              </thead>
+              <tbody>
+                {unidadesData.length > 0 ? unidadesData.map((u) => (
+                  <Tr key={u.id}>
+                    <Td><span className="font-mono text-xs font-bold">{u.codigo}</span></Td>
+                    <Td><span className="text-sm font-medium">{u.nombre}</span></Td>
+                    <Td><span className="text-xs text-muted-foreground">{u.descripcion ?? '—'}</span></Td>
+                    <Td>
+                      <Switch
+                        checked={u.activo}
+                        onChange={(v) => { setEditingItem(u); updateUnidadMutation.mutate(v); }}
+                      />
+                    </Td>
+                  </Tr>
+                )) : <tr><td colSpan={4}><EmptyState message="Sin unidades. Crea una o ejecuta 'Inicializar defaults'." /></td></tr>}
+              </tbody>
+            </Table>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: CÓDIGOS DE FACTURACIÓN ──────────────────────────────────────── */}
+      {tab === 'codigos' && (
+        <div className="flex flex-col gap-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-sm font-semibold">Códigos de facturación</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Al seleccionar un código en la factura, la descripción se autocompleta. Solo los activos están disponibles al facturar.
+              </p>
+            </div>
+            <Button size="sm" onClick={() => openCreate('codigo')}>
+              <Plus className="w-4 h-4" /> Nuevo código
+            </Button>
+          </div>
+          {loadCodigos ? <TableSkeleton rows={4} cols={4} /> : (
+            <Table>
+              <thead>
+                <tr><Th>Código</Th><Th>Descripción asociada</Th><Th>Activo</Th><Th className="text-right">Acciones</Th></tr>
+              </thead>
+              <tbody>
+                {codigosData.length > 0 ? codigosData.map((c) => (
+                  <Tr key={c.id}>
+                    <Td><span className="font-mono text-xs font-bold">{c.codigo}</span></Td>
+                    <Td><span className="text-sm">{c.descripcion ?? '—'}</span></Td>
+                    <Td>
+                      <Switch
+                        checked={c.activo}
+                        onChange={(v) => { setEditingItem(c); updateCodigoMutation.mutate(v); }}
+                      />
+                    </Td>
+                    <Td>
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => { setEditingItem(c); setFormData({ codigo: c.codigo, descripcion: c.descripcion ?? '' }); setShowModal('codigo'); }}
+                          className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </Td>
+                  </Tr>
+                )) : <tr><td colSpan={4}><EmptyState message="Sin códigos. Crea uno o ejecuta 'Inicializar defaults'." /></td></tr>}
+              </tbody>
+            </Table>
+          )}
+        </div>
+      )}
+
       {tab === 'monedas' && <MonedasTab />}
 
       {/* ── TAB: TIPOS PAGO ──────────────────────────────────────────────────── */}
@@ -867,6 +1004,82 @@ export default function ConfiguracionPage() {
               onClick={() => editingItem ? updateTablaMutation.mutate(undefined) : createTablaMutation.mutate()}
             >
               {editingItem ? 'Guardar' : 'Crear registro'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+      {/* ── MODAL: Unidad de medida ─────────────────────────────────────────── */}
+      <Modal
+        open={showModal === 'unidad'}
+        onClose={() => { setShowModal(null); setEditingItem(null); setFormData({}); }}
+        title={editingItem ? `Editar unidad ${editingItem.codigo}` : 'Nueva unidad de medida'}
+      >
+        <div className="flex flex-col gap-4">
+          {!editingItem && (
+            <FormField label="Código *" hint="Ej: UND, SERV, VIAJE, KG">
+              <Input
+                placeholder="UND"
+                value={formData.codigo ?? ''}
+                onChange={(e) => setFormData(p => ({ ...p, codigo: e.target.value.toUpperCase() }))}
+              />
+            </FormField>
+          )}
+          <FormField label="Nombre *">
+            <Input
+              placeholder="Unidad, Servicio, Viaje..."
+              value={formData.nombre ?? ''}
+              onChange={(e) => setFormData(p => ({ ...p, nombre: e.target.value }))}
+            />
+          </FormField>
+          <FormField label="Descripción">
+            <Input
+              placeholder="Descripción corta opcional..."
+              value={formData.descripcion ?? ''}
+              onChange={(e) => setFormData(p => ({ ...p, descripcion: e.target.value }))}
+            />
+          </FormField>
+          <div className="flex justify-end gap-2 pt-2 border-t border-border">
+            <Button variant="secondary" onClick={() => { setShowModal(null); setEditingItem(null); setFormData({}); }}>Cancelar</Button>
+            <Button
+              loading={createUnidadMutation.isPending || updateUnidadMutation.isPending}
+              onClick={() => editingItem ? updateUnidadMutation.mutate(undefined) : createUnidadMutation.mutate()}
+            >
+              {editingItem ? 'Guardar' : 'Crear unidad'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── MODAL: Código de facturación ─────────────────────────────────────── */}
+      <Modal
+        open={showModal === 'codigo'}
+        onClose={() => { setShowModal(null); setEditingItem(null); setFormData({}); }}
+        title={editingItem ? `Editar código ${editingItem.codigo}` : 'Nuevo código de facturación'}
+      >
+        <div className="flex flex-col gap-4">
+          {!editingItem && (
+            <FormField label="Código *" hint="Ej: 00001, 00004, S001">
+              <Input
+                placeholder="00004"
+                value={formData.codigo ?? ''}
+                onChange={(e) => setFormData(p => ({ ...p, codigo: e.target.value }))}
+              />
+            </FormField>
+          )}
+          <FormField label="Descripción asociada *" hint="Se autocompleta al seleccionar este código en la factura">
+            <Input
+              placeholder="Ej: Servicio de Transporte Internacional"
+              value={formData.descripcion ?? ''}
+              onChange={(e) => setFormData(p => ({ ...p, descripcion: e.target.value }))}
+            />
+          </FormField>
+          <div className="flex justify-end gap-2 pt-2 border-t border-border">
+            <Button variant="secondary" onClick={() => { setShowModal(null); setEditingItem(null); setFormData({}); }}>Cancelar</Button>
+            <Button
+              loading={createCodigoMutation.isPending || updateCodigoMutation.isPending}
+              onClick={() => editingItem ? updateCodigoMutation.mutate(undefined) : createCodigoMutation.mutate()}
+            >
+              {editingItem ? 'Guardar' : 'Crear código'}
             </Button>
           </div>
         </div>

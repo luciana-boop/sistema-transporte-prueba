@@ -1,6 +1,9 @@
 // FILE: src/services/api.ts
-// CAMBIOS: facturacionApi.crear incluye fechaEmision y lineas[]
-// El resto del archivo NO se modifica.
+// CAMBIOS:
+//   - configuracionApi: agrega inicializar, getCategoriasGasto, createCategoriaGasto,
+//     updateCategoriaGasto, deleteCategoriaGasto, updateAlertasBulk, createTipoVehiculo,
+//     updateTipoVehiculo, deleteTipoVehiculo, getUnidadesMedida, getCodigosFactura
+//   - facturacionApi.crear incluye fechaEmision y lineas[] (sin cambios)
 
 import axios from 'axios';
 import type {
@@ -382,11 +385,30 @@ export const configuracionApi = {
   deleteSerie: (id: number) =>
     api.delete<ApiResponse<null>>(`/api/configuracion/series/${id}`),
 
+  inicializar: () =>
+    api.post<ApiResponse<{ message: string }>>('/api/configuracion/inicializar'),
+
+  getCategoriasGasto: () =>
+    api.get<ApiResponse<CategoriaGasto[]>>('/api/configuracion/categorias-gasto'),
+
+  createCategoriaGasto: (data: { codigo: string; nombre: string; descripcion?: string }) =>
+    api.post<ApiResponse<CategoriaGasto>>('/api/configuracion/categorias-gasto', data),
+
+  updateCategoriaGasto: (id: number, data: { nombre?: string; descripcion?: string; activo?: boolean }) =>
+    api.put<ApiResponse<CategoriaGasto>>(`/api/configuracion/categorias-gasto/${id}`, data),
+
+  deleteCategoriaGasto: (id: number) =>
+    api.delete<ApiResponse<null>>(`/api/configuracion/categorias-gasto/${id}`),
+
+  // alias legacy
   getCategorias: () =>
     api.get<ApiResponse<CategoriaGasto[]>>('/api/configuracion/categorias-gasto'),
 
   getAlertas: () =>
     api.get<ApiResponse<ConfigAlerta[]>>('/api/configuracion/alertas'),
+
+  updateAlertasBulk: (alertas: Array<{ id: number; diasAnticipacion: number; activo: boolean; color: string; nivel: string }>) =>
+    api.put<ApiResponse<{ message: string; cantidad: number }>>('/api/configuracion/alertas/bulk', { alertas }),
 
   updateAlerta: (id: number, data: Partial<ConfigAlerta>) =>
     api.put<ApiResponse<ConfigAlerta>>(`/api/configuracion/alertas/${id}`, data),
@@ -403,8 +425,24 @@ export const configuracionApi = {
   deleteTablaMaestra: (id: number) =>
     api.delete<ApiResponse<null>>(`/api/configuracion/tablas/${id}`),
 
+  createTipoVehiculo: (data: { codigo: string; nombre: string; descripcion?: string }) =>
+    api.post<ApiResponse<TipoVehiculoConfig>>('/api/configuracion/tipos-vehiculo', data),
+
+  updateTipoVehiculo: (id: number, data: { nombre?: string; descripcion?: string; activo?: boolean }) =>
+    api.put<ApiResponse<TipoVehiculoConfig>>(`/api/configuracion/tipos-vehiculo/${id}`, data),
+
+  deleteTipoVehiculo: (id: number) =>
+    api.delete<ApiResponse<null>>(`/api/configuracion/tipos-vehiculo/${id}`),
+
   getTiposVehiculo: () =>
     api.get<ApiResponse<TipoVehiculoConfig[]>>('/api/configuracion/tipos-vehiculo'),
+
+  // Endpoints específicos para Facturación (solo registros activos)
+  getUnidadesMedida: () =>
+    api.get<ApiResponse<TablaMaestra[]>>('/api/configuracion/facturacion/unidades-medida'),
+
+  getCodigosFactura: () =>
+    api.get<ApiResponse<TablaMaestra[]>>('/api/configuracion/facturacion/codigos-factura'),
 };
 
 // ─── CUENTAS V2 ───────────────────────────────────────────────────────────────

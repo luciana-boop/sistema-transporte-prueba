@@ -1,10 +1,30 @@
 // FILE: src/modules/configuracion/configuracion.routes.ts
+// CAMBIOS:
+//   - Agrega GET /facturacion/unidades-medida  → sin autenticación de admin
+//     (accesible desde el módulo Facturación para poblar los selects)
+//   - Agrega GET /facturacion/codigos-factura   → ídem
+//   - El resto de rutas NO se modifica
 
 import { Router } from 'express';
 import { configuracionController } from './configuracion.controller';
 import { verificarToken, soloAdmin } from '../../middleware/auth.middleware';
 
 const router = Router();
+
+// ── Rutas públicas para módulos internos (solo token, no admin) ───────────────
+// Facturación necesita consultar unidades y códigos sin requerir rol ADMIN.
+router.get(
+  '/facturacion/unidades-medida',
+  verificarToken,
+  configuracionController.getUnidadesMedida.bind(configuracionController),
+);
+router.get(
+  '/facturacion/codigos-factura',
+  verificarToken,
+  configuracionController.getCodigosFactura.bind(configuracionController),
+);
+
+// ── Resto de rutas: solo ADMIN ────────────────────────────────────────────────
 router.use(verificarToken, soloAdmin);
 
 // Inicializar defaults
@@ -34,7 +54,7 @@ router.get('/alertas',                      configuracionController.getAlertas.b
 router.put('/alertas/bulk',                 configuracionController.updateAlertasBulk.bind(configuracionController));
 router.put('/alertas/:id',                  configuracionController.updateAlerta.bind(configuracionController));
 
-// Tablas maestras
+// Tablas maestras (incluye unidad_medida y codigo_factura via ?tipo=)
 router.get('/tablas',                       configuracionController.getTodosTipos.bind(configuracionController));
 router.get('/tablas/:tipo',                 configuracionController.getTablaMaestra.bind(configuracionController));
 router.post('/tablas',                      configuracionController.createTablaMaestra.bind(configuracionController));

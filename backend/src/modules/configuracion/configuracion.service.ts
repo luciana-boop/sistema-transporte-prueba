@@ -1,4 +1,11 @@
 // FILE: src/modules/configuracion/configuracion.service.ts
+// CAMBIOS:
+//   - DEFAULTS_TABLAS incluye ahora 'unidad_medida' (UND, SERV, VIAJE, KG, TON, GLN)
+//     y 'codigo_factura' (00001→Servicio Transporte Nacional, 00002→Transporte Local,
+//     00003→Flete Especial)
+//   - Nuevos métodos: getUnidadesMedida, getCodigosFactura con filtro activo:true
+//   - getUnidadesMedida y getCodigosFactura son los endpoints que consume Facturación
+//   - Resto del servicio SIN cambios
 
 import prisma from '../../prisma/client';
 
@@ -41,7 +48,7 @@ const DEFAULTS_CATEGORIAS_GASTO = [
   { codigo: 'OTROS',        nombre: 'Otros',         esDefault: true },
 ];
 
-const DEFAULTS_TABLAS: Array<{ tipo: string; codigo: string; nombre: string; descripcion?: string }> = [
+const DEFAULTS_TABLAS: Array<{ tipo: string; codigo: string; nombre: string; descripcion?: string; orden?: number }> = [
   // Bancos
   { tipo: 'banco', codigo: 'BCP',   nombre: 'Banco de Crédito del Perú' },
   { tipo: 'banco', codigo: 'BBVA',  nombre: 'BBVA Perú' },
@@ -74,6 +81,18 @@ const DEFAULTS_TABLAS: Array<{ tipo: string; codigo: string; nombre: string; des
   { tipo: 'proveedor_combustible', codigo: 'REPSOL',  nombre: 'Repsol' },
   { tipo: 'proveedor_combustible', codigo: 'PECSA',   nombre: 'Pecsa' },
   { tipo: 'proveedor_combustible', codigo: 'SHELL',   nombre: 'Shell' },
+  // ── NUEVO: Unidades de medida ─────────────────────────────────────────────
+  { tipo: 'unidad_medida', codigo: 'UND',   nombre: 'Unidad',    descripcion: 'Unidad genérica',      orden: 1 },
+  { tipo: 'unidad_medida', codigo: 'SERV',  nombre: 'Servicio',  descripcion: 'Servicio prestado',    orden: 2 },
+  { tipo: 'unidad_medida', codigo: 'VIAJE', nombre: 'Viaje',     descripcion: 'Viaje de transporte',  orden: 3 },
+  { tipo: 'unidad_medida', codigo: 'KG',    nombre: 'Kilogramo', descripcion: 'Peso en kilogramos',   orden: 4 },
+  { tipo: 'unidad_medida', codigo: 'TON',   nombre: 'Tonelada',  descripcion: 'Peso en toneladas',    orden: 5 },
+  { tipo: 'unidad_medida', codigo: 'GLN',   nombre: 'Galón',     descripcion: 'Volumen en galones',   orden: 6 },
+  // ── NUEVO: Códigos de facturación ──────────────────────────────────────────
+  // 'nombre' = código visible; 'descripcion' = descripción que se autocompleta
+  { tipo: 'codigo_factura', codigo: '00001', nombre: '00001', descripcion: 'Servicio de Transporte Nacional', orden: 1 },
+  { tipo: 'codigo_factura', codigo: '00002', nombre: '00002', descripcion: 'Transporte Local',                orden: 2 },
+  { tipo: 'codigo_factura', codigo: '00003', nombre: '00003', descripcion: 'Flete Especial',                  orden: 3 },
 ];
 
 const DEFAULTS_SERIES = [
@@ -110,7 +129,7 @@ export class ConfiguracionService {
         create: c,
       });
     }
-    // Tablas maestras
+    // Tablas maestras (incluye unidad_medida y codigo_factura)
     for (const t of DEFAULTS_TABLAS) {
       await prisma.tablaMaestra.upsert({
         where: { tipo_codigo: { tipo: t.tipo, codigo: t.codigo } },
@@ -274,8 +293,14 @@ export class ConfiguracionService {
   }
 
   async createTablaMaestra(dto: { tipo: string; codigo: string; nombre: string; descripcion?: string; extra?: string; orden?: number }) {
+    // Validar campo obligatorio
+    if (!dto.codigo?.trim()) throw new Error('El código es obligatorio');
+    if (!dto.nombre?.trim()) throw new Error('El nombre es obligatorio');
+
+    // Validar unicidad por tipo+codigo
     const existe = await prisma.tablaMaestra.findUnique({ where: { tipo_codigo: { tipo: dto.tipo, codigo: dto.codigo } } });
-    if (existe) throw new Error(`El código ${dto.codigo} ya existe en ${dto.tipo}`);
+    if (existe) throw new Error(`El código "${dto.codigo}" ya existe en "${dto.tipo}"`);
+
     return prisma.tablaMaestra.create({ data: dto });
   }
 
@@ -289,6 +314,26 @@ export class ConfiguracionService {
     const t = await prisma.tablaMaestra.findUnique({ where: { id } });
     if (!t) throw new Error('Registro no encontrado');
     return prisma.tablaMaestra.delete({ where: { id } });
+  }
+
+  // ── Unidades de medida (endpoint específico para Facturación) ───────────────
+  // Devuelve solo las activas, ordenadas, para usar como lista desplegable.
+  async getUnidadesMedida() {
+    return prisma.tablaMaestra.findMany({
+      where: { tipo: 'unidad_medida', activo: true },
+      orderBy: [{ orden: 'asc' }, { codigo: 'asc' }],
+      select: { id: true, codigo: true, nombre: true, descripcion: true, activo: true },
+    });
+  }
+
+  // ── Códigos de facturación (endpoint específico para Facturación) ───────────
+  // Devuelve solo los activos. El campo 'descripcion' se usa para autocompletar.
+  async getCodigosFactura() {
+    return prisma.tablaMaestra.findMany({
+      where: { tipo: 'codigo_factura', activo: true },
+      orderBy: [{ orden: 'asc' }, { codigo: 'asc' }],
+      select: { id: true, codigo: true, nombre: true, descripcion: true, activo: true },
+    });
   }
 
   // ── Tipos vehículo ──────────────────────────────────────────────────────────

@@ -1,4 +1,8 @@
 // FILE: src/modules/configuracion/configuracion.controller.ts
+// CAMBIOS:
+//   - Agrega getUnidadesMedida(): GET /configuracion/facturacion/unidades-medida
+//   - Agrega getCodigosFactura(): GET /configuracion/facturacion/codigos-factura
+//   - El resto del controller NO se modifica
 
 import { Request, Response } from 'express';
 import { configuracionService } from './configuracion.service';
@@ -179,7 +183,7 @@ export class ConfiguracionController {
       R.created(res, await configuracionService.createTablaMaestra({ tipo, codigo, nombre, descripcion, extra, orden: orden ? parseInt(orden) : undefined }), 'Registro creado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('ya existe')) R.badRequest(res, msg);
+      if (msg.includes('ya existe') || msg.includes('obligatorio')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }
@@ -207,6 +211,16 @@ export class ConfiguracionController {
       if (msg === 'Registro no encontrado') R.notFound(res, msg);
       else R.serverError(res, e);
     }
+  }
+
+  // ── Unidades de medida (para Facturación) ───────────────────────────────────
+  async getUnidadesMedida(req: Request, res: Response): Promise<void> {
+    try { R.ok(res, await configuracionService.getUnidadesMedida()); } catch (e) { R.serverError(res, e); }
+  }
+
+  // ── Códigos de facturación (para Facturación) ───────────────────────────────
+  async getCodigosFactura(req: Request, res: Response): Promise<void> {
+    try { R.ok(res, await configuracionService.getCodigosFactura()); } catch (e) { R.serverError(res, e); }
   }
 
   // ── Tipos vehículo ──────────────────────────────────────────────────────────
