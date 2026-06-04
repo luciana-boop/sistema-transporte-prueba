@@ -1,6 +1,6 @@
 // FILE: prisma/schema.prisma
-// CAMBIO: Agrega modelo FacturaDetalle para líneas de factura.
-// El resto del schema no se modifica.
+// CAMBIO: Agrega modelo LiquidacionPedido para la relación N:M entre
+// Liquidacion y Pedido. El resto del schema no se modifica.
 
 generator client {
   provider = "prisma-client-js"
@@ -129,6 +129,8 @@ model Pedido {
   usuario        Usuario      @relation(fields: [usuarioId], references: [id])
   facturas       Factura[]
   gastos         Gasto[]
+  // NUEVO: relación con liquidaciones
+  liquidaciones  LiquidacionPedido[]
 
   @@map("pedidos")
 }
@@ -169,16 +171,11 @@ model Factura {
   cliente        Cliente         @relation(fields: [clienteId], references: [id])
   usuario        Usuario         @relation(fields: [usuarioId], references: [id])
   pagos          Pago[]
-  // NUEVO: líneas de detalle de la factura
   lineas         FacturaDetalle[]
 
   @@map("facturas")
 }
 
-// ─── NUEVO: DETALLE DE LÍNEAS DE FACTURA ────────────────────────────────────
-// Cada Factura puede tener múltiples líneas con cantidad, unidad, código,
-// descripción editable, valor unitario e importe calculado.
-// Las unidades de medida y códigos se administran en TablaMaestra.
 model FacturaDetalle {
   id             Int      @id @default(autoincrement())
   facturaId      Int      @map("factura_id")
@@ -356,6 +353,8 @@ model Liquidacion {
 
   conductor      Conductor           @relation(fields: [conductorId], references: [id])
   detalles       LiquidacionDetalle[]
+  // NUEVO: pedidos relacionados
+  pedidos        LiquidacionPedido[]
 
   @@map("liquidaciones")
 }
@@ -378,6 +377,23 @@ model LiquidacionDetalle {
   liquidacion    Liquidacion      @relation(fields: [liquidacionId], references: [id], onDelete: Cascade)
 
   @@map("liquidacion_detalles")
+}
+
+// ─── NUEVO: PEDIDOS RELACIONADOS A LIQUIDACIÓN ────────────────────────────────
+// Relación N:M explícita entre Liquidacion y Pedido.
+// Restricción de negocio: un pedido solo puede estar en UNA liquidación activa
+// (validado en el service, no solo aquí).
+model LiquidacionPedido {
+  id            Int         @id @default(autoincrement())
+  liquidacionId Int         @map("liquidacion_id")
+  pedidoId      Int         @map("pedido_id")
+  creadoEn      DateTime    @default(now()) @map("creado_en")
+
+  liquidacion   Liquidacion @relation(fields: [liquidacionId], references: [id], onDelete: Cascade)
+  pedido        Pedido      @relation(fields: [pedidoId], references: [id])
+
+  @@unique([liquidacionId, pedidoId])  // no duplicar mismo pedido en la misma liquidación
+  @@map("liquidacion_pedidos")
 }
 
 // ─── COMBUSTIBLE ──────────────────────────────────────────────────────────────
@@ -445,7 +461,6 @@ model CategoriaGasto {
 }
 
 // ─── TABLA MAESTRA GENÉRICA ───────────────────────────────────────────────────
-// Utilizada para: unidad_medida, codigo_factura, tipo_carga, banco, tipo_pago, etc.
 model TablaMaestra {
   id            Int      @id @default(autoincrement())
   tipo          String

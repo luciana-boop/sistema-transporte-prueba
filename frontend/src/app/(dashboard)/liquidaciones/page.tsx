@@ -1,4 +1,9 @@
 // FILE: src/app/(dashboard)/liquidaciones/page.tsx
+// CAMBIO: Agrega sección "Pedidos Relacionados" al formulario de creación.
+// - Selector múltiple de pedidos disponibles (ACTIVO, sin liquidación).
+// - Visualización en modal de detalle: nro pedido, cliente, origen, destino.
+// - Validaciones en formulario (no duplicados, pedidos ya usados).
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -7,14 +12,14 @@ import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Search, Trash2, Eye, Printer, Download } from 'lucide-react';
+import { Plus, Search, Trash2, Eye, Printer, Download, Package, X } from 'lucide-react';
 import { liquidacionesApi, conductoresApi, vehiculosApi } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, TableSkeleton,
   EmptyState, Modal, FormField, Input, Select, Textarea, StatCard,
 } from '@/components/shared';
-import type { Liquidacion } from '@/types';
+import type { Liquidacion, PedidoResumen } from '@/types';
 import * as XLSX from 'xlsx';
 
 const detalleSchema = z.object({
@@ -46,6 +51,11 @@ export default function LiquidacionesPage() {
   const [showForm, setShowForm] = useState(false);
   const [viewing, setViewing] = useState<Liquidacion | null>(null);
 
+  // ─── Pedidos seleccionados para la nueva liquidación ────────────────────────
+  const [pedidosSeleccionados, setPedidosSeleccionados] = useState<PedidoResumen[]>([]);
+  const [pedidoSelectorId, setPedidoSelectorId] = useState<string>('');
+  const [errorPedidos, setErrorPedidos] = useState<string>('');
+
   const { data: liquidaciones = [], isLoading } = useQuery({
     queryKey: ['liquidaciones'],
     queryFn: () => liquidacionesApi.listar().then((r) => r.data.data),
@@ -59,6 +69,13 @@ export default function LiquidacionesPage() {
   const { data: vehiculos = [] } = useQuery({
     queryKey: ['vehiculos'],
     queryFn: () => vehiculosApi.listar({ activo: true }).then((r) => r.data.data),
+  });
+
+  // Pedidos disponibles (ACTIVO, sin liquidación)
+  const { data: pedidosDisponibles = [] } = useQuery({
+    queryKey: ['liquidaciones-pedidos-disponibles'],
+    queryFn: () => liquidacionesApi.pedidosDisponibles().then((r) => r.data.data),
+    enabled: showForm, // solo cargar cuando el formulario esté abierto
   });
 
   const { register, handleSubmit, reset, watch, setValue, control, formState: { errors, isSubmitting } } = useForm<FormData>({
@@ -85,31 +102,77 @@ export default function LiquidacionesPage() {
   // Cálculos automáticos
   const watchDetalles = watch('detalles');
   const watchEntregado = watch('montoEntregado');
-
   const totalGastos = watchDetalles.reduce((s, d) => s + (parseFloat(d.monto) || 0), 0);
   const entregado = parseFloat(watchEntregado || '0');
   const diferencia = entregado - totalGastos;
   const devolucion = diferencia > 0 ? diferencia : 0;
   const reintegro = diferencia < 0 ? Math.abs(diferencia) : 0;
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['liquidaciones'] });
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['liquidaciones'] });
+    qc.invalidateQueries({ queryKey: ['liquidaciones-pedidos-disponibles'] });
+  };
+
+  // ─── Manejo de pedidos en el formulario ──────────────────────────────────────
+
+  const agregarPedido = () => {
+    setErrorPedidos('');
+    if (!pedidoSelectorId) return;
+
+    const id = parseInt(pedidoSelectorId);
+
+    // Validación: no duplicar
+    if (pedidosSeleccionados.some((p) => p.id === id)) {
+      setErrorPedidos('Este pedido ya fue agregado a la liquidación');
+      return;
+    }
+
+    const pedido = pedidosDisponibles.find((p) => p.id === id);
+    if (!pedido) {
+      setErrorPedidos('Pedido no encontrado');
+      return;
+    }
+
+    setPedidosSeleccionados((prev) => [...prev, pedido]);
+    setPedidoSelectorId('');
+  };
+
+  const quitarPedido = (pedidoId: number) => {
+    setPedidosSeleccionados((prev) => prev.filter((p) => p.id !== pedidoId));
+    setErrorPedidos('');
+  };
+
+  const resetForm = () => {
+    reset();
+    setPedidosSeleccionados([]);
+    setPedidoSelectorId('');
+    setErrorPedidos('');
+  };
 
   const createMutation = useMutation({
-    mutationFn: (d: FormData) => liquidacionesApi.crear({
-      conductorId: parseInt(d.conductorId),
-      placaTracto: d.placaTracto,
-      placaCarreta: d.placaCarreta,
-      montoEntregado: parseFloat(d.montoEntregado),
-      reciboAnticipo: d.reciboAnticipo,
-      fecha: d.fecha,
-      guiaReferencia: d.guiaReferencia,
-      observaciones: d.observaciones,      detalles: d.detalles.map((det) => ({
-        categoria: det.categoria as 'PEAJE' | 'BALANZA' | 'VIATICO',
-        descripcion: det.descripcion,
-        monto: parseFloat(det.monto),
-      })),
-    }),
-    onSuccess: () => { toast.success('Liquidación creada'); setShowForm(false); reset(); invalidate(); },
+    mutationFn: (d: FormData) =>
+      liquidacionesApi.crear({
+        conductorId: parseInt(d.conductorId),
+        placaTracto: d.placaTracto,
+        placaCarreta: d.placaCarreta,
+        montoEntregado: parseFloat(d.montoEntregado),
+        reciboAnticipo: d.reciboAnticipo,
+        fecha: d.fecha,
+        guiaReferencia: d.guiaReferencia,
+        observaciones: d.observaciones,
+        detalles: d.detalles.map((det) => ({
+          categoria: det.categoria as 'PEAJE' | 'BALANZA' | 'VIATICO' | 'TOLDO' | 'OTROS',
+          descripcion: det.descripcion,
+          monto: parseFloat(det.monto),
+        })),
+        pedidoIds: pedidosSeleccionados.map((p) => p.id),
+      }),
+    onSuccess: () => {
+      toast.success('Liquidación creada');
+      setShowForm(false);
+      resetForm();
+      invalidate();
+    },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
@@ -125,6 +188,7 @@ export default function LiquidacionesPage() {
       'Placa tracto': l.placaTracto, 'Placa carreta': l.placaCarreta ?? '',
       'Entregado S/': Number(l.montoEntregado), 'Total gastos S/': Number(l.totalGastos),
       'Devolución S/': Number(l.devolucion), 'Reintegro S/': Number(l.reintegro),
+      'N° Pedidos': (l.pedidos ?? []).length,
       Guía: l.guiaReferencia ?? '', Observaciones: l.observaciones ?? '',
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -134,11 +198,21 @@ export default function LiquidacionesPage() {
   };
 
   const filtered = liquidaciones.filter((l) =>
-    search ? l.conductor?.nombre.toLowerCase().includes(search.toLowerCase()) ||
-      l.placaTracto.toLowerCase().includes(search.toLowerCase()) : true
+    search
+      ? l.conductor?.nombre.toLowerCase().includes(search.toLowerCase()) ||
+        l.placaTracto.toLowerCase().includes(search.toLowerCase())
+      : true,
   );
 
   const handlePrint = (liq: Liquidacion) => {
+    const pedidoRows = (liq.pedidos ?? [])
+      .map(
+        (lp) =>
+          `<tr><td>#${lp.pedido.id}</td><td>${lp.pedido.cliente.razonSocial}</td>` +
+          `<td>${lp.pedido.origen}</td><td>${lp.pedido.destino}</td></tr>`,
+      )
+      .join('');
+
     const w = window.open('', '_blank');
     if (!w) return;
     w.document.write(`
@@ -147,7 +221,7 @@ export default function LiquidacionesPage() {
       table{width:100%;border-collapse:collapse;margin-top:12px}
       th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}
       th{background:#f5f5f5}.totals{margin-top:16px;text-align:right}
-      .totals p{margin:4px 0}.bold{font-weight:700}</style></head>
+      .totals p{margin:4px 0}.bold{font-weight:700}h3{margin-top:16px;font-size:13px}</style></head>
       <body>
         <h2>Liquidación de Gastos #${liq.id}</h2>
         <p>Fecha: ${formatDate(liq.fecha)} | Conductor: ${liq.conductor?.nombre}</p>
@@ -158,6 +232,12 @@ export default function LiquidacionesPage() {
           ${(liq.detalles || []).map((d) => `<tr><td>${CATEGORIA_LABEL[d.categoria]}</td><td>${d.descripcion}</td><td style="text-align:right">S/ ${Number(d.monto).toFixed(2)}</td></tr>`).join('')}
           ${liq.toldo ? `<tr><td>Toldo</td><td>Gasto de toldo</td><td style="text-align:right">S/ ${Number(liq.toldo).toFixed(2)}</td></tr>` : ''}
         </table>
+        ${pedidoRows ? `
+        <h3>Pedidos Relacionados</h3>
+        <table>
+          <tr><th>Pedido</th><th>Cliente</th><th>Origen</th><th>Destino</th></tr>
+          ${pedidoRows}
+        </table>` : ''}
         <div class="totals">
           <p>Monto entregado: <span class="bold">S/ ${Number(liq.montoEntregado).toFixed(2)}</span></p>
           <p>Total gastos: <span class="bold">S/ ${Number(liq.totalGastos).toFixed(2)}</span></p>
@@ -171,6 +251,11 @@ export default function LiquidacionesPage() {
     w.print();
   };
 
+  // Pedidos disponibles que aún no fueron seleccionados en el formulario actual
+  const pedidosParaSelector = pedidosDisponibles.filter(
+    (p) => !pedidosSeleccionados.some((s) => s.id === p.id),
+  );
+
   return (
     <div className="page-container">
       <PageHeader
@@ -179,7 +264,7 @@ export default function LiquidacionesPage() {
         action={
           <div className="flex gap-2">
             <Button variant="secondary" size="sm" onClick={exportExcel}><Download className="w-4 h-4" /> Excel</Button>
-            <Button onClick={() => { setShowForm(true); reset(); }}>
+            <Button onClick={() => { setShowForm(true); resetForm(); }}>
               <Plus className="w-4 h-4" /> Nueva liquidación
             </Button>
           </div>
@@ -197,7 +282,7 @@ export default function LiquidacionesPage() {
         <Input placeholder="Buscar conductor, placa..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
 
-      {isLoading ? <TableSkeleton rows={5} cols={7} /> : (
+      {isLoading ? <TableSkeleton rows={5} cols={8} /> : (
         <Table>
           <thead>
             <tr>
@@ -205,6 +290,7 @@ export default function LiquidacionesPage() {
               <Th>Fecha</Th>
               <Th>Conductor</Th>
               <Th>Tracto</Th>
+              <Th>Pedidos</Th>
               <Th>Entregado</Th>
               <Th>Total gastos</Th>
               <Th>Devolución / Reintegro</Th>
@@ -218,6 +304,16 @@ export default function LiquidacionesPage() {
                 <Td><span className="text-sm">{formatDate(l.fecha)}</span></Td>
                 <Td><span className="font-medium text-sm">{l.conductor?.nombre}</span></Td>
                 <Td><span className="font-mono text-xs">{l.placaTracto}</span></Td>
+                <Td>
+                  {(l.pedidos ?? []).length > 0 ? (
+                    <span className="inline-flex items-center gap-1 text-xs text-blue-600 font-medium">
+                      <Package className="w-3 h-3" />
+                      {(l.pedidos ?? []).length}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </Td>
                 <Td><span className="text-sm">{formatCurrency(Number(l.montoEntregado))}</span></Td>
                 <Td><span className="font-semibold">{formatCurrency(Number(l.totalGastos))}</span></Td>
                 <Td>
@@ -245,13 +341,13 @@ export default function LiquidacionesPage() {
                   </div>
                 </Td>
               </Tr>
-            )) : <tr><td colSpan={8}><EmptyState message="No hay liquidaciones" /></td></tr>}
+            )) : <tr><td colSpan={9}><EmptyState message="No hay liquidaciones" /></td></tr>}
           </tbody>
         </Table>
       )}
 
-      {/* Create Modal */}
-      <Modal open={showForm} onClose={() => { setShowForm(false); reset(); }} title="Nueva liquidación" maxWidth="max-w-2xl">
+      {/* ─── Create Modal ──────────────────────────────────────────────────── */}
+      <Modal open={showForm} onClose={() => { setShowForm(false); resetForm(); }} title="Nueva liquidación" maxWidth="max-w-2xl">
         <form onSubmit={handleSubmit((d) => createMutation.mutate(d))} className="flex flex-col gap-4">
           {/* Cabecera */}
           <div className="grid grid-cols-2 gap-3">
@@ -286,6 +382,87 @@ export default function LiquidacionesPage() {
             <FormField label="Guía de referencia" error={errors.guiaReferencia?.message}>
               <Input placeholder="Número de guía" {...register('guiaReferencia')} />
             </FormField>
+          </div>
+
+          {/* ─── NUEVO: Pedidos relacionados ──────────────────────────── */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold flex items-center gap-1.5">
+                <Package className="w-4 h-4 text-muted-foreground" />
+                Pedidos relacionados
+                <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+              </p>
+            </div>
+
+            {/* Selector de pedido */}
+            <div className="flex gap-2 mb-2">
+              <select
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={pedidoSelectorId}
+                onChange={(e) => { setPedidoSelectorId(e.target.value); setErrorPedidos(''); }}
+              >
+                <option value="">Seleccionar pedido...</option>
+                {pedidosParaSelector.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    #{p.id} — {p.cliente.razonSocial} | {p.origen} → {p.destino}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={agregarPedido}
+                disabled={!pedidoSelectorId}
+              >
+                <Plus className="w-3.5 h-3.5" /> Agregar
+              </Button>
+            </div>
+
+            {errorPedidos && (
+              <p className="text-xs text-destructive mb-2">{errorPedidos}</p>
+            )}
+
+            {/* Lista de pedidos seleccionados */}
+            {pedidosSeleccionados.length > 0 ? (
+              <div className="rounded-lg border border-border overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-muted/50">
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">#</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Cliente</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Origen</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Destino</th>
+                      <th className="px-3 py-2 w-8"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pedidosSeleccionados.map((p) => (
+                      <tr key={p.id} className="border-t border-border">
+                        <td className="px-3 py-2 font-mono text-muted-foreground">#{p.id}</td>
+                        <td className="px-3 py-2 font-medium">{p.cliente.razonSocial}</td>
+                        <td className="px-3 py-2">{p.origen}</td>
+                        <td className="px-3 py-2">{p.destino}</td>
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => quitarPedido(p.id)}
+                            className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                            title="Quitar pedido"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground italic py-1">
+                Sin pedidos asociados. Puedes agregar uno o más arriba.
+              </p>
+            )}
           </div>
 
           {/* Detalle dinámico */}
@@ -342,13 +519,13 @@ export default function LiquidacionesPage() {
           </FormField>
 
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
-            <Button variant="secondary" type="button" onClick={() => { setShowForm(false); reset(); }}>Cancelar</Button>
+            <Button variant="secondary" type="button" onClick={() => { setShowForm(false); resetForm(); }}>Cancelar</Button>
             <Button type="submit" loading={isSubmitting || createMutation.isPending}>Crear liquidación</Button>
           </div>
         </form>
       </Modal>
 
-      {/* View Modal */}
+      {/* ─── View Modal ────────────────────────────────────────────────────── */}
       <Modal open={!!viewing} onClose={() => setViewing(null)} title={`Liquidación #${viewing?.id}`} maxWidth="max-w-lg">
         {viewing && (
           <div className="flex flex-col gap-4">
@@ -360,6 +537,37 @@ export default function LiquidacionesPage() {
               {viewing.guiaReferencia && <div><p className="text-xs text-muted-foreground">Guía</p><p className="font-medium">{viewing.guiaReferencia}</p></div>}
               {viewing.reciboAnticipo && <div><p className="text-xs text-muted-foreground">Recibo anticipo</p><p className="font-medium">{viewing.reciboAnticipo}</p></div>}
             </div>
+
+            {/* NUEVO: Pedidos relacionados en vista detalle */}
+            {(viewing.pedidos ?? []).length > 0 && (
+              <div>
+                <p className="text-sm font-semibold flex items-center gap-1.5 mb-2">
+                  <Package className="w-4 h-4 text-muted-foreground" />
+                  Pedidos relacionados
+                </p>
+                <Table>
+                  <thead>
+                    <tr>
+                      <Th>Pedido</Th>
+                      <Th>Cliente</Th>
+                      <Th>Origen</Th>
+                      <Th>Destino</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(viewing.pedidos ?? []).map((lp) => (
+                      <Tr key={lp.id}>
+                        <Td><span className="font-mono text-xs text-muted-foreground">#{lp.pedido.id}</span></Td>
+                        <Td><span className="text-sm font-medium">{lp.pedido.cliente.razonSocial}</span></Td>
+                        <Td><span className="text-sm">{lp.pedido.origen}</span></Td>
+                        <Td><span className="text-sm">{lp.pedido.destino}</span></Td>
+                      </Tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
+            )}
+
             <Table>
               <thead><tr><Th>Categoría</Th><Th>Descripción</Th><Th className="text-right">Monto</Th></tr></thead>
               <tbody>

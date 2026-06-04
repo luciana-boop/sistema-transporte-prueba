@@ -250,6 +250,33 @@ export interface LiquidacionDetalle {
   monto: number;
 }
 
+// Resumen de pedido para el selector en liquidaciones
+export interface PedidoResumen {
+  id: number;
+  origen: string;
+  destino: string;
+  tipoCarga: string;
+  tarifa: number;
+  fechaPedido: string;
+  estado: EstadoPedido;
+  cliente: { id: number; razonSocial: string };
+}
+
+// Relación pedido dentro de una liquidación
+export interface LiquidacionPedido {
+  id: number;
+  liquidacionId: number;
+  pedidoId: number;
+  creadoEn: string;
+  pedido: {
+    id: number;
+    origen: string;
+    destino: string;
+    estado: EstadoPedido;
+    cliente: { id: number; razonSocial: string };
+  };
+}
+
 export interface Liquidacion {
   id: number;
   conductorId: number;
@@ -267,6 +294,8 @@ export interface Liquidacion {
   estado: string;
   conductor: { id: number; nombre: string };
   detalles: LiquidacionDetalle[];
+  // NUEVO: pedidos relacionados
+  pedidos: LiquidacionPedido[];
   creadoEn: string;
 }
 

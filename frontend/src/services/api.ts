@@ -1,5 +1,6 @@
 // FILE: src/services/api.ts
 // CAMBIOS:
+//   - liquidacionesApi: agrega pedidosDisponibles, pedidoIds en crear/actualizar
 //   - configuracionApi: agrega inicializar, getCategoriasGasto, createCategoriaGasto,
 //     updateCategoriaGasto, deleteCategoriaGasto, updateAlertasBulk, createTipoVehiculo,
 //     updateTipoVehiculo, deleteTipoVehiculo, getUnidadesMedida, getCodigosFactura
@@ -12,7 +13,7 @@ import type {
   Liquidacion, LiquidacionDetalle, Combustible, ConfigParam,
   SerieFacturacion, CategoriaGasto, ConfigAlerta, TablaMaestra,
   TipoVehiculoConfig, Moneda, TipoPago, CuentaDinero, MovimientoCuenta,
-  ResumenFinanciero, TipoGasto, EstadoFactura, FacturaDetalle,
+  ResumenFinanciero, TipoGasto, EstadoFactura, FacturaDetalle, PedidoResumen,
 } from '@/types';
 
 const api = axios.create({
@@ -326,6 +327,10 @@ export const liquidacionesApi = {
   obtener: (id: number) =>
     api.get<ApiResponse<Liquidacion>>(`/api/liquidaciones/${id}`),
 
+  // NUEVO: pedidos ACTIVOS sin liquidación asignada
+  pedidosDisponibles: () =>
+    api.get<ApiResponse<PedidoResumen[]>>('/api/liquidaciones/pedidos-disponibles'),
+
   crear: (data: {
     conductorId: number;
     placaTracto: string;
@@ -336,9 +341,11 @@ export const liquidacionesApi = {
     guiaReferencia?: string;
     observaciones?: string;
     detalles: Array<{ categoria: LiquidacionDetalle['categoria']; descripcion: string; monto: number }>;
+    // NUEVO
+    pedidoIds?: number[];
   }) => api.post<ApiResponse<Liquidacion>>('/api/liquidaciones', data),
 
-  actualizar: (id: number, data: Partial<Liquidacion>) =>
+  actualizar: (id: number, data: Partial<Liquidacion> & { pedidoIds?: number[] }) =>
     api.put<ApiResponse<Liquidacion>>(`/api/liquidaciones/${id}`, data),
 
   eliminar: (id: number) =>
