@@ -1,5 +1,6 @@
-// FILE: src/app.ts
-// MODIFICADO: agrega conductores, vehículos, liquidaciones, combustible, backup
+// FILE: backend/src/app.ts
+// CAMBIO: se agregan 2 líneas marcadas con ── NUEVO ──
+// Todo lo demás permanece idéntico.
 
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
@@ -7,22 +8,23 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 dotenv.config();
 
-import authRoutes         from './auth/auth.routes';
-import clientesRoutes     from './modules/clientes/clientes.routes';
-import pedidosRoutes      from './modules/pedidos/pedidos.routes';
-import facturacionRoutes  from './modules/facturacion/facturacion.routes';
-import cobranzaRoutes     from './modules/cobranza/cobranza.routes';
-import cajaRoutes         from './modules/caja/caja.routes';
-import gastosRoutes       from './modules/gastos/gastos.routes';
-import reportesRoutes     from './modules/reportes/reportes.routes';
-import usuariosRoutes     from './modules/usuarios/usuarios.routes';
-import conductoresRoutes  from './modules/conductores/conductores.routes';
-import vehiculosRoutes    from './modules/vehiculos/vehiculos.routes';
+import authRoutes          from './auth/auth.routes';
+import clientesRoutes      from './modules/clientes/clientes.routes';
+import pedidosRoutes       from './modules/pedidos/pedidos.routes';
+import facturacionRoutes   from './modules/facturacion/facturacion.routes';
+import cobranzaRoutes      from './modules/cobranza/cobranza.routes';
+import cajaRoutes          from './modules/caja/caja.routes';
+import gastosRoutes        from './modules/gastos/gastos.routes';
+import reportesRoutes      from './modules/reportes/reportes.routes';
+import usuariosRoutes      from './modules/usuarios/usuarios.routes';
+import conductoresRoutes   from './modules/conductores/conductores.routes';
+import vehiculosRoutes     from './modules/vehiculos/vehiculos.routes';
 import liquidacionesRoutes from './modules/liquidaciones/liquidaciones.routes';
-import combustibleRoutes  from './modules/combustible/combustible.routes';
-import backupRoutes         from './modules/backup/backup.routes';
+import combustibleRoutes   from './modules/combustible/combustible.routes';
+import backupRoutes        from './modules/backup/backup.routes';
 import configuracionRoutes from './modules/configuracion/configuracion.routes';
 import cuentasRoutes       from './modules/configuracion/cuentas.routes';
+import permisosRoutes      from './modules/permisos/permisos.routes'; // ── NUEVO ──
 
 const app = express();
 
@@ -53,8 +55,9 @@ app.use('/api/vehiculos',     vehiculosRoutes);
 app.use('/api/liquidaciones', liquidacionesRoutes);
 app.use('/api/combustible',   combustibleRoutes);
 app.use('/api/backup',        backupRoutes);
-app.use('/api/configuracion',  configuracionRoutes);
-app.use('/api/cuentas',        cuentasRoutes);
+app.use('/api/configuracion', configuracionRoutes);
+app.use('/api/cuentas',       cuentasRoutes);
+app.use('/api/permisos',      permisosRoutes);  // ── NUEVO ──
 
 app.use((_req: Request, res: Response) => {
   res.status(404).json({ success: false, error: 'Ruta no encontrada' });

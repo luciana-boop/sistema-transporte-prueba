@@ -83,6 +83,8 @@ model Usuario {
 
   permisosModulos  PermisoModulo[]
   permisosAcciones PermisoAccion[]
+  movimientosCuentaV2 MovimientoCuentaV2[]
+  pagosV2          PagoV2[]
 
   @@map("usuarios")
 }
@@ -354,20 +356,20 @@ model LiquidacionDetalle {
 
 // ─── COMBUSTIBLE ──────────────────────────────────────────────────────────────
 model Combustible {
-  id           Int       @id @default(autoincrement())
-  vehiculoId   Int       @map("vehiculo_id")
-  conductorId  Int?      @map("conductor_id")
-  fecha        DateTime
-  galones      Decimal   @db.Decimal(10, 3)
-  monto        Decimal   @db.Decimal(10, 2)
-  kilometraje  Decimal?  @db.Decimal(10, 2)
-  grifo        String?
+  id            Int       @id @default(autoincrement())
+  vehiculoId    Int       @map("vehiculo_id")
+  conductorId   Int?      @map("conductor_id")
+  fecha         DateTime
+  galones       Decimal   @db.Decimal(10, 3)
+  monto         Decimal   @db.Decimal(10, 2)
+  kilometraje   Decimal?  @db.Decimal(10, 2)
+  grifo         String?
   observaciones String?
-  creadoEn     DateTime  @default(now()) @map("creado_en")
-  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+  creadoEn      DateTime  @default(now()) @map("creado_en")
+  actualizadoEn DateTime  @updatedAt @map("actualizado_en")
 
-  vehiculo     Vehiculo  @relation(fields: [vehiculoId], references: [id])
-  conductor    Conductor? @relation(fields: [conductorId], references: [id])
+  vehiculo      Vehiculo   @relation(fields: [vehiculoId], references: [id])
+  conductor     Conductor? @relation(fields: [conductorId], references: [id])
 
   @@map("combustible")
 }
@@ -377,7 +379,7 @@ model Configuracion {
   id            Int      @id @default(autoincrement())
   clave         String   @unique
   valor         String
-  tipo          String   @default("texto")  // texto, numero, booleano, color, json
+  tipo          String   @default("texto")
   categoria     String   @default("general")
   etiqueta      String
   descripcion   String?
@@ -389,15 +391,15 @@ model Configuracion {
 
 // ─── SERIES DE FACTURACIÓN ────────────────────────────────────────────────────
 model SerieFacturacion {
-  id               Int      @id @default(autoincrement())
-  serie            String   @unique
-  tipoDocumento    String   @default("FACTURA") @map("tipo_documento")
-  correlativoActual Int     @default(1) @map("correlativo_actual")
-  correlativoInicial Int    @default(1) @map("correlativo_inicial")
-  activo           Boolean  @default(true)
-  descripcion      String?
-  creadoEn         DateTime @default(now()) @map("creado_en")
-  actualizadoEn    DateTime @updatedAt @map("actualizado_en")
+  id                Int      @id @default(autoincrement())
+  serie             String   @unique
+  tipoDocumento     String   @default("FACTURA") @map("tipo_documento")
+  correlativoActual Int      @default(1) @map("correlativo_actual")
+  correlativoInicial Int     @default(1) @map("correlativo_inicial")
+  activo            Boolean  @default(true)
+  descripcion       String?
+  creadoEn          DateTime @default(now()) @map("creado_en")
+  actualizadoEn     DateTime @updatedAt @map("actualizado_en")
 
   @@map("series_facturacion")
 }
@@ -419,11 +421,11 @@ model CategoriaGasto {
 // ─── TABLA MAESTRA GENÉRICA ───────────────────────────────────────────────────
 model TablaMaestra {
   id            Int      @id @default(autoincrement())
-  tipo          String   // banco, tipo_pago, tipo_documento, moneda, ruta, tipo_carga, proveedor_combustible
+  tipo          String
   codigo        String
   nombre        String
   descripcion   String?
-  extra         String?  // JSON para datos adicionales
+  extra         String?
   activo        Boolean  @default(true)
   orden         Int      @default(0)
   creadoEn      DateTime @default(now()) @map("creado_en")
@@ -435,15 +437,15 @@ model TablaMaestra {
 
 // ─── CONFIGURACIÓN DE ALERTAS ─────────────────────────────────────────────────
 model ConfiguracionAlerta {
-  id            Int      @id @default(autoincrement())
-  clave         String   @unique
-  etiqueta      String
-  diasAnticipacion Int   @default(30) @map("dias_anticipacion")
-  activo        Boolean  @default(true)
-  color         String   @default("yellow")
-  nivel         String   @default("warning")  // info, warning, danger
-  creadoEn      DateTime @default(now()) @map("creado_en")
-  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+  id               Int      @id @default(autoincrement())
+  clave            String   @unique
+  etiqueta         String
+  diasAnticipacion Int      @default(30) @map("dias_anticipacion")
+  activo           Boolean  @default(true)
+  color            String   @default("yellow")
+  nivel            String   @default("warning")
+  creadoEn         DateTime @default(now()) @map("creado_en")
+  actualizadoEn    DateTime @updatedAt @map("actualizado_en")
 
   @@map("configuracion_alertas")
 }
@@ -460,42 +462,135 @@ model TipoVehiculoConfig {
 
   @@map("tipos_vehiculo_config")
 }
+
 // ─── PERMISOS DE MÓDULOS ──────────────────────────────────────────────────────
-// Una fila por módulo que el usuario tiene habilitado.
-// Solo se crean filas para SECRETARIO; ADMIN siempre tiene acceso total.
-// moduloKey usa string libre para no necesitar migración al agregar módulos.
-// Valores posibles: dashboard | clientes | pedidos | conductores | vehiculos |
-//   facturacion | cobranza | liquidaciones | combustible | caja | gastos |
-//   reportes | configuracion | backups | usuarios
 model PermisoModulo {
-  id         Int      @id @default(autoincrement())
-  usuarioId  Int      @map("usuario_id")
-  moduloKey  String   @map("modulo_key")   // key única del módulo, ej: "facturacion"
-  habilitado Boolean  @default(true)
-  creadoEn   DateTime @default(now()) @map("creado_en")
+  id            Int      @id @default(autoincrement())
+  usuarioId     Int      @map("usuario_id")
+  moduloKey     String   @map("modulo_key")
+  habilitado    Boolean  @default(true)
+  creadoEn      DateTime @default(now()) @map("creado_en")
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
 
-  usuario    Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuario       Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
-  @@unique([usuarioId, moduloKey])           // un registro por usuario+módulo
+  @@unique([usuarioId, moduloKey])
   @@map("permisos_modulos")
 }
 
 // ─── PERMISOS DE ACCIONES ESPECIALES ────────────────────────────────────────
-// Una fila por acción sensible que el usuario tiene habilitada.
-// Solo se crean filas para SECRETARIO; ADMIN siempre puede todo.
-// accionKey valores posibles: anular_factura | anular_boleta | anular_servicio |
-//   anular_cobranza | anular_comprobante
 model PermisoAccion {
-  id         Int      @id @default(autoincrement())
-  usuarioId  Int      @map("usuario_id")
-  accionKey  String   @map("accion_key")   // key de la acción, ej: "anular_factura"
-  habilitado Boolean  @default(false)       // acciones de anulación OFF por defecto
-  creadoEn   DateTime @default(now()) @map("creado_en")
+  id            Int      @id @default(autoincrement())
+  usuarioId     Int      @map("usuario_id")
+  accionKey     String   @map("accion_key")
+  habilitado    Boolean  @default(false)
+  creadoEn      DateTime @default(now()) @map("creado_en")
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
 
-  usuario    Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuario       Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
-  @@unique([usuarioId, accionKey])           // un registro por usuario+acción
+  @@unique([usuarioId, accionKey])
   @@map("permisos_acciones")
+}
+
+// ─── MONEDAS ──────────────────────────────────────────────────────────────────
+model Moneda {
+  id            Int      @id @default(autoincrement())
+  codigo        String   @unique
+  nombre        String
+  simbolo       String
+  esPorDefecto  Boolean  @default(false) @map("es_por_defecto")
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  cuentas           CuentaDinero[]
+  movimientos       MovimientoCuentaV2[]
+  pagosV2           PagoV2[]
+
+  @@map("monedas")
+}
+
+// ─── TIPOS DE PAGO ────────────────────────────────────────────────────────────
+model TipoPago {
+  id            Int      @id @default(autoincrement())
+  codigo        String   @unique
+  nombre        String
+  descripcion   String?
+  orden         Int      @default(0)
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  movimientos   MovimientoCuentaV2[]
+  pagosV2       PagoV2[]
+
+  @@map("tipos_pago")
+}
+
+// ─── CUENTAS DE DINERO ────────────────────────────────────────────────────────
+model CuentaDinero {
+  id            Int      @id @default(autoincrement())
+  nombre        String
+  tipoCuenta    String   @map("tipo_cuenta")
+  monedaId      Int      @map("moneda_id")
+  saldoInicial  Decimal  @default(0) @map("saldo_inicial") @db.Decimal(12, 2)
+  saldoActual   Decimal  @default(0) @map("saldo_actual") @db.Decimal(12, 2)
+  descripcion   String?
+  banco         String?
+  numeroCuenta  String?  @map("numero_cuenta")
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  moneda        Moneda   @relation(fields: [monedaId], references: [id])
+  movimientos   MovimientoCuentaV2[] @relation("CuentaOrigen")
+  movimientosDestino MovimientoCuentaV2[] @relation("CuentaDestino")
+
+  @@map("cuentas_dinero")
+}
+
+// ─── MOVIMIENTOS DE CUENTA V2 ─────────────────────────────────────────────────
+model MovimientoCuentaV2 {
+  id               Int      @id @default(autoincrement())
+  cuentaId         Int      @map("cuenta_id")
+  tipo             String   // INGRESO | EGRESO | TRANSFERENCIA
+  monto            Decimal  @db.Decimal(12, 2)
+  monedaId         Int      @map("moneda_id")
+  tipoPagoId       Int?     @map("tipo_pago_id")
+  concepto         String
+  referencia       String?
+  cuentaDestinoId  Int?     @map("cuenta_destino_id")
+  usuarioId        Int      @map("usuario_id")
+  fecha            DateTime @default(now())
+  creadoEn         DateTime @default(now()) @map("creado_en")
+
+  cuenta           CuentaDinero @relation("CuentaOrigen", fields: [cuentaId], references: [id])
+  moneda           Moneda       @relation(fields: [monedaId], references: [id])
+  tipoPago         TipoPago?    @relation(fields: [tipoPagoId], references: [id])
+  cuentaDestino    CuentaDinero? @relation("CuentaDestino", fields: [cuentaDestinoId], references: [id])
+  usuario          Usuario      @relation(fields: [usuarioId], references: [id])
+
+  @@map("movimientos_cuenta_v2")
+}
+
+// ─── PAGOS V2 ─────────────────────────────────────────────────────────────────
+model PagoV2 {
+  id            Int      @id @default(autoincrement())
+  facturaId     Int?     @map("factura_id")
+  clienteId     Int?     @map("cliente_id")
+  usuarioId     Int      @map("usuario_id")
+  monto         Decimal  @db.Decimal(12, 2)
+  monedaId      Int      @map("moneda_id")
+  tipoPagoId    Int?     @map("tipo_pago_id")
+  referencia    String?
+  observaciones String?
+  fechaPago     DateTime @default(now()) @map("fecha_pago")
+  creadoEn      DateTime @default(now()) @map("creado_en")
+
+  moneda        Moneda   @relation(fields: [monedaId], references: [id])
+  tipoPago      TipoPago? @relation(fields: [tipoPagoId], references: [id])
+  usuario       Usuario  @relation(fields: [usuarioId], references: [id])
+
+  @@map("pagos_v2")
 }

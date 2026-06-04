@@ -1,4 +1,4 @@
-// FILE: src/app/(dashboard)/usuarios/page.tsx
+// FILE: frontend/src/app/(dashboard)/usuarios/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, Key, ShieldAlert } from 'lucide-react';
+import { Plus, Edit2, Trash2, Key, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { usuariosApi } from '@/services/api';
 import { formatDatetime, getErrorMessage } from '@/lib/utils';
 import {
@@ -160,6 +160,14 @@ export default function UsuariosPage() {
                     </button>
                     <button onClick={() => setChangingPass(u.id)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Cambiar contraseña">
                       <Key className="w-3.5 h-3.5" />
+                    </button>
+                    {/* ── NUEVO: botón de permisos ── */}
+                    <button
+                      onClick={() => router.push(`/usuarios/${u.id}/permisos`)}
+                      className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
+                      title="Permisos"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
                     </button>
                     {u.id !== usuario.id && (
                       <button

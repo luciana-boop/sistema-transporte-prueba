@@ -1,8 +1,12 @@
-// FILE: src/modules/usuarios/usuarios.service.ts
+// FILE: backend/src/modules/usuarios/usuarios.service.ts
+// CAMBIO: se agrega llamada a permisosService.inicializarPermisos()
+// dentro de create(), solo cuando rol === SECRETARIO.
+// Todo lo demás permanece idéntico.
 
 import prisma from '../../prisma/client';
 import bcrypt from 'bcryptjs';
 import { Rol } from '../../utils/enums';
+import { permisosService } from '../permisos/permisos.service';
 
 export interface CreateUsuarioDto {
   nombre: string;
@@ -59,7 +63,7 @@ export class UsuariosService {
     const rounds = parseInt(process.env.BCRYPT_ROUNDS || '12');
     const passwordHash = await bcrypt.hash(dto.password, rounds);
 
-    return prisma.usuario.create({
+    const usuario = await prisma.usuario.create({
       data: {
         nombre: dto.nombre,
         email: dto.email,
@@ -75,6 +79,15 @@ export class UsuariosService {
         creadoEn: true,
       },
     });
+
+    // ── NUEVO: inicializar permisos por defecto para secretarios ──
+    // ADMIN no necesita registros en BD (siempre tiene todo).
+    if (dto.rol === Rol.SECRETARIO) {
+      await permisosService.inicializarPermisos(usuario.id);
+    }
+    // ─────────────────────────────────────────────────────────────
+
+    return usuario;
   }
 
   async update(id: number, dto: UpdateUsuarioDto) {
@@ -107,7 +120,6 @@ export class UsuariosService {
 
     const rounds = parseInt(process.env.BCRYPT_ROUNDS || '12');
     const passwordHash = await bcrypt.hash(nuevaPassword, rounds);
-
     await prisma.usuario.update({ where: { id }, data: { passwordHash } });
     return { message: 'Contraseña actualizada correctamente' };
   }
@@ -115,6 +127,7 @@ export class UsuariosService {
   async remove(id: number, adminId: number) {
     if (id === adminId) throw new Error('No puede eliminar su propio usuario');
     await this.findById(id);
+    // Los permisos se eliminan automáticamente por el CASCADE de la FK
     return prisma.usuario.delete({ where: { id } });
   }
 }
