@@ -1,4 +1,8 @@
 // FILE: src/modules/facturacion/facturacion.controller.ts
+// CAMBIOS:
+//   - Acepta 'fechaEmision' en el body (antes no se procesaba explícitamente)
+//   - Acepta 'lineas' en el body para detalle de factura
+//   - Validación ajustada: fechaVencimiento ya no es obligatorio (se calcula en service)
 
 import { Request, Response } from 'express';
 import { facturacionService } from './facturacion.service';
@@ -40,10 +44,13 @@ export class FacturacionController {
 
   async crear(req: Request, res: Response): Promise<void> {
     try {
-      const { clienteId, subtotal, fechaVencimiento } = req.body;
-      if (!clienteId || !subtotal || !fechaVencimiento) {
-        R.badRequest(res, 'clienteId, subtotal y fechaVencimiento son requeridos'); return;
+      const { clienteId, subtotal } = req.body;
+
+      // CAMBIO: fechaVencimiento ya no es requerida (se calcula automáticamente en el service)
+      if (!clienteId || !subtotal) {
+        R.badRequest(res, 'clienteId y subtotal son requeridos'); return;
       }
+
       const data = await facturacionService.create(
         {
           ...req.body,
@@ -53,6 +60,10 @@ export class FacturacionController {
           porcentajeIgv: req.body.porcentajeIgv ? parseFloat(req.body.porcentajeIgv) : undefined,
           diasCredito: req.body.diasCredito ? parseInt(req.body.diasCredito) : undefined,
           porcentajeDetraccion: req.body.porcentajeDetraccion ? parseFloat(req.body.porcentajeDetraccion) : undefined,
+          // NUEVO: pasar fechaEmision si viene en el body
+          fechaEmision: req.body.fechaEmision || undefined,
+          // NUEVO: pasar líneas de detalle si vienen
+          lineas: Array.isArray(req.body.lineas) ? req.body.lineas : undefined,
         },
         req.usuario!.id
       );
@@ -60,6 +71,7 @@ export class FacturacionController {
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('no encontrado') || msg.includes('ya existe')) R.badRequest(res, msg);
+      else if (msg.includes('ya está facturado')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }
@@ -127,7 +139,7 @@ export class FacturacionController {
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Factura no encontrada') R.notFound(res, msg);
-      else if (msg.includes('Solo el') || msg.includes('Solo el')) R.forbidden(res, msg);
+      else if (msg.includes('Solo el')) R.forbidden(res, msg);
       else if (msg.includes('ya está') || msg.includes('No se puede')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }

@@ -1,15 +1,23 @@
 // FILE: src/modules/facturacion/facturacion.service.ts
-// CAMBIOS: integración con estado FACTURADO de pedidos + validaciones de integridad
+// CAMBIOS:
+//   - CreateFacturaDto incluye 'lineas' (FacturaDetalle[]) opcionales
+//   - fechaEmision aceptado desde el frontend (antes siempre era now())
+//   - fechaVencimiento calculada automáticamente = fechaEmision + diasCredito
+//   - Lógica existente de pedidos/estados NO modificada
 
 import prisma from '../../prisma/client';
 import { EstadoFactura } from '../../utils/enums';
-import { pedidosService } from '../pedidos/pedidos.service';
 
-export interface DetalleFacturaDto {
-  descripcion: string;
+// ─── DTOs ────────────────────────────────────────────────────────────────────
+
+export interface LineaFacturaDto {
+  orden?: number;
   cantidad: number;
-  precioUnitario: number;
-  subtotal: number;
+  unidadMedida?: string;
+  codigo: string;
+  descripcion: string;
+  valorUnitario: number;
+  importe: number;
 }
 
 export interface CreateFacturaDto {
@@ -24,11 +32,17 @@ export interface CreateFacturaDto {
   diasCredito?: number;
   guiaReferencia?: string;
   detalle?: string;
-  fechaVencimiento: string;
+  // NUEVO: fecha de emisión explícita (si no viene, se usa now())
+  fechaEmision?: string;
+  // fechaVencimiento: se calcula automáticamente = fechaEmision + diasCredito
+  // Solo se usa como fallback si no hay tipo de crédito configurado
+  fechaVencimiento?: string;
   observaciones?: string;
   xmlPath?: string;
   pdfPath?: string;
   hashXml?: string;
+  // NUEVO: líneas de detalle
+  lineas?: LineaFacturaDto[];
 }
 
 export interface UpdateFacturaDto {
@@ -40,6 +54,32 @@ export interface UpdateFacturaDto {
   estadoSunat?: string;
   cdrPath?: string;
 }
+
+// ─── MAPEO TIPO CRÉDITO → DÍAS ────────────────────────────────────────────────
+// Centraliza la lógica para no duplicarla en frontend/backend
+const DIAS_POR_TIPO_CREDITO: Record<string, number> = {
+  '0':    0,
+  '7':    7,
+  '15':  15,
+  '30':  30,
+  '45':  45,
+  '60':  60,
+};
+
+function calcularFechaVencimiento(fechaEmision: Date, tipoCredito?: string, diasCredito?: number): Date {
+  // Prioridad: diasCredito explícito > tipoCredito conocido > 0 días (contado)
+  let dias = 0;
+  if (diasCredito !== undefined && diasCredito > 0) {
+    dias = diasCredito;
+  } else if (tipoCredito && DIAS_POR_TIPO_CREDITO[tipoCredito] !== undefined) {
+    dias = DIAS_POR_TIPO_CREDITO[tipoCredito];
+  }
+  const fecha = new Date(fechaEmision);
+  fecha.setDate(fecha.getDate() + dias);
+  return fecha;
+}
+
+// ─── SERVICE ─────────────────────────────────────────────────────────────────
 
 export class FacturacionService {
 
@@ -80,6 +120,7 @@ export class FacturacionService {
         cliente: { select: { id: true, razonSocial: true, ruc: true } },
         pedido: { select: { id: true, origen: true, destino: true } },
         usuario: { select: { id: true, nombre: true } },
+        lineas: { orderBy: { orden: 'asc' } },
         _count: { select: { pagos: true } },
       },
     });
@@ -92,6 +133,7 @@ export class FacturacionService {
         cliente: true,
         pedido: { select: { id: true, origen: true, destino: true, tipoCarga: true } },
         usuario: { select: { id: true, nombre: true, email: true } },
+        lineas: { orderBy: { orden: 'asc' } },
         pagos: {
           select: { id: true, monto: true, metodoPago: true, fechaPago: true, referencia: true },
           orderBy: { fechaPago: 'desc' },
@@ -122,11 +164,8 @@ export class FacturacionService {
     const cliente = await prisma.cliente.findUnique({ where: { id: dto.clienteId } });
     if (!cliente) throw new Error('Cliente no encontrado');
 
-    // ── Validaciones de integridad con pedido ────────────────────────────────
+    // ── Validaciones de integridad con pedido (sin cambios) ───────────────────
     if (dto.pedidoId) {
-      // 1. El pedido debe existir, no estar anulado, no estar ya facturado
-      //    y pertenecer al mismo cliente. marcarComoFacturado() hace todas estas comprobaciones.
-      //    Lo llamamos aquí para fallar rápido ANTES de crear la factura.
       const pedido = await prisma.pedido.findUnique({
         where: { id: dto.pedidoId },
         include: {
@@ -150,7 +189,7 @@ export class FacturacionService {
         );
       }
     }
-    // ────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
 
     const serie = (dto.serie || 'F001').toUpperCase();
     const correlativo = await this.getNextCorrelativo(serie);
@@ -160,19 +199,26 @@ export class FacturacionService {
     if (existe) throw new Error(`El número de factura ${numeroFactura} ya existe`);
 
     const porcentaje = dto.porcentajeIgv ?? 18;
-    const igv = (dto.subtotal * porcentaje) / 100;
-    const total = dto.subtotal + igv;
+    const igv = Math.round((dto.subtotal * porcentaje) / 100 * 100) / 100;
+    const total = Math.round((dto.subtotal + igv) * 100) / 100;
 
     let montoDetraccion: number | undefined;
     if (dto.porcentajeDetraccion && total > 0) {
-      montoDetraccion = (total * dto.porcentajeDetraccion) / 100;
+      montoDetraccion = Math.round(total * dto.porcentajeDetraccion / 100 * 100) / 100;
     }
 
-    let fechaVenc = new Date(dto.fechaVencimiento);
-    if (dto.tipoCredito && dto.diasCredito && dto.diasCredito > 0) {
-      fechaVenc = new Date();
-      fechaVenc.setDate(fechaVenc.getDate() + dto.diasCredito);
-    }
+    // CAMBIO: fechaEmision viene del DTO (o now() como fallback)
+    const fechaEmision = dto.fechaEmision ? new Date(dto.fechaEmision) : new Date();
+
+    // CAMBIO: fechaVencimiento calculada automáticamente = fechaEmision + días del tipo crédito
+    const fechaVenc = calcularFechaVencimiento(
+      fechaEmision,
+      dto.tipoCredito,
+      dto.diasCredito,
+    );
+
+    // Preparar líneas de detalle
+    const lineas = dto.lineas ?? [];
 
     return prisma.$transaction(async (tx: any) => {
       const factura = await tx.factura.create({
@@ -195,13 +241,29 @@ export class FacturacionService {
           guiaReferencia: dto.guiaReferencia,
           detalle: dto.detalle,
           estado: EstadoFactura.EMITIDA,
+          fechaEmision,
           fechaVencimiento: fechaVenc,
           observaciones: dto.observaciones,
           xmlPath: dto.xmlPath,
           pdfPath: dto.pdfPath,
           hashXml: dto.hashXml,
           totalPagado: 0,
+          // NUEVO: crear líneas de detalle en cascada
+          lineas: lineas.length > 0 ? {
+            createMany: {
+              data: lineas.map((l, idx) => ({
+                orden: l.orden ?? idx,
+                cantidad: l.cantidad,
+                unidadMedida: l.unidadMedida ?? 'NIU',
+                codigo: l.codigo,
+                descripcion: l.descripcion,
+                valorUnitario: l.valorUnitario,
+                importe: l.importe,
+              })),
+            },
+          } : undefined,
         },
+        include: { lineas: true },
       });
 
       // Actualizar correlativo en series
@@ -210,7 +272,7 @@ export class FacturacionService {
         data: { correlativoActual: { increment: 1 } },
       });
 
-      // Marcar pedido como FACTURADO dentro de la misma transacción
+      // Marcar pedido como FACTURADO dentro de la misma transacción (sin cambios)
       if (dto.pedidoId) {
         await tx.pedido.update({
           where: { id: dto.pedidoId },
@@ -243,10 +305,9 @@ export class FacturacionService {
       ? Math.round((xmlData.igv / xmlData.subtotal) * 100)
       : 18;
 
-    const fechaVenc = new Date(xmlData.fechaEmision);
-    fechaVenc.setDate(fechaVenc.getDate() + 30);
+    const fechaEmision = new Date(xmlData.fechaEmision);
+    const fechaVenc = calcularFechaVencimiento(fechaEmision, '30'); // XML: 30 días por defecto
 
-    // Nota: facturas importadas desde XML no llevan pedidoId
     return prisma.factura.create({
       data: {
         clienteId: cliente.id,
@@ -259,7 +320,7 @@ export class FacturacionService {
         igv: xmlData.igv,
         total: xmlData.total,
         estado: EstadoFactura.EMITIDA,
-        fechaEmision: new Date(xmlData.fechaEmision),
+        fechaEmision,
         fechaVencimiento: fechaVenc,
         hashXml: xmlData.hashXml,
         totalPagado: 0,
@@ -291,12 +352,12 @@ export class FacturacionService {
         data: { estado: EstadoFactura.ANULADA },
       });
 
-      // Restaurar pedido a ACTIVO si la factura tenía uno asociado
+      // Restaurar pedido a ACTIVO si la factura tenía uno asociado (sin cambios)
       if (factura.pedidoId) {
         await tx.pedido.updateMany({
           where: {
             id: factura.pedidoId,
-            estado: 'FACTURADO', // solo si estaba en FACTURADO, no toca otros estados
+            estado: 'FACTURADO',
           },
           data: { estado: 'ACTIVO' },
         });

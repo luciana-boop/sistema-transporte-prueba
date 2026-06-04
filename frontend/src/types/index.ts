@@ -1,4 +1,5 @@
 // FILE: src/types/index.ts
+// CAMBIOS: Agrega FacturaDetalle, actualiza Factura para incluir lineas[]
 
 export type Rol = 'ADMIN' | 'SECRETARIO';
 
@@ -62,6 +63,18 @@ export interface Pedido {
   _count?: { gastos: number };
 }
 
+// NUEVO: línea de detalle de factura
+export interface FacturaDetalle {
+  id?: number;
+  orden: number;
+  cantidad: number;
+  unidadMedida: string;
+  codigo: string;
+  descripcion: string;
+  valorUnitario: number;
+  importe: number;
+}
+
 export interface Factura {
   id: number;
   pedidoId?: number;
@@ -88,6 +101,8 @@ export interface Factura {
   fechaVencimiento: string;
   totalPagado: number;
   saldoPendiente?: number;
+  // NUEVO
+  lineas?: FacturaDetalle[];
   cliente: { id: number; razonSocial: string; ruc: string };
   pedido?: { id: number; origen: string; destino: string };
   usuario: { id: number; nombre: string };

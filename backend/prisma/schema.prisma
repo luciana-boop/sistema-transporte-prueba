@@ -1,4 +1,6 @@
 // FILE: prisma/schema.prisma
+// CAMBIO: Agrega modelo FacturaDetalle para líneas de factura.
+// El resto del schema no se modifica.
 
 generator client {
   provider = "prisma-client-js"
@@ -163,12 +165,35 @@ model Factura {
   creadoEn         DateTime      @default(now()) @map("creado_en")
   actualizadoEn    DateTime      @updatedAt @map("actualizado_en")
 
-  pedido         Pedido?       @relation(fields: [pedidoId], references: [id])
-  cliente        Cliente       @relation(fields: [clienteId], references: [id])
-  usuario        Usuario       @relation(fields: [usuarioId], references: [id])
+  pedido         Pedido?         @relation(fields: [pedidoId], references: [id])
+  cliente        Cliente         @relation(fields: [clienteId], references: [id])
+  usuario        Usuario         @relation(fields: [usuarioId], references: [id])
   pagos          Pago[]
+  // NUEVO: líneas de detalle de la factura
+  lineas         FacturaDetalle[]
 
   @@map("facturas")
+}
+
+// ─── NUEVO: DETALLE DE LÍNEAS DE FACTURA ────────────────────────────────────
+// Cada Factura puede tener múltiples líneas con cantidad, unidad, código,
+// descripción editable, valor unitario e importe calculado.
+// Las unidades de medida y códigos se administran en TablaMaestra.
+model FacturaDetalle {
+  id             Int      @id @default(autoincrement())
+  facturaId      Int      @map("factura_id")
+  orden          Int      @default(0)
+  cantidad       Decimal  @db.Decimal(10, 3)
+  unidadMedida   String   @default("NIU") @map("unidad_medida")
+  codigo         String
+  descripcion    String
+  valorUnitario  Decimal  @map("valor_unitario") @db.Decimal(10, 2)
+  importe        Decimal  @db.Decimal(10, 2)
+  creadoEn       DateTime @default(now()) @map("creado_en")
+
+  factura        Factura  @relation(fields: [facturaId], references: [id], onDelete: Cascade)
+
+  @@map("factura_detalles")
 }
 
 model Pago {
@@ -420,6 +445,7 @@ model CategoriaGasto {
 }
 
 // ─── TABLA MAESTRA GENÉRICA ───────────────────────────────────────────────────
+// Utilizada para: unidad_medida, codigo_factura, tipo_carga, banco, tipo_pago, etc.
 model TablaMaestra {
   id            Int      @id @default(autoincrement())
   tipo          String
