@@ -31,7 +31,7 @@ export default function LoginPage() {
   // cuando Zustand confirma que hay sesión activa (_hasHydrated=true).
   useEffect(() => {
     if (_hasHydrated && isAuthenticated) {
-      router.replace('/dashboard');
+      router.replace('/pedidos');
     }
   }, [_hasHydrated, isAuthenticated, router]);
   // ──────────────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ export default function LoginPage() {
       const { token, usuario } = res.data.data;
       setAuth(token, usuario);
       toast.success(`Bienvenido, ${usuario.nombre}`);
-      router.push('/dashboard');
+      router.push('/pedidos');
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
