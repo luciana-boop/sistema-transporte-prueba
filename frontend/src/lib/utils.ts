@@ -48,8 +48,9 @@ export function getErrorMessage(error: unknown): string {
 }
 
 export const ESTADO_PEDIDO_LABEL: Record<string, string> = {
-  ACTIVO:  'Activo',
-  ANULADO: 'Anulado',
+  ACTIVO:     'Activo',
+  ANULADO:    'Anulado',
+  FACTURADO:  'Facturado',
 };
 
 export const ESTADO_FACTURA_LABEL: Record<string, string> = {

@@ -1,8 +1,9 @@
 // FILE: src/modules/facturacion/facturacion.service.ts
-// MODIFICADO: series, correlativo auto, campos SUNAT, detracción, crédito, XML, estados parcial/pagado
+// CAMBIOS: integración con estado FACTURADO de pedidos + validaciones de integridad
 
 import prisma from '../../prisma/client';
 import { EstadoFactura } from '../../utils/enums';
+import { pedidosService } from '../pedidos/pedidos.service';
 
 export interface DetalleFacturaDto {
   descripcion: string;
@@ -43,12 +44,10 @@ export interface UpdateFacturaDto {
 export class FacturacionService {
 
   async getNextCorrelativo(serie: string): Promise<number> {
-    // Try DB-configured series first
     const serieConfig = await prisma.serieFacturacion.findUnique({ where: { serie } });
     if (serieConfig) {
       return serieConfig.correlativoActual;
     }
-    // Fallback: count from facturas table
     const ultima = await prisma.factura.findFirst({
       where: { serie },
       orderBy: { correlativo: 'desc' },
@@ -105,14 +104,12 @@ export class FacturacionService {
   }
 
   async getSeries() {
-    // Prefer configured series from SerieFacturacion table
     const seriesConfig = await prisma.serieFacturacion.findMany({
       where: { activo: true },
       select: { serie: true, tipoDocumento: true, correlativoActual: true },
       orderBy: { serie: 'asc' },
     });
     if (seriesConfig.length > 0) return seriesConfig.map((s: any) => s.serie);
-    // Fallback: distinct from facturas
     const series = await prisma.factura.findMany({
       distinct: ['serie'],
       select: { serie: true },
@@ -125,11 +122,40 @@ export class FacturacionService {
     const cliente = await prisma.cliente.findUnique({ where: { id: dto.clienteId } });
     if (!cliente) throw new Error('Cliente no encontrado');
 
+    // ── Validaciones de integridad con pedido ────────────────────────────────
+    if (dto.pedidoId) {
+      // 1. El pedido debe existir, no estar anulado, no estar ya facturado
+      //    y pertenecer al mismo cliente. marcarComoFacturado() hace todas estas comprobaciones.
+      //    Lo llamamos aquí para fallar rápido ANTES de crear la factura.
+      const pedido = await prisma.pedido.findUnique({
+        where: { id: dto.pedidoId },
+        include: {
+          facturas: {
+            where: { estado: { not: 'ANULADA' } },
+            select: { id: true, numeroFactura: true },
+          },
+        },
+      });
+      if (!pedido) throw new Error('El pedido indicado no existe');
+      if (pedido.clienteId !== dto.clienteId) {
+        throw new Error('El pedido no pertenece al cliente seleccionado');
+      }
+      if (pedido.estado === 'ANULADO') {
+        throw new Error('No se puede facturar un pedido anulado');
+      }
+      if (pedido.estado === 'FACTURADO' || pedido.facturas.length > 0) {
+        const ref = pedido.facturas[0]?.numeroFactura ?? '';
+        throw new Error(
+          `El pedido ya está facturado${ref ? ` (${ref})` : ''}. Anule esa factura para facturarlo nuevamente.`
+        );
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     const serie = (dto.serie || 'F001').toUpperCase();
     const correlativo = await this.getNextCorrelativo(serie);
     const numeroFactura = `${serie}-${String(correlativo).padStart(5, '0')}`;
 
-    // Check uniqueness
     const existe = await prisma.factura.findUnique({ where: { numeroFactura } });
     if (existe) throw new Error(`El número de factura ${numeroFactura} ya existe`);
 
@@ -137,13 +163,11 @@ export class FacturacionService {
     const igv = (dto.subtotal * porcentaje) / 100;
     const total = dto.subtotal + igv;
 
-    // Detracción
     let montoDetraccion: number | undefined;
     if (dto.porcentajeDetraccion && total > 0) {
       montoDetraccion = (total * dto.porcentajeDetraccion) / 100;
     }
 
-    // Fecha vencimiento con crédito automático
     let fechaVenc = new Date(dto.fechaVencimiento);
     if (dto.tipoCredito && dto.diasCredito && dto.diasCredito > 0) {
       fechaVenc = new Date();
@@ -179,11 +203,20 @@ export class FacturacionService {
           totalPagado: 0,
         },
       });
-      // Increment correlativo in series config
+
+      // Actualizar correlativo en series
       await tx.serieFacturacion.updateMany({
         where: { serie },
         data: { correlativoActual: { increment: 1 } },
       });
+
+      // Marcar pedido como FACTURADO dentro de la misma transacción
+      if (dto.pedidoId) {
+        await tx.pedido.update({
+          where: { id: dto.pedidoId },
+          data: { estado: 'FACTURADO' },
+        });
+      }
 
       return factura;
     });
@@ -194,7 +227,6 @@ export class FacturacionService {
     subtotal: number; igv: number; total: number; fechaEmision: string;
     hashXml?: string;
   }, usuarioId: number) {
-    // Find or create client by RUC
     let cliente = await prisma.cliente.findUnique({ where: { ruc: xmlData.ruc } });
     if (!cliente) {
       cliente = await prisma.cliente.create({
@@ -214,6 +246,7 @@ export class FacturacionService {
     const fechaVenc = new Date(xmlData.fechaEmision);
     fechaVenc.setDate(fechaVenc.getDate() + 30);
 
+    // Nota: facturas importadas desde XML no llevan pedidoId
     return prisma.factura.create({
       data: {
         clienteId: cliente.id,
@@ -251,7 +284,26 @@ export class FacturacionService {
     if (usuarioRol !== 'ADMIN') throw new Error('Solo el administrador puede anular facturas');
     if (factura.estado === EstadoFactura.ANULADA) throw new Error('La factura ya está anulada');
     if (factura.estado === EstadoFactura.PAGADA) throw new Error('No se puede anular una factura ya pagada');
-    return prisma.factura.update({ where: { id }, data: { estado: EstadoFactura.ANULADA } });
+
+    return prisma.$transaction(async (tx: any) => {
+      const facturaAnulada = await tx.factura.update({
+        where: { id },
+        data: { estado: EstadoFactura.ANULADA },
+      });
+
+      // Restaurar pedido a ACTIVO si la factura tenía uno asociado
+      if (factura.pedidoId) {
+        await tx.pedido.updateMany({
+          where: {
+            id: factura.pedidoId,
+            estado: 'FACTURADO', // solo si estaba en FACTURADO, no toca otros estados
+          },
+          data: { estado: 'ACTIVO' },
+        });
+      }
+
+      return facturaAnulada;
+    });
   }
 
   async recalcularEstado(id: number) {

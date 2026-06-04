@@ -17,7 +17,7 @@ export interface AuthState {
   usuario: Usuario | null;
 }
 
-export type EstadoPedido = 'ACTIVO' | 'ANULADO';
+export type EstadoPedido = 'ACTIVO' | 'ANULADO' | 'FACTURADO';
 export type EstadoFactura = 'EMITIDA' | 'PAGADA' | 'PENDIENTE' | 'PARCIAL' | 'ANULADA';
 export type MetodoPago   = 'EFECTIVO' | 'TRANSFERENCIA' | 'TARJETA' | 'CHEQUE';
 export type EstadoCaja   = 'ABIERTA' | 'CERRADA';

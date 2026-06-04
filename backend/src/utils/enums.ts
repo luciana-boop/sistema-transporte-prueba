@@ -3,8 +3,9 @@
 // (Prisma enums are only available after `prisma generate`)
 
 export const EstadoPedido = {
-  ACTIVO:  'ACTIVO',
-  ANULADO: 'ANULADO',
+  ACTIVO:     'ACTIVO',
+  ANULADO:    'ANULADO',
+  FACTURADO:  'FACTURADO',   // ← NUEVO: pedido con factura emitida no anulada
 } as const;
 export type EstadoPedido = typeof EstadoPedido[keyof typeof EstadoPedido];
 

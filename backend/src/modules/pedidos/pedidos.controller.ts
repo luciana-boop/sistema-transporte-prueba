@@ -1,5 +1,4 @@
 // FILE: src/modules/pedidos/pedidos.controller.ts
-// MODIFICADO: sin peso, solo ACTIVO/ANULADO
 
 import { Request, Response } from 'express';
 import { pedidosService } from './pedidos.service';
@@ -10,6 +9,22 @@ export class PedidosController {
     try {
       const { estado, clienteId, desde, hasta, search } = req.query as Record<string, string>;
       R.ok(res, await pedidosService.findAll({ estado, clienteId, desde, hasta, search }));
+    } catch (e) { R.serverError(res, e); }
+  }
+
+  /**
+   * GET /api/pedidos/disponibles?clienteId=:id
+   * Devuelve pedidos ACTIVOS sin factura vigente del cliente indicado.
+   * Usado por el formulario de nueva factura para el selector de pedidos.
+   */
+  async disponiblesParaFacturar(req: Request, res: Response): Promise<void> {
+    try {
+      const clienteId = parseInt(req.query.clienteId as string);
+      if (isNaN(clienteId) || clienteId <= 0) {
+        R.badRequest(res, 'clienteId es requerido y debe ser un número válido');
+        return;
+      }
+      R.ok(res, await pedidosService.findDisponiblesParaFacturar(clienteId));
     } catch (e) { R.serverError(res, e); }
   }
 
@@ -66,7 +81,7 @@ export class PedidosController {
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Pedido no encontrado') R.notFound(res, msg);
-      else if (msg.includes('Solo') || msg.includes('ya está')) R.badRequest(res, msg);
+      else if (msg.includes('Solo') || msg.includes('ya está') || msg.includes('No se puede')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }

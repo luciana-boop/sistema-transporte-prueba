@@ -162,11 +162,6 @@ export default function FacturacionPage() {
     queryFn: () => clientesApi.listar().then((r) => r.data.data),
   });
 
-  const { data: pedidosActivos = [] } = useQuery({
-    queryKey: ['pedidos', 'ACTIVO'],
-    queryFn: () => pedidosApi.listar({ estado: 'ACTIVO' as any }).then((r) => r.data.data),
-  });
-
   // ─── REACT HOOK FORM ─────────────────────────────────────────────────────
   const {
     register,
@@ -186,6 +181,20 @@ export default function FacturacionPage() {
   // CAMBIO: ahora observamos 'total' en lugar de 'subtotal' como fuente de verdad
   const [serieVal, totalVal, igvVal, pctDetraccionVal, tipoCredito, diasCredito] =
     watch(['serie', 'total', 'porcentajeIgv', 'porcentajeDetraccion', 'tipoCredito', 'diasCredito']);
+
+  // Observar clienteId para cargar pedidos disponibles dinámicamente
+  // Debe ir después de useForm para que watch esté inicializado
+  const clienteIdVal = watch('clienteId');
+  const clienteIdNum = parseInt(clienteIdVal || '0');
+
+  const { data: pedidosDisponibles = [], isFetching: loadingPedidos } = useQuery({
+    queryKey: ['pedidos', 'disponibles', clienteIdNum],
+    queryFn: () =>
+      clienteIdNum > 0
+        ? pedidosApi.disponibles(clienteIdNum).then((r) => r.data.data)
+        : Promise.resolve([]),
+    enabled: clienteIdNum > 0,
+  });
 
   // ─── EFECTO REACTIVO DE CÁLCULO ──────────────────────────────────────────
   // CAMBIO PRINCIPAL: useEffect con dependencias solo en los campos de ENTRADA.
@@ -238,6 +247,13 @@ export default function FacturacionPage() {
     qc.invalidateQueries({ queryKey: ['series'] });
   };
 
+
+  // Al cambiar el cliente, limpiar el pedido para evitar asociaciones incorrectas
+  useEffect(() => {
+    setValue('pedidoId', '', { shouldValidate: false });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clienteIdVal]);
+
   // ─── MUTATIONS ───────────────────────────────────────────────────────────
   // CAMBIO: el backend sigue recibiendo 'subtotal' (ya calculado por useEffect).
   // El service.ts NO cambia — su fuente de verdad sigue siendo subtotal.
@@ -271,13 +287,19 @@ export default function FacturacionPage() {
       reset();
       setPreview(null);
       invalidate();
+      // Invalidar pedidos disponibles para que la lista se actualice en próximas aperturas
+      qc.invalidateQueries({ queryKey: ['pedidos', 'disponibles'] });
     },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   const anularMutation = useMutation({
     mutationFn: (id: number) => facturacionApi.anular(id),
-    onSuccess: () => { toast.success('Factura anulada'); invalidate(); },
+    onSuccess: () => {
+      toast.success('Factura anulada');
+      invalidate();
+      qc.invalidateQueries({ queryKey: ['pedidos', 'disponibles'] });
+    },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
@@ -559,15 +581,26 @@ export default function FacturacionPage() {
 
           {/* Pedido + Guía (sin cambios) */}
           <div className="grid grid-cols-2 gap-3">
-            <FormField label="Pedido relacionado">
-              <Select {...register('pedidoId')}>
-                <option value="">Sin pedido</option>
-                {pedidosActivos.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    #{p.id} — {p.origen} → {p.destino}
+  <FormField label="Pedido relacionado">
+              {clienteIdNum > 0 ? (
+                <Select {...register('pedidoId')} disabled={loadingPedidos}>
+                  <option value="">
+                    {loadingPedidos ? 'Cargando...' : 'Sin pedido'}
                   </option>
-                ))}
-              </Select>
+                  {pedidosDisponibles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      #{p.id} — {p.origen} → {p.destino}
+                    </option>
+                  ))}
+                  {!loadingPedidos && pedidosDisponibles.length === 0 && (
+                    <option value="" disabled>Sin pedidos disponibles para facturar</option>
+                  )}
+                </Select>
+              ) : (
+                <Select disabled>
+                  <option value="">Primero seleccione un cliente</option>
+                </Select>
+              )}
             </FormField>
             <FormField label="Guía de referencia" error={errors.guiaReferencia?.message}>
               <Input placeholder="Número de guía" {...register('guiaReferencia')} />

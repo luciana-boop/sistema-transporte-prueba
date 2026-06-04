@@ -18,6 +18,7 @@ enum Rol {
 
 enum EstadoPedido {
   ACTIVO
+  FACTURADO
   ANULADO
 }
 

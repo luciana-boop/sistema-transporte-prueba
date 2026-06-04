@@ -44,6 +44,10 @@ export const pedidosApi = {
   listar: (params?: { estado?: EstadoPedido; clienteId?: number; desde?: string; hasta?: string; search?: string }) =>
     api.get<ApiResponse<Pedido[]>>('/api/pedidos', { params }),
 
+  /** Pedidos ACTIVOS sin factura vigente del cliente — para el formulario de facturación */
+  disponibles: (clienteId: number) =>
+    api.get<ApiResponse<Pedido[]>>('/api/pedidos/disponibles', { params: { clienteId } }),
+
   obtener: (id: number) =>
     api.get<ApiResponse<Pedido>>(`/api/pedidos/${id}`),
 

@@ -153,18 +153,24 @@ export default function PedidosPage() {
                   <div className="flex items-center justify-end gap-1">
                     {p.estado === 'ACTIVO' && (
                       <>
-                        <button onClick={() => openEdit(p)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all">
+                        <button onClick={() => openEdit(p)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Editar">
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
                         {usuario?.rol === 'ADMIN' && (
                           <button
                             onClick={() => { if (confirm('¿Anular pedido?')) anularMutation.mutate(p.id); }}
                             className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                            title="Anular pedido"
                           >
                             <XCircle className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </>
+                    )}
+                    {p.estado === 'FACTURADO' && (
+                      <span className="text-xs text-muted-foreground italic px-1" title="Tiene factura emitida">
+                        Facturado
+                      </span>
                     )}
                   </div>
                 </Td>
