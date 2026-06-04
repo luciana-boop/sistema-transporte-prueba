@@ -89,6 +89,42 @@ export class CajaController {
     }
   }
 
+  /**
+   * NUEVO: GET /api/caja/:id/movimientos
+   * Movimientos de una caja específica, con saldo acumulado y filtros.
+   */
+  async getMovimientos(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
+
+      const { desde, hasta, tipo } = req.query as Record<string, string>;
+      const data = await cajaService.getMovimientos(id, { desde, hasta, tipo });
+      R.ok(res, data);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'Caja no encontrada') R.notFound(res, msg);
+      else if (msg.includes('inválida') || msg.includes('inválido')) R.badRequest(res, msg);
+      else R.serverError(res, e);
+    }
+  }
+
+  /**
+   * NUEVO: GET /api/caja/movimientos
+   * Movimientos globales con filtro por caja, fecha y tipo.
+   */
+  async getMovimientosGlobal(req: Request, res: Response): Promise<void> {
+    try {
+      const { desde, hasta, tipo, cajaId } = req.query as Record<string, string>;
+      const data = await cajaService.getMovimientosGlobal({ desde, hasta, tipo, cajaId });
+      R.ok(res, data);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg.includes('inválida') || msg.includes('inválido')) R.badRequest(res, msg);
+      else R.serverError(res, e);
+    }
+  }
+
   async eliminar(req: Request, res: Response): Promise<void> {
     try {
       const id = parseInt(req.params.id);

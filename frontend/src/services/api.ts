@@ -14,6 +14,7 @@ import type {
   SerieFacturacion, CategoriaGasto, ConfigAlerta, TablaMaestra,
   TipoVehiculoConfig, Moneda, TipoPago, CuentaDinero, MovimientoCuenta,
   ResumenFinanciero, TipoGasto, EstadoFactura, FacturaDetalle, PedidoResumen,
+  MovimientosCajaResponse, MovimientosGlobalResponse,
 } from '@/types';
 
 const api = axios.create({
@@ -201,6 +202,9 @@ export const cajaApi = {
   obtener: (id: number) =>
     api.get<ApiResponse<Caja>>(`/api/caja/${id}`),
 
+  actual: () =>
+    api.get<ApiResponse<Caja | null>>('/api/caja/actual'),
+
   abrir: (data: { saldoApertura: number; observaciones?: string }) =>
     api.post<ApiResponse<Caja>>('/api/caja/abrir', data),
 
@@ -210,6 +214,14 @@ export const cajaApi = {
   registrarMovimiento: (id: number, data: {
     tipo: 'INGRESO' | 'EGRESO'; monto: number; concepto: string;
   }) => api.post<ApiResponse<Caja>>(`/api/caja/${id}/movimiento`, data),
+
+  /** NUEVO: movimientos de una caja con saldo acumulado */
+  getMovimientos: (id: number, params?: { desde?: string; hasta?: string; tipo?: string }) =>
+    api.get<ApiResponse<MovimientosCajaResponse>>(`/api/caja/${id}/movimientos`, { params }),
+
+  /** NUEVO: movimientos globales con filtros */
+  getMovimientosGlobal: (params?: { cajaId?: number; desde?: string; hasta?: string; tipo?: string }) =>
+    api.get<ApiResponse<MovimientosGlobalResponse>>('/api/caja/movimientos', { params }),
 
   eliminar: (id: number) =>
     api.delete<ApiResponse<null>>(`/api/caja/${id}`),

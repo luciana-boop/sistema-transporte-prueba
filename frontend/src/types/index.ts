@@ -1,5 +1,5 @@
 // FILE: src/types/index.ts
-// CAMBIOS: Agrega FacturaDetalle, actualiza Factura para incluir lineas[]
+// CAMBIO: Agrega MovimientoEnriquecido y actualiza Caja con saldoActual
 
 export type Rol = 'ADMIN' | 'SECRETARIO';
 
@@ -101,7 +101,6 @@ export interface Factura {
   fechaVencimiento: string;
   totalPagado: number;
   saldoPendiente?: number;
-  // NUEVO
   lineas?: FacturaDetalle[];
   cliente: { id: number; razonSocial: string; ruc: string };
   pedido?: { id: number; origen: string; destino: string };
@@ -149,6 +148,8 @@ export interface Caja {
   ingresosTotales?: number;
   egresosTotales?: number;
   saldoCalculado?: number;
+  /** NUEVO: saldo actual calculado (ingresos - egresos + apertura) */
+  saldoActual?: number;
   movimientos?: MovimientoCaja[];
   _count?: { movimientos: number };
 }
@@ -160,6 +161,48 @@ export interface MovimientoCaja {
   monto: number;
   concepto: string;
   creadoEn: string;
+}
+
+/** NUEVO: movimiento enriquecido con saldo acumulado y referencia */
+export interface MovimientoEnriquecido {
+  id: number;
+  cajaId: number;
+  tipo: TipoMov;
+  monto: number;
+  concepto: string;
+  referencia: string | null;
+  fecha: string;
+  saldoAcumulado: number;
+}
+
+/** NUEVO: movimiento global (con datos de su caja) */
+export interface MovimientoGlobal {
+  id: number;
+  cajaId: number;
+  cajaNombre: string;
+  cajaEstado: EstadoCaja;
+  tipo: TipoMov;
+  monto: number;
+  concepto: string;
+  referencia: string | null;
+  fecha: string;
+}
+
+/** NUEVO: respuesta del endpoint de movimientos por caja */
+export interface MovimientosCajaResponse {
+  caja: Caja;
+  movimientos: MovimientoEnriquecido[];
+  saldoInicial: number;
+  totalIngresos: number;
+  totalEgresos: number;
+  saldoFinal: number;
+}
+
+/** NUEVO: respuesta del endpoint de movimientos globales */
+export interface MovimientosGlobalResponse {
+  movimientos: MovimientoGlobal[];
+  totalIngresos: number;
+  totalEgresos: number;
 }
 
 export interface Gasto {
@@ -250,7 +293,6 @@ export interface LiquidacionDetalle {
   monto: number;
 }
 
-// Resumen de pedido para el selector en liquidaciones
 export interface PedidoResumen {
   id: number;
   origen: string;
@@ -262,7 +304,6 @@ export interface PedidoResumen {
   cliente: { id: number; razonSocial: string };
 }
 
-// Relación pedido dentro de una liquidación
 export interface LiquidacionPedido {
   id: number;
   liquidacionId: number;
@@ -294,7 +335,6 @@ export interface Liquidacion {
   estado: string;
   conductor: { id: number; nombre: string };
   detalles: LiquidacionDetalle[];
-  // NUEVO: pedidos relacionados
   pedidos: LiquidacionPedido[];
   creadoEn: string;
 }
