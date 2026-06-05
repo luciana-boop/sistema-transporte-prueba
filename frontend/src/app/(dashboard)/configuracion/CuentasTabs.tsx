@@ -84,7 +84,7 @@ export function MonedasTab() {
                     : <button onClick={() => updateM.mutate({ esPorDefecto: true })} className="text-xs text-muted-foreground hover:text-primary transition-colors">Hacer default</button>
                   }
                 </Td>
-                <Td><Switch checked={m.activo} onChange={v => updateM.mutate({ activo: v })} /></Td>
+                <Td><Switch checked={m.activo} onChange={v => { setEditing(m); updateM.mutate({ activo: v }); }} /></Td>
                 <Td>
                   <div className="flex items-center justify-end gap-1">
                     <button onClick={() => openEdit(m)} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all"><Edit2 className="w-3.5 h-3.5" /></button>
@@ -206,7 +206,7 @@ export function CuentasTab() {
 
   const { data: cuentas = [], isLoading } = useQuery({
     queryKey: ['cuentas', false],
-    queryFn: () => cuentasApi.getCuentas(false).then(r => r.data.data),
+    queryFn: () => cuentasApi.getCuentas({ activo: false }).then(r => r.data.data),
   });
   const { data: monedas = [] } = useQuery({
     queryKey: ['monedas', 'activas'],

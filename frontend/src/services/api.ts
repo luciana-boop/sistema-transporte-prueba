@@ -213,6 +213,7 @@ export const cajaApi = {
 
   registrarMovimiento: (id: number, data: {
     tipo: 'INGRESO' | 'EGRESO'; monto: number; concepto: string;
+    fecha?: string; referencia?: string;
   }) => api.post<ApiResponse<Caja>>(`/api/caja/${id}/movimiento`, data),
 
   /** NUEVO: movimientos de una caja con saldo acumulado */
@@ -222,6 +223,15 @@ export const cajaApi = {
   /** NUEVO: movimientos globales con filtros */
   getMovimientosGlobal: (params?: { cajaId?: number; desde?: string; hasta?: string; tipo?: string }) =>
     api.get<ApiResponse<MovimientosGlobalResponse>>('/api/caja/movimientos', { params }),
+
+  /** MEJORA 2: Editar movimiento manual (concepto, monto, fecha, referencia) */
+  editarMovimiento: (movimientoId: number, data: {
+    monto?: number; concepto?: string; fecha?: string; referencia?: string;
+  }) => api.put<ApiResponse<any>>(`/api/caja/movimientos/${movimientoId}`, data),
+
+  /** MEJORA 2: Anulación lógica — el movimiento deja de afectar saldos */
+  anularMovimiento: (movimientoId: number) =>
+    api.patch<ApiResponse<any>>(`/api/caja/movimientos/${movimientoId}/anular`),
 
   eliminar: (id: number) =>
     api.delete<ApiResponse<null>>(`/api/caja/${id}`),
@@ -377,6 +387,9 @@ export const combustibleApi = {
   actualizar: (id: number, data: Partial<Combustible>) =>
     api.put<ApiResponse<Combustible>>(`/api/combustible/${id}`, data),
 
+  resumen: () =>
+    api.get<ApiResponse<any>>('/api/combustible/resumen'),
+
   eliminar: (id: number) =>
     api.delete<ApiResponse<null>>(`/api/combustible/${id}`),
 };
@@ -466,31 +479,65 @@ export const configuracionApi = {
 
 // ─── CUENTAS V2 ───────────────────────────────────────────────────────────────
 export const cuentasApi = {
+  // ── Resumen ──────────────────────────────────────────────────────────────
   getResumen: () =>
     api.get<ApiResponse<ResumenFinanciero>>('/api/cuentas/resumen'),
 
+  // ── Monedas ──────────────────────────────────────────────────────────────
   getMonedas: () =>
     api.get<ApiResponse<Moneda[]>>('/api/cuentas/monedas'),
+
+  getMonedasActivas: () =>
+    api.get<ApiResponse<Moneda[]>>('/api/cuentas/monedas/activas'),
 
   getMonedaDefault: () =>
     api.get<ApiResponse<Moneda>>('/api/cuentas/moneda-default'),
 
-  getCuentas: (params?: { activo?: boolean }) =>
-    api.get<ApiResponse<CuentaDinero[]>>('/api/cuentas', { params }),
+  createMoneda: (data: { codigo: string; nombre: string; simbolo: string; esPorDefecto?: boolean }) =>
+    api.post<ApiResponse<Moneda>>('/api/cuentas/monedas', data),
 
+  updateMoneda: (id: number, data: { nombre?: string; simbolo?: string; esPorDefecto?: boolean; activo?: boolean }) =>
+    api.put<ApiResponse<Moneda>>(`/api/cuentas/monedas/${id}`, data),
+
+  deleteMoneda: (id: number) =>
+    api.delete<ApiResponse<null>>(`/api/cuentas/monedas/${id}`),
+
+  // ── Tipos de pago ─────────────────────────────────────────────────────────
   getTiposPago: () =>
     api.get<ApiResponse<TipoPago[]>>('/api/cuentas/tipos-pago'),
 
-  getMovimientos: (params?: { cuentaId?: number; tipo?: string; desde?: string; hasta?: string }) =>
-    api.get<ApiResponse<MovimientoCuenta[]>>('/api/cuentas/movimientos', { params }),
+  getTiposPagoActivos: () =>
+    api.get<ApiResponse<TipoPago[]>>('/api/cuentas/tipos-pago/activos'),
 
-  crearCuenta: (data: {
+  createTipoPago: (data: { codigo: string; nombre: string; descripcion?: string; orden?: number }) =>
+    api.post<ApiResponse<TipoPago>>('/api/cuentas/tipos-pago', data),
+
+  updateTipoPago: (id: number, data: { nombre?: string; descripcion?: string; activo?: boolean; orden?: number }) =>
+    api.put<ApiResponse<TipoPago>>(`/api/cuentas/tipos-pago/${id}`, data),
+
+  deleteTipoPago: (id: number) =>
+    api.delete<ApiResponse<null>>(`/api/cuentas/tipos-pago/${id}`),
+
+  // ── Cuentas (CuentaDinero) ────────────────────────────────────────────────
+  // CORRECCIÓN Error 1: router montado en /api/cuentas → rutas en /cuentas/cuentas/*
+  // CORRECCIÓN Error 1: nombres corregidos (createCuenta, updateCuenta) para coincidir con CuentasTabs.tsx
+  getCuentas: (params?: { activo?: boolean }) =>
+    api.get<ApiResponse<CuentaDinero[]>>('/api/cuentas/cuentas', { params }),
+
+  createCuenta: (data: {
     nombre: string; tipoCuenta: string; monedaId: number;
     saldoInicial?: number; descripcion?: string; banco?: string; numeroCuenta?: string;
-  }) => api.post<ApiResponse<CuentaDinero>>('/api/cuentas', data),
+  }) => api.post<ApiResponse<CuentaDinero>>('/api/cuentas/cuentas', data),
 
-  actualizarCuenta: (id: number, data: Partial<CuentaDinero>) =>
-    api.put<ApiResponse<CuentaDinero>>(`/api/cuentas/${id}`, data),
+  updateCuenta: (id: number, data: Partial<CuentaDinero>) =>
+    api.put<ApiResponse<CuentaDinero>>(`/api/cuentas/cuentas/${id}`, data),
+
+  deleteCuenta: (id: number) =>
+    api.delete<ApiResponse<null>>(`/api/cuentas/cuentas/${id}`),
+
+  // ── Movimientos de CuentaDinero ───────────────────────────────────────────
+  getMovimientos: (params?: { cuentaId?: number; tipo?: string; desde?: string; hasta?: string }) =>
+    api.get<ApiResponse<MovimientoCuenta[]>>('/api/cuentas/movimientos', { params }),
 
   registrarMovimiento: (data: {
     cuentaId: number; tipo: string; monto: number; monedaId: number;
@@ -498,10 +545,10 @@ export const cuentasApi = {
     cuentaDestinoId?: number; fecha?: string;
   }) => api.post<ApiResponse<MovimientoCuenta>>('/api/cuentas/movimientos', data),
 
-  eliminarMovimiento: (id: number) =>
-    api.delete<ApiResponse<null>>(`/api/cuentas/movimientos/${id}`),
+  // ── Inicializar defaults ──────────────────────────────────────────────────
+  inicializar: () =>
+    api.post<ApiResponse<{ message: string }>>('/api/cuentas/inicializar'),
 };
-
 // ─── PERMISOS ─────────────────────────────────────────────────────────────────
 export const permisosApi = {
   getPermisos: (usuarioId: number) =>

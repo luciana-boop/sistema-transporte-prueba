@@ -8,7 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, Trash2, Fuel } from 'lucide-react';
-import { combustibleApi, vehiculosApi, conductoresApi } from '@/services/api';
+import { combustibleApi, vehiculosApi, conductoresApi, cuentasApi } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, TableSkeleton,
@@ -29,6 +29,7 @@ const schema = z.object({
   kilometraje: z.string().optional(),
   grifo: z.string().optional(),
   observaciones: z.string().optional(),
+  cuentaId: z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
 
@@ -62,6 +63,11 @@ export default function CombustiblePage() {
   const { data: conductores = [] } = useQuery({
     queryKey: ['conductores'],
     queryFn: () => conductoresApi.listar({ activo: true }).then((r) => r.data.data),
+  });
+
+  const { data: cuentas = [] } = useQuery({
+    queryKey: ['cuentas', 'activas'],
+    queryFn: () => cuentasApi.getCuentas({ activo: true }).then((r) => r.data.data),
   });
 
   const {
@@ -352,6 +358,14 @@ export default function CombustiblePage() {
             </FormField>
             <FormField label="Grifo / Proveedor" error={errors.grifo?.message}>
               <Input placeholder="Primax, Repsol..." {...register('grifo')} />
+            </FormField>
+            <FormField label="Cuenta de pago">
+              <Select {...register('cuentaId')}>
+                <option value="">Sin especificar</option>
+                {cuentas.map((c: any) => (
+                  <option key={c.id} value={c.id}>{c.nombre} ({c.moneda?.codigo ?? 'PEN'})</option>
+                ))}
+              </Select>
             </FormField>
             <div className="col-span-2">
               <FormField label="Observaciones" error={errors.observaciones?.message}>

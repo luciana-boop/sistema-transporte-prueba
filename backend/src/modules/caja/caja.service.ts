@@ -17,6 +17,9 @@ export interface MovimientoManualDto {
   tipo: TipoMovimientoCaja;
   monto: number;
   concepto: string;
+  // BUG 5 FIX: fecha editable y referencia externa
+  fecha?: string;
+  referencia?: string;
 }
 
 export interface FiltrosMovimientosDto {
@@ -24,6 +27,13 @@ export interface FiltrosMovimientosDto {
   hasta?: string;
   tipo?: string;
   cajaId?: string;
+}
+
+export interface EditarMovimientoDto {
+  monto?: number;
+  concepto?: string;
+  fecha?: string;
+  referencia?: string;
 }
 
 // Movimiento enriquecido con saldo acumulado y referencia legible
@@ -36,6 +46,8 @@ export interface MovimientoEnriquecido {
   referencia: string | null;
   fecha: string;
   saldoAcumulado: number;
+  anulado: boolean;
+  esManual: boolean;
 }
 
 export class CajaService {
@@ -61,10 +73,11 @@ export class CajaService {
 
     // Calcular saldo actual en cada caja
     return cajas.map((caja: any) => {
-      const ingresos = caja.movimientos
+      const activos = caja.movimientos.filter((m: any) => !m.anulado);
+      const ingresos = activos
         .filter((m: any) => m.tipo === 'INGRESO')
         .reduce((s: number, m: any) => s + Number(m.monto), 0);
-      const egresos = caja.movimientos
+      const egresos = activos
         .filter((m: any) => m.tipo === 'EGRESO')
         .reduce((s: number, m: any) => s + Number(m.monto), 0);
       const saldoActual = Number(caja.saldoApertura) + ingresos - egresos;
@@ -85,10 +98,11 @@ export class CajaService {
     });
     if (!caja) throw new Error('Caja no encontrada');
 
-    const ingresos = caja.movimientos
+    const activos = caja.movimientos.filter((m: any) => !m.anulado);
+    const ingresos = activos
       .filter((m: any) => m.tipo === 'INGRESO')
       .reduce((s: number, m: any) => s + Number(m.monto), 0);
-    const egresos = caja.movimientos
+    const egresos = activos
       .filter((m: any) => m.tipo === 'EGRESO')
       .reduce((s: number, m: any) => s + Number(m.monto), 0);
     const saldoCalculado = Number(caja.saldoApertura) + ingresos - egresos;
@@ -117,10 +131,11 @@ export class CajaService {
 
     if (!caja) return null;
 
-    const ingresos = caja.movimientos
+    const activos = caja.movimientos.filter((m: any) => !m.anulado);
+    const ingresos = activos
       .filter((m: any) => m.tipo === 'INGRESO')
       .reduce((s: number, m: any) => s + Number(m.monto), 0);
-    const egresos = caja.movimientos
+    const egresos = activos
       .filter((m: any) => m.tipo === 'EGRESO')
       .reduce((s: number, m: any) => s + Number(m.monto), 0);
     const saldoCalculado = Number(caja.saldoApertura) + ingresos - egresos;
@@ -184,6 +199,9 @@ export class CajaService {
         tipo: dto.tipo,
         monto: dto.monto,
         concepto: dto.concepto,
+        // BUG 5 FIX: usar fecha proporcionada o now() como fallback
+        fecha: dto.fecha ? new Date(dto.fecha) : new Date(),
+        referencia: dto.referencia ?? null,
       },
     });
   }
@@ -236,20 +254,18 @@ export class CajaService {
 
     const saldoInicial = Number(caja.saldoApertura);
 
-    // Calcular saldo acumulado
+    // Calcular saldo acumulado (los anulados no mueven el saldo pero se muestran para auditoría)
     let saldoAcumulado = saldoInicial;
     const movimientos: MovimientoEnriquecido[] = movimientosRaw.map((m: any) => {
       const monto = Number(m.monto);
-      if (m.tipo === 'INGRESO') {
-        saldoAcumulado += monto;
-      } else {
-        saldoAcumulado -= monto;
+      if (!m.anulado) {
+        if (m.tipo === 'INGRESO') saldoAcumulado += monto;
+        else saldoAcumulado -= monto;
       }
 
-      // Construir referencia legible
-      let referencia: string | null = null;
-      if (m.pagoId) referencia = `PAGO-${m.pagoId}`;
-      else if (m.gastoId) referencia = `GASTO-${m.gastoId}`;
+      let referencia: string | null = m.referencia ?? null;
+      if (!referencia && m.pagoId) referencia = `PAGO-${m.pagoId}`;
+      else if (!referencia && m.gastoId) referencia = `GASTO-${m.gastoId}`;
 
       return {
         id: m.id,
@@ -258,15 +274,18 @@ export class CajaService {
         monto,
         concepto: m.concepto,
         referencia,
-        fecha: m.creadoEn.toISOString(),
+        fecha: (m.fecha ?? m.creadoEn).toISOString(),
         saldoAcumulado,
+        anulado: m.anulado,
+        esManual: !m.pagoId && !m.gastoId,
       };
     });
 
-    const totalIngresos = movimientosRaw
+    const activosRaw = movimientosRaw.filter((m: any) => !m.anulado);
+    const totalIngresos = activosRaw
       .filter((m: any) => m.tipo === 'INGRESO')
       .reduce((s: number, m: any) => s + Number(m.monto), 0);
-    const totalEgresos = movimientosRaw
+    const totalEgresos = activosRaw
       .filter((m: any) => m.tipo === 'EGRESO')
       .reduce((s: number, m: any) => s + Number(m.monto), 0);
     const saldoFinal = saldoInicial + totalIngresos - totalEgresos;
@@ -323,17 +342,18 @@ export class CajaService {
       },
     });
 
-    const totalIngresos = movimientos
+    const movimientosActivos = movimientos.filter((m: any) => !m.anulado);
+    const totalIngresos = movimientosActivos
       .filter((m: any) => m.tipo === 'INGRESO')
       .reduce((s: number, m: any) => s + Number(m.monto), 0);
-    const totalEgresos = movimientos
+    const totalEgresos = movimientosActivos
       .filter((m: any) => m.tipo === 'EGRESO')
       .reduce((s: number, m: any) => s + Number(m.monto), 0);
 
     const enriquecidos = movimientos.map((m: any) => {
-      let referencia: string | null = null;
-      if (m.pagoId) referencia = `PAGO-${m.pagoId}`;
-      else if (m.gastoId) referencia = `GASTO-${m.gastoId}`;
+      let referencia: string | null = m.referencia ?? null;
+      if (!referencia && m.pagoId) referencia = `PAGO-${m.pagoId}`;
+      else if (!referencia && m.gastoId) referencia = `GASTO-${m.gastoId}`;
       return {
         id: m.id,
         cajaId: m.cajaId,
@@ -343,11 +363,59 @@ export class CajaService {
         monto: Number(m.monto),
         concepto: m.concepto,
         referencia,
-        fecha: m.creadoEn.toISOString(),
+        fecha: (m.fecha ?? m.creadoEn).toISOString(),
       };
     });
 
     return { movimientos: enriquecidos, totalIngresos, totalEgresos };
+  }
+
+  /**
+   * MEJORA 2: Editar un movimiento manual (solo concepto, monto, fecha, referencia).
+   * No se pueden editar movimientos generados por pagos (pagoId) o gastos (gastoId).
+   */
+  async editarMovimiento(movimientoId: number, dto: EditarMovimientoDto, usuarioId: number) {
+    const mov = await prisma.movimientoCaja.findUnique({
+      where: { id: movimientoId },
+      include: { caja: true },
+    });
+    if (!mov) throw new Error('Movimiento no encontrado');
+    if (mov.anulado) throw new Error('No se puede editar un movimiento anulado');
+    if (mov.pagoId || mov.gastoId) throw new Error('No se pueden editar movimientos generados automáticamente');
+    if (mov.caja.usuarioId !== usuarioId) throw new Error('No puede editar movimientos de otro usuario');
+    if (mov.caja.estado === 'CERRADA') throw new Error('No se pueden editar movimientos de una caja cerrada');
+    if (dto.monto !== undefined && dto.monto <= 0) throw new Error('El monto debe ser mayor a 0');
+
+    return prisma.movimientoCaja.update({
+      where: { id: movimientoId },
+      data: {
+        ...(dto.monto !== undefined && { monto: dto.monto }),
+        ...(dto.concepto !== undefined && { concepto: dto.concepto }),
+        ...(dto.fecha !== undefined && { fecha: new Date(dto.fecha) }),
+        ...(dto.referencia !== undefined && { referencia: dto.referencia }),
+      },
+    });
+  }
+
+  /**
+   * MEJORA 2: Anulación lógica de un movimiento.
+   * El movimiento queda anulado=true, deja de afectar saldos, pero permanece visible.
+   * Solo se pueden anular movimientos manuales (sin pagoId ni gastoId).
+   */
+  async anularMovimiento(movimientoId: number, usuarioId: number) {
+    const mov = await prisma.movimientoCaja.findUnique({
+      where: { id: movimientoId },
+      include: { caja: true },
+    });
+    if (!mov) throw new Error('Movimiento no encontrado');
+    if (mov.anulado) throw new Error('El movimiento ya está anulado');
+    if (mov.pagoId || mov.gastoId) throw new Error('No se pueden anular movimientos generados automáticamente');
+    if (mov.caja.usuarioId !== usuarioId) throw new Error('No puede anular movimientos de otro usuario');
+
+    return prisma.movimientoCaja.update({
+      where: { id: movimientoId },
+      data: { anulado: true },
+    });
   }
 
   async remove(id: number, usuarioRol: string) {

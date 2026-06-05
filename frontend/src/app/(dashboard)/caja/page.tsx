@@ -40,7 +40,16 @@ const movSchema = z.object({
   tipo: z.enum(['INGRESO', 'EGRESO']),
   monto: z.string().min(1, 'Monto requerido'),
   concepto: z.string().min(2, 'Concepto requerido'),
+  fecha: z.string().min(1, 'Fecha requerida'),
+  referencia: z.string().optional(),
 });
+const editMovSchema = z.object({
+  monto: z.string().min(1, 'Monto requerido'),
+  concepto: z.string().min(2, 'Concepto requerido'),
+  fecha: z.string().min(1, 'Fecha requerida'),
+  referencia: z.string().optional(),
+});
+
 const filtrosSchema = z.object({
   desde: z.string().optional(),
   hasta: z.string().optional(),
@@ -151,6 +160,9 @@ export default function CajaPage() {
 
   // NUEVO: modal de movimientos de una caja
   const [showMovimientos, setShowMovimientos] = useState<Caja | null>(null);
+  // MEJORA 2: estado para editar y anular movimientos
+  const [editandoMov, setEditandoMov] = useState<MovimientoEnriquecido | null>(null);
+  const [anulandoMov, setAnulandoMov] = useState<MovimientoEnriquecido | null>(null);
   const [filtroMovDesde, setFiltroMovDesde] = useState('');
   const [filtroMovHasta, setFiltroMovHasta] = useState('');
   const [filtroMovTipo, setFiltroMovTipo] = useState('');
@@ -196,7 +208,7 @@ export default function CajaPage() {
   const cerrarForm = useForm<z.infer<typeof cerrarSchema>>({ resolver: zodResolver(cerrarSchema) });
   const movForm = useForm<z.infer<typeof movSchema>>({
     resolver: zodResolver(movSchema),
-    defaultValues: { tipo: 'INGRESO' },
+    defaultValues: { tipo: 'INGRESO', fecha: new Date().toISOString().split('T')[0] },
   });
 
   const invalidate = () => {
@@ -220,7 +232,7 @@ export default function CajaPage() {
 
   const movMutation = useMutation({
     mutationFn: (d: z.infer<typeof movSchema>) =>
-      cajaApi.registrarMovimiento(showMov!, { tipo: d.tipo as TipoMov, monto: parseFloat(d.monto), concepto: d.concepto }),
+      cajaApi.registrarMovimiento(showMov!, { tipo: d.tipo as TipoMov, monto: parseFloat(d.monto), concepto: d.concepto, fecha: d.fecha, referencia: d.referencia }),
     onSuccess: () => {
       toast.success('Movimiento registrado');
       setShowMov(null);
@@ -232,6 +244,38 @@ export default function CajaPage() {
       }
     },
     onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  // ── MEJORA 2: editarMutation
+  const editMovForm = useForm<z.infer<typeof editMovSchema>>({ resolver: zodResolver(editMovSchema) });
+
+  const editarMovMutation = useMutation({
+    mutationFn: (d: z.infer<typeof editMovSchema>) =>
+      cajaApi.editarMovimiento(editandoMov!.id, {
+        monto: parseFloat(d.monto),
+        concepto: d.concepto,
+        fecha: d.fecha,
+        referencia: d.referencia,
+      }),
+    onSuccess: () => {
+      toast.success('Movimiento actualizado');
+      setEditandoMov(null);
+      editMovForm.reset();
+      qc.invalidateQueries({ queryKey: ['caja-movimientos'] });
+      qc.invalidateQueries({ queryKey: ['cajas'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Error al editar'),
+  });
+
+  const anularMovMutation = useMutation({
+    mutationFn: (movId: number) => cajaApi.anularMovimiento(movId),
+    onSuccess: () => {
+      toast.success('Movimiento anulado');
+      setAnulandoMov(null);
+      qc.invalidateQueries({ queryKey: ['caja-movimientos'] });
+      qc.invalidateQueries({ queryKey: ['cajas'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Error al anular'),
   });
 
   // ── Handler para abrir vista de movimientos
@@ -512,36 +556,65 @@ export default function CajaPage() {
                     <Th className="text-right">Ingreso</Th>
                     <Th className="text-right">Egreso</Th>
                     <Th className="text-right">Saldo</Th>
+                    <Th></Th>
                   </tr>
                 </thead>
                 <tbody>
                   {movData?.movimientos.map((m: MovimientoEnriquecido) => (
-                    <Tr key={m.id}>
-                      <Td><span className="text-xs text-muted-foreground">{formatDatetime(m.fecha)}</span></Td>
+                    <Tr key={m.id} className={m.anulado ? 'opacity-50' : ''}>
+                      <Td>
+                        <span className={`text-xs ${m.anulado ? 'line-through text-muted-foreground' : 'text-muted-foreground'}`}>
+                          {formatDatetime(m.fecha)}
+                        </span>
+                        {m.anulado && <span className="ml-1 text-[10px] font-medium text-destructive uppercase">anulado</span>}
+                      </Td>
                       <Td>
                         <Badge
                           value={m.tipo}
                           label={m.tipo === 'INGRESO' ? 'Ingreso' : 'Egreso'}
                         />
                       </Td>
-                      <Td><span className="text-sm">{m.concepto}</span></Td>
+                      <Td><span className={`text-sm ${m.anulado ? 'line-through' : ''}`}>{m.concepto}</span></Td>
                       <Td><span className="text-xs text-muted-foreground">{m.referencia ?? '—'}</span></Td>
                       <Td className="text-right">
                         {m.tipo === 'INGRESO' ? (
-                          <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                          <span className={`font-medium ${m.anulado ? 'line-through text-muted-foreground' : 'text-emerald-600 dark:text-emerald-400'}`}>
                             {formatCurrency(m.monto)}
                           </span>
                         ) : <span className="text-muted-foreground">—</span>}
                       </Td>
                       <Td className="text-right">
                         {m.tipo === 'EGRESO' ? (
-                          <span className="font-medium text-destructive">
+                          <span className={`font-medium ${m.anulado ? 'line-through text-muted-foreground' : 'text-destructive'}`}>
                             {formatCurrency(m.monto)}
                           </span>
                         ) : <span className="text-muted-foreground">—</span>}
                       </Td>
                       <Td className="text-right">
-                        <span className="font-semibold">{formatCurrency(m.saldoAcumulado)}</span>
+                        <span className="font-semibold">{m.anulado ? '—' : formatCurrency(m.saldoAcumulado)}</span>
+                      </Td>
+                      <Td>
+                        {m.esManual && !m.anulado && (
+                          <div className="flex gap-1 justify-end">
+                            <Button
+                              size="xs" variant="ghost"
+                              onClick={() => {
+                                setEditandoMov(m);
+                                editMovForm.reset({
+                                  monto: String(m.monto),
+                                  concepto: m.concepto,
+                                  fecha: m.fecha.split('T')[0],
+                                  referencia: m.referencia ?? '',
+                                });
+                              }}
+                            >Editar</Button>
+                            <Button
+                              size="xs" variant="ghost"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => setAnulandoMov(m)}
+                            >Anular</Button>
+                          </div>
+                        )}
                       </Td>
                     </Tr>
                   ))}
@@ -549,6 +622,46 @@ export default function CajaPage() {
               </table>
             </div>
           )}
+        </div>
+      </Modal>
+
+      {/* ── Modal: Editar movimiento */}
+      <Modal open={!!editandoMov} onClose={() => { setEditandoMov(null); editMovForm.reset(); }} title="Editar movimiento">
+        <form onSubmit={editMovForm.handleSubmit((d) => editarMovMutation.mutate(d))} className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Monto" required error={editMovForm.formState.errors.monto?.message}>
+              <Input type="number" step="0.01" {...editMovForm.register('monto')} />
+            </FormField>
+            <FormField label="Fecha" required error={editMovForm.formState.errors.fecha?.message}>
+              <Input type="date" {...editMovForm.register('fecha')} />
+            </FormField>
+          </div>
+          <FormField label="Concepto" required error={editMovForm.formState.errors.concepto?.message}>
+            <Input placeholder="Descripción..." {...editMovForm.register('concepto')} />
+          </FormField>
+          <FormField label="Referencia">
+            <Input placeholder="N° factura, comprobante..." {...editMovForm.register('referencia')} />
+          </FormField>
+          <div className="flex justify-end gap-2 pt-2 border-t border-border">
+            <Button variant="secondary" type="button" onClick={() => { setEditandoMov(null); editMovForm.reset(); }}>Cancelar</Button>
+            <Button type="submit" loading={editarMovMutation.isPending}>Guardar cambios</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ── Modal: Confirmar anulación */}
+      <Modal open={!!anulandoMov} onClose={() => setAnulandoMov(null)} title="Anular movimiento">
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-muted-foreground">
+            ¿Confirmas la anulación del movimiento <span className="font-semibold text-foreground">{anulandoMov?.concepto}</span> por <span className="font-semibold text-foreground">{anulandoMov ? formatCurrency(anulandoMov.monto) : ''}</span>?
+          </p>
+          <p className="text-xs text-muted-foreground">El movimiento quedará marcado como anulado y dejará de afectar el saldo, pero seguirá visible para auditoría.</p>
+          <div className="flex justify-end gap-2 pt-2 border-t border-border">
+            <Button variant="secondary" onClick={() => setAnulandoMov(null)}>Cancelar</Button>
+            <Button variant="destructive" loading={anularMovMutation.isPending} onClick={() => anularMovMutation.mutate(anulandoMov!.id)}>
+              Confirmar anulación
+            </Button>
+          </div>
         </div>
       </Modal>
 
@@ -595,6 +708,14 @@ export default function CajaPage() {
           <FormField label="Concepto" required error={movForm.formState.errors.concepto?.message}>
             <Input placeholder="Descripción del movimiento" {...movForm.register('concepto')} />
           </FormField>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Fecha" required error={movForm.formState.errors.fecha?.message}>
+              <Input type="date" {...movForm.register('fecha')} />
+            </FormField>
+            <FormField label="Referencia">
+              <Input placeholder="N° factura, recibo, comprobante..." {...movForm.register('referencia')} />
+            </FormField>
+          </div>
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="secondary" type="button" onClick={() => { setShowMov(null); movForm.reset(); }}>Cancelar</Button>
             <Button type="submit" loading={movMutation.isPending}>Registrar</Button>

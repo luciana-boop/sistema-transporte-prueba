@@ -9,7 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, AlertTriangle, Download } from 'lucide-react';
-import { cobranzaApi, clientesApi } from '@/services/api';
+import { cobranzaApi, clientesApi, cuentasApi } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage, METODO_PAGO_LABEL, ESTADO_FACTURA_LABEL } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -26,6 +26,7 @@ const schema = z.object({
   referencia: z.string().optional(),
   observaciones: z.string().optional(),
   fechaPago: z.string().optional(),
+  cuentaId: z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
 
@@ -50,6 +51,11 @@ export default function CobranzaPage() {
   const { data: clientes = [] } = useQuery({
     queryKey: ['clientes'],
     queryFn: () => clientesApi.listar({ activo: true }).then((r) => r.data.data),
+  });
+
+  const { data: cuentas = [] } = useQuery({
+    queryKey: ['cuentas', 'activas'],
+    queryFn: () => cuentasApi.getCuentas({ activo: true }).then((r) => r.data.data),
   });
 
   const { data: facturasPendientes = [] } = useQuery({
@@ -262,6 +268,14 @@ export default function CobranzaPage() {
               </Select>
             </FormField>
             <FormField label="Referencia"><Input placeholder="N° transferencia..." {...register('referencia')} /></FormField>
+            <FormField label="Cuenta de destino">
+              <Select {...register('cuentaId')}>
+                <option value="">Sin especificar</option>
+                {cuentas.map((c: any) => (
+                  <option key={c.id} value={c.id}>{c.nombre} ({c.moneda?.codigo ?? 'PEN'})</option>
+                ))}
+              </Select>
+            </FormField>
             <FormField label="Fecha de pago"><Input type="date" {...register('fechaPago')} /></FormField>
           </div>
           <FormField label="Observaciones"><Textarea placeholder="Notas..." {...register('observaciones')} /></FormField>

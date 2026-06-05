@@ -18,6 +18,10 @@ router.get('/:id/movimientos', cajaController.getMovimientos.bind(cajaController
 router.post('/abrir', cajaController.abrir.bind(cajaController));
 router.patch('/:id/cerrar', cajaController.cerrar.bind(cajaController));
 router.post('/:id/movimiento', cajaController.registrarMovimiento.bind(cajaController));
+// MEJORA 2: editar y anular movimientos manuales
+// Estas rutas van ANTES de /:id para no colisionar
+router.put('/movimientos/:movimientoId', cajaController.editarMovimiento.bind(cajaController));
+router.patch('/movimientos/:movimientoId/anular', cajaController.anularMovimiento.bind(cajaController));
 router.delete('/:id', cajaController.eliminar.bind(cajaController));
 
 export default router;

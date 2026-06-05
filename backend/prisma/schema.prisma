@@ -238,6 +238,11 @@ model MovimientoCaja {
   tipo            TipoMovimientoCaja
   monto           Decimal            @db.Decimal(10, 2)
   concepto        String
+  // BUG 5 FIX: fecha editable y referencia externa
+  fecha           DateTime?          @map("fecha")
+  referencia      String?
+  // MEJORA 2: anulación lógica (false = activo, true = anulado; default false)
+  anulado         Boolean            @default(false)
   pagoId          Int?               @map("pago_id")
   gastoId         Int?               @map("gasto_id")
   creadoEn        DateTime           @default(now()) @map("creado_en")

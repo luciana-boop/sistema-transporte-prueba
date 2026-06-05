@@ -163,7 +163,7 @@ export interface MovimientoCaja {
   creadoEn: string;
 }
 
-/** NUEVO: movimiento enriquecido con saldo acumulado y referencia */
+/** Movimiento enriquecido con saldo acumulado, referencia, estado y origen */
 export interface MovimientoEnriquecido {
   id: number;
   cajaId: number;
@@ -173,6 +173,8 @@ export interface MovimientoEnriquecido {
   referencia: string | null;
   fecha: string;
   saldoAcumulado: number;
+  anulado: boolean;
+  esManual: boolean;
 }
 
 /** NUEVO: movimiento global (con datos de su caja) */

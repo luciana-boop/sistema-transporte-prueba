@@ -74,12 +74,13 @@ export class CajaController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      const { tipo, monto, concepto } = req.body;
+      const { tipo, monto, concepto, fecha, referencia } = req.body;
       if (!tipo || !monto || !concepto) { R.badRequest(res, 'tipo, monto y concepto son requeridos'); return; }
       if (!Object.values(TipoMovimientoCaja).includes(tipo)) {
         R.badRequest(res, `tipo inválido. Valores: ${Object.values(TipoMovimientoCaja).join(', ')}`); return;
       }
-      const data = await cajaService.registrarMovimiento(id, { tipo, monto: parseFloat(monto), concepto }, req.usuario!.id);
+      // BUG 5 FIX: pasar fecha y referencia opcionales al servicio
+      const data = await cajaService.registrarMovimiento(id, { tipo, monto: parseFloat(monto), concepto, fecha, referencia }, req.usuario!.id);
       R.created(res, data, 'Movimiento registrado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
@@ -121,6 +122,48 @@ export class CajaController {
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('inválida') || msg.includes('inválido')) R.badRequest(res, msg);
+      else R.serverError(res, e);
+    }
+  }
+
+  /**
+   * MEJORA 2: PUT /api/caja/movimientos/:movimientoId
+   * Editar campos de un movimiento manual.
+   */
+  async editarMovimiento(req: Request, res: Response): Promise<void> {
+    try {
+      const movimientoId = parseInt(req.params.movimientoId);
+      if (isNaN(movimientoId)) { R.badRequest(res, 'ID inválido'); return; }
+      const { monto, concepto, fecha, referencia } = req.body;
+      const dto: any = {};
+      if (monto !== undefined)     dto.monto     = parseFloat(monto);
+      if (concepto !== undefined)  dto.concepto  = concepto;
+      if (fecha !== undefined)     dto.fecha     = fecha;
+      if (referencia !== undefined) dto.referencia = referencia;
+      const data = await cajaService.editarMovimiento(movimientoId, dto, req.usuario!.id);
+      R.ok(res, data, 'Movimiento actualizado');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg.includes('no encontrado')) R.notFound(res, msg);
+      else if (msg.includes('No se puede') || msg.includes('No puede') || msg.includes('mayor a')) R.badRequest(res, msg);
+      else R.serverError(res, e);
+    }
+  }
+
+  /**
+   * MEJORA 2: PATCH /api/caja/movimientos/:movimientoId/anular
+   * Anulación lógica de un movimiento manual.
+   */
+  async anularMovimiento(req: Request, res: Response): Promise<void> {
+    try {
+      const movimientoId = parseInt(req.params.movimientoId);
+      if (isNaN(movimientoId)) { R.badRequest(res, 'ID inválido'); return; }
+      const data = await cajaService.anularMovimiento(movimientoId, req.usuario!.id);
+      R.ok(res, data, 'Movimiento anulado');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg.includes('no encontrado')) R.notFound(res, msg);
+      else if (msg.includes('ya está') || msg.includes('No se pueden') || msg.includes('No puede')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }
