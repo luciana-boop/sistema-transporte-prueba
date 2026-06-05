@@ -36,10 +36,10 @@ export class CajaController {
 
   async abrir(req: Request, res: Response): Promise<void> {
     try {
-      const { saldoApertura, observaciones } = req.body;
+      const { saldoApertura, nombre, observaciones } = req.body;
       if (saldoApertura === undefined) { R.badRequest(res, 'saldoApertura es requerido'); return; }
       const data = await cajaService.abrir(
-        { saldoApertura: parseFloat(saldoApertura), observaciones },
+        { saldoApertura: parseFloat(saldoApertura), nombre, observaciones },
         req.usuario!.id
       );
       R.created(res, data, 'Caja abierta correctamente');
@@ -79,7 +79,6 @@ export class CajaController {
       if (!Object.values(TipoMovimientoCaja).includes(tipo)) {
         R.badRequest(res, `tipo inválido. Valores: ${Object.values(TipoMovimientoCaja).join(', ')}`); return;
       }
-      // BUG 5 FIX: pasar fecha y referencia opcionales al servicio
       const data = await cajaService.registrarMovimiento(id, { tipo, monto: parseFloat(monto), concepto, fecha, referencia }, req.usuario!.id);
       R.created(res, data, 'Movimiento registrado');
     } catch (e) {
@@ -90,15 +89,10 @@ export class CajaController {
     }
   }
 
-  /**
-   * NUEVO: GET /api/caja/:id/movimientos
-   * Movimientos de una caja específica, con saldo acumulado y filtros.
-   */
   async getMovimientos(req: Request, res: Response): Promise<void> {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-
       const { desde, hasta, tipo } = req.query as Record<string, string>;
       const data = await cajaService.getMovimientos(id, { desde, hasta, tipo });
       R.ok(res, data);
@@ -110,10 +104,6 @@ export class CajaController {
     }
   }
 
-  /**
-   * NUEVO: GET /api/caja/movimientos
-   * Movimientos globales con filtro por caja, fecha y tipo.
-   */
   async getMovimientosGlobal(req: Request, res: Response): Promise<void> {
     try {
       const { desde, hasta, tipo, cajaId } = req.query as Record<string, string>;
@@ -126,10 +116,6 @@ export class CajaController {
     }
   }
 
-  /**
-   * MEJORA 2: PUT /api/caja/movimientos/:movimientoId
-   * Editar campos de un movimiento manual.
-   */
   async editarMovimiento(req: Request, res: Response): Promise<void> {
     try {
       const movimientoId = parseInt(req.params.movimientoId);
@@ -150,10 +136,6 @@ export class CajaController {
     }
   }
 
-  /**
-   * MEJORA 2: PATCH /api/caja/movimientos/:movimientoId/anular
-   * Anulación lógica de un movimiento manual.
-   */
   async anularMovimiento(req: Request, res: Response): Promise<void> {
     try {
       const movimientoId = parseInt(req.params.movimientoId);

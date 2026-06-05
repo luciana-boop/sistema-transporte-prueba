@@ -8,8 +8,8 @@ import * as R from '../../utils/response';
 export class GastosController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
-      const { tipoGasto, pedidoId, usuarioId, desde, hasta } = req.query as Record<string, string>;
-      const data = await gastosService.findAll({ tipoGasto, pedidoId, usuarioId, desde, hasta });
+      const { tipoGasto, pedidoId, usuarioId, desde, hasta, search } = req.query as Record<string, string>;
+      const data = await gastosService.findAll({ tipoGasto, pedidoId, usuarioId, desde, hasta, search });
       R.ok(res, data);
     } catch (e) { R.serverError(res, e); }
   }
@@ -29,7 +29,7 @@ export class GastosController {
 
   async crear(req: Request, res: Response): Promise<void> {
     try {
-      const { pedidoId, tipoGasto, monto, descripcion, comprobante, fecha } = req.body;
+      const { pedidoId, tipoGasto, monto, descripcion, comprobante, fecha, cuentaId, monedaId, tipoPagoId } = req.body;
       if (!tipoGasto || !monto || !descripcion) {
         R.badRequest(res, 'tipoGasto, monto y descripcion son requeridos'); return;
       }
@@ -37,7 +37,17 @@ export class GastosController {
         R.badRequest(res, `tipoGasto inválido. Valores: ${Object.values(TipoGasto).join(', ')}`); return;
       }
       const data = await gastosService.create(
-        { pedidoId: pedidoId ? parseInt(pedidoId) : undefined, tipoGasto, monto: parseFloat(monto), descripcion, comprobante, fecha },
+        {
+          pedidoId: pedidoId ? parseInt(pedidoId) : undefined,
+          tipoGasto,
+          monto: parseFloat(monto),
+          descripcion,
+          comprobante,
+          fecha,
+          cuentaId: cuentaId ? parseInt(cuentaId) : undefined,
+          monedaId: monedaId ? parseInt(monedaId) : undefined,
+          tipoPagoId: tipoPagoId ? parseInt(tipoPagoId) : undefined,
+        },
         req.usuario!.id
       );
       R.created(res, data, 'Gasto registrado correctamente');

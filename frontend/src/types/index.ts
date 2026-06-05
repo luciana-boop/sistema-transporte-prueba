@@ -137,6 +137,7 @@ export interface CuentaPorCobrar {
 export interface Caja {
   id: number;
   usuarioId: number;
+  nombre?: string;
   fecha: string;
   saldoApertura: number;
   saldoCierre?: number;

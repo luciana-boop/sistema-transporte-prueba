@@ -212,7 +212,7 @@ export const cajaApi = {
   actual: () =>
     api.get<ApiResponse<Caja | null>>('/api/caja/actual'),
 
-  abrir: (data: { saldoApertura: number; observaciones?: string }) =>
+  abrir: (data: { saldoApertura: number; nombre?: string; observaciones?: string }) =>
     api.post<ApiResponse<Caja>>('/api/caja/abrir', data),
 
   cerrar: (id: number, data: { saldoCierre: number; observaciones?: string }) =>
@@ -246,7 +246,7 @@ export const cajaApi = {
 
 // ─── GASTOS ───────────────────────────────────────────────────────────────────
 export const gastosApi = {
-  listar: (params?: { pedidoId?: number; tipoGasto?: TipoGasto; desde?: string; hasta?: string }) =>
+  listar: (params?: { pedidoId?: number; tipoGasto?: TipoGasto; desde?: string; hasta?: string ; search?: string }) =>
     api.get<ApiResponse<Gasto[]>>('/api/gastos', { params }),
 
   crear: (data: {

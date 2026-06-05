@@ -1,21 +1,25 @@
 // FILE: src/app/(dashboard)/gastos/page.tsx
-// MODIFICADO: agrega moneda, cuenta origen, tipo pago
+// CAMBIOS sobre Chat 8:
+//   - Al seleccionar cuenta origen, la moneda se autocompleta y bloquea
+//   - Si cuenta.moneda difiere de moneda seleccionada → error de validación
+//   - Validación solo en frontend (Gasto no persiste monedaId en DB)
+
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Search, Trash2, Download } from 'lucide-react';
-import { gastosApi, pedidosApi } from '@/services/api';
+import { Plus, Search, Trash2, Download, X } from 'lucide-react';
+import { gastosApi, pedidosApi, cuentasApi } from '@/services/api';
 import { formatDate, getErrorMessage, TIPO_GASTO_LABEL } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
   EmptyState, Modal, FormField, Input, Select, Textarea, StatCard,
 } from '@/components/shared';
-import { MonedaBadge, CuentaSelector, TipoPagoSelector, MonedaSelector } from '@/components/shared/FinancialSelectors';
+import { TipoPagoSelector, MonedaSelector } from '@/components/shared/FinancialSelectors';
 import { useAuthStore } from '@/store/auth.store';
 import { useMoneda } from '@/hooks/useMoneda';
 import type { TipoGasto } from '@/types';
@@ -40,14 +44,37 @@ type FormData = z.infer<typeof schema>;
 export default function GastosPage() {
   const qc = useQueryClient();
   const { usuario } = useAuthStore();
-  const { defaultSimbolo, formatWithSimbolo } = useMoneda();
+  const { defaultSimbolo } = useMoneda();
+
+  // Filtros
   const [search, setSearch] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('');
+  const [filtroDesde, setFiltroDesde] = useState('');
+  const [filtroHasta, setFiltroHasta] = useState('');
   const [showForm, setShowForm] = useState(false);
 
+  // Error de moneda inconsistente
+  const [monedaError, setMonedaError] = useState('');
+
+  const hayFiltros = !!(search || filtroTipo || filtroDesde || filtroHasta);
+
+  function limpiarFiltros() {
+    setSearch('');
+    setFiltroTipo('');
+    setFiltroDesde('');
+    setFiltroHasta('');
+  }
+
+  // ── Datos ──────────────────────────────────────────────────────────────────
   const { data: gastos = [], isLoading } = useQuery({
-    queryKey: ['gastos', filtroTipo],
-    queryFn: () => gastosApi.listar({ tipoGasto: filtroTipo as TipoGasto || undefined }).then((r) => r.data.data),
+    queryKey: ['gastos', filtroTipo, filtroDesde, filtroHasta, search],
+    queryFn: () =>
+      gastosApi.listar({
+        tipoGasto: filtroTipo as TipoGasto || undefined,
+        desde: filtroDesde || undefined,
+        hasta: filtroHasta || undefined,
+        search: search || undefined,
+      } as any).then((r) => r.data.data),
   });
 
   const { data: resumen } = useQuery({
@@ -60,35 +87,105 @@ export default function GastosPage() {
     queryFn: () => pedidosApi.listar().then((r) => r.data.data),
   });
 
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<FormData>({
+  // Cuentas con su moneda incluida — para la lógica cuenta→moneda
+  const { data: cuentas = [] } = useQuery({
+    queryKey: ['cuentas', { activo: true }],
+    queryFn: () =>
+      cuentasApi.getCuentas({ activo: true }).then((r) => r.data.data).catch(() => []),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // ── Form ───────────────────────────────────────────────────────────────────
+  const {
+    register, handleSubmit, reset, setValue, control,
+    formState: { errors, isSubmitting },
+  } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { tipoGasto: 'COMBUSTIBLE' },
   });
 
+  // Observar cuentaId y monedaId para la lógica reactiva
+  const watchedCuentaId = useWatch({ control, name: 'cuentaId' });
+  const watchedMonedaId = useWatch({ control, name: 'monedaId' });
+
+  // Efecto: cuando cambia la cuenta, auto-setear la moneda
+  useEffect(() => {
+    setMonedaError('');
+    if (!watchedCuentaId) return;
+
+    const cuenta = cuentas.find((c) => String(c.id) === watchedCuentaId);
+    if (!cuenta) return;
+
+    // Setear monedaId automáticamente según la cuenta seleccionada
+    setValue('monedaId', String(cuenta.monedaId), { shouldValidate: false });
+  }, [watchedCuentaId, cuentas, setValue]);
+
+  // Efecto: cuando el usuario cambia moneda manualmente, validar consistencia
+  useEffect(() => {
+    if (!watchedCuentaId || !watchedMonedaId) {
+      setMonedaError('');
+      return;
+    }
+    const cuenta = cuentas.find((c) => String(c.id) === watchedCuentaId);
+    if (!cuenta) return;
+
+    if (String(cuenta.monedaId) !== watchedMonedaId) {
+      setMonedaError(
+        `La cuenta "${cuenta.nombre}" opera en ${cuenta.moneda?.codigo ?? 'otra moneda'}. ` +
+        `Selecciona la moneda correcta o cambia de cuenta.`
+      );
+    } else {
+      setMonedaError('');
+    }
+  }, [watchedMonedaId, watchedCuentaId, cuentas]);
+
+  // Cuenta actualmente seleccionada (para mostrar info)
+  const cuentaSeleccionada = cuentas.find((c) => String(c.id) === watchedCuentaId);
+
   const invalidate = () => qc.invalidateQueries({ queryKey: ['gastos'] });
 
+  // ── Excel export ───────────────────────────────────────────────────────────
   const exportExcel = () => {
-    const rows = filtered.map((g) => ({
-      '#': g.id, Tipo: TIPO_GASTO_LABEL[g.tipoGasto], Descripción: g.descripcion,
-      Pedido: g.pedido ? `#${g.pedido.id}` : '', [`Monto ${defaultSimbolo}`]: Number(g.monto),
-      Comprobante: g.comprobante ?? '', Fecha: formatDate(g.fecha),
+    const rows = gastos.map((g) => ({
+      '#': g.id,
+      Tipo: TIPO_GASTO_LABEL[g.tipoGasto],
+      Concepto: g.descripcion,
+      Comprobante: g.comprobante ?? '',
+      Pedido: g.pedido ? `#${g.pedido.id}` : '',
+      [`Monto ${defaultSimbolo}`]: Number(g.monto),
+      Fecha: formatDate(g.fecha),
       Usuario: g.usuario?.nombre,
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Gastos');
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Gastos');
     XLSX.writeFile(wb, `gastos_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
+  // ── Mutations ──────────────────────────────────────────────────────────────
   const createMutation = useMutation({
-    mutationFn: (d: FormData) => gastosApi.crear({
-      pedidoId: d.pedidoId ? parseInt(d.pedidoId) : undefined,
-      tipoGasto: d.tipoGasto as TipoGasto,
-      monto: parseFloat(d.monto),
-      descripcion: d.descripcion,
-      comprobante: d.comprobante,
-      fecha: d.fecha,
-    }),
-    onSuccess: () => { toast.success('Gasto registrado'); setShowForm(false); reset(); invalidate(); },
+    mutationFn: (d: FormData) => {
+      // Bloquear si hay error de moneda
+      if (monedaError) throw new Error(monedaError);
+      return gastosApi.crear({
+        pedidoId: d.pedidoId ? parseInt(d.pedidoId) : undefined,
+        tipoGasto: d.tipoGasto as TipoGasto,
+        monto: parseFloat(d.monto),
+        descripcion: d.descripcion,
+        comprobante: d.comprobante,
+        fecha: d.fecha,
+        cuentaId: d.cuentaId ? parseInt(d.cuentaId) : undefined,
+        monedaId: d.monedaId ? parseInt(d.monedaId) : undefined,
+        tipoPagoId: d.tipoPagoId ? parseInt(d.tipoPagoId) : undefined,
+      } as any);
+    },
+    onSuccess: () => {
+      toast.success('Gasto registrado');
+      setShowForm(false);
+      reset();
+      setMonedaError('');
+      invalidate();
+    },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
@@ -98,16 +195,12 @@ export default function GastosPage() {
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
-  const filtered = gastos.filter((g) =>
-    search ? g.descripcion.toLowerCase().includes(search.toLowerCase()) : true
-  );
-
   const chartData = resumen?.resumenPorTipo.map((r) => ({
     name: TIPO_GASTO_LABEL[r.tipoGasto] ?? r.tipoGasto,
     total: r.totalMonto,
   })) ?? [];
 
-  const totalGastos = filtered.reduce((s, g) => s + Number(g.monto), 0);
+  const totalGastos = gastos.reduce((s, g) => s + Number(g.monto), 0);
 
   return (
     <div className="page-container">
@@ -116,15 +209,20 @@ export default function GastosPage() {
         description="Liquidación de gastos operativos"
         action={
           <div className="flex gap-2">
-            <Button variant="secondary" size="sm" onClick={exportExcel}><Download className="w-4 h-4" /> Excel</Button>
-            <Button onClick={() => { setShowForm(true); reset(); }}><Plus className="w-4 h-4" /> Registrar gasto</Button>
+            <Button variant="secondary" size="sm" onClick={exportExcel}>
+              <Download className="w-4 h-4" /> Excel
+            </Button>
+            <Button onClick={() => { setShowForm(true); reset(); setMonedaError(''); }}>
+              <Plus className="w-4 h-4" /> Registrar gasto
+            </Button>
           </div>
         }
       />
 
+      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard label="Total gastos" value={`${defaultSimbolo} ${totalGastos.toFixed(2)}`} color="red" />
-        <StatCard label="Registros" value={filtered.length} color="default" />
+        <StatCard label="Registros" value={gastos.length} color="default" />
         <StatCard
           label="Mayor tipo"
           value={resumen?.resumenPorTipo.length
@@ -134,6 +232,7 @@ export default function GastosPage() {
         />
       </div>
 
+      {/* Gráfico */}
       {chartData.length > 0 && (
         <div className="bg-card border border-border rounded-xl p-5">
           <p className="text-sm font-semibold mb-4">Gastos por tipo</p>
@@ -149,10 +248,16 @@ export default function GastosPage() {
         </div>
       )}
 
-      <div className="flex gap-3 flex-wrap">
+      {/* Filtros */}
+      <div className="flex gap-3 flex-wrap items-end">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Buscar descripción..." className="pl-9 w-64" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input
+            placeholder="Buscar comprobante, concepto, tipo..."
+            className="pl-9 w-72"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
         <Select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} className="w-44">
           <option value="">Todos los tipos</option>
@@ -160,27 +265,41 @@ export default function GastosPage() {
             <option key={v} value={v}>{l}</option>
           ))}
         </Select>
+        <div className="flex flex-col gap-0.5">
+          <label className="text-xs text-muted-foreground">Desde</label>
+          <Input type="date" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)} className="w-36" />
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <label className="text-xs text-muted-foreground">Hasta</label>
+          <Input type="date" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} className="w-36" />
+        </div>
+        {hayFiltros && (
+          <Button variant="ghost" size="sm" onClick={limpiarFiltros} className="text-muted-foreground">
+            <X className="w-3.5 h-3.5" /> Limpiar
+          </Button>
+        )}
       </div>
 
-      {isLoading ? <TableSkeleton rows={6} cols={7} /> : (
+      {/* Tabla */}
+      {isLoading ? <TableSkeleton rows={6} cols={8} /> : (
         <Table>
           <thead>
             <tr>
-              <Th>#</Th><Th>Tipo</Th><Th>Descripción</Th><Th>Pedido</Th>
+              <Th>#</Th><Th>Tipo</Th><Th>Concepto</Th><Th>Comprobante</Th><Th>Pedido</Th>
               <Th>Monto</Th><Th>Fecha</Th>
               {usuario?.rol === 'ADMIN' && <Th>Acc.</Th>}
             </tr>
           </thead>
           <tbody>
-            {filtered.length > 0 ? filtered.map((g) => (
+            {gastos.length > 0 ? gastos.map((g) => (
               <Tr key={g.id}>
                 <Td><span className="font-mono text-xs text-muted-foreground">#{g.id}</span></Td>
                 <Td><Badge value={g.tipoGasto} label={TIPO_GASTO_LABEL[g.tipoGasto]} /></Td>
+                <Td><span className="text-sm">{g.descripcion}</span></Td>
                 <Td>
-                  <div>
-                    <p className="text-sm">{g.descripcion}</p>
-                    {g.comprobante && <p className="text-xs text-muted-foreground">{g.comprobante}</p>}
-                  </div>
+                  {g.comprobante
+                    ? <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">{g.comprobante}</span>
+                    : <span className="text-xs text-muted-foreground">—</span>}
                 </Td>
                 <Td>
                   {g.pedido
@@ -201,15 +320,21 @@ export default function GastosPage() {
                 )}
               </Tr>
             )) : (
-              <tr><td colSpan={7}><EmptyState message="No se encontraron gastos" /></td></tr>
+              <tr><td colSpan={8}><EmptyState message="No se encontraron gastos" /></td></tr>
             )}
           </tbody>
         </Table>
       )}
 
-      <Modal open={showForm} onClose={() => { setShowForm(false); reset(); }} title="Registrar gasto">
+      {/* Modal: Registrar gasto */}
+      <Modal
+        open={showForm}
+        onClose={() => { setShowForm(false); reset(); setMonedaError(''); }}
+        title="Registrar gasto"
+      >
         <form onSubmit={handleSubmit((d) => createMutation.mutate(d))} className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-3">
+
             <FormField label="Tipo de gasto" required error={errors.tipoGasto?.message}>
               <Select {...register('tipoGasto')}>
                 {Object.entries(TIPO_GASTO_LABEL).map(([v, l]) => (
@@ -217,29 +342,67 @@ export default function GastosPage() {
                 ))}
               </Select>
             </FormField>
+
             <FormField label="Monto" required error={errors.monto?.message}>
               <Input type="number" step="0.01" placeholder="0.00" {...register('monto')} />
             </FormField>
+
             <div className="col-span-2">
-              <FormField label="Descripción" required error={errors.descripcion?.message}>
+              <FormField label="Concepto / Descripción" required error={errors.descripcion?.message}>
                 <Input placeholder="Descripción del gasto" {...register('descripcion')} />
               </FormField>
             </div>
-            <FormField label="Moneda">
-              <MonedaSelector placeholder="Moneda..." {...register('monedaId')} />
+
+            <FormField label="Comprobante" error={errors.comprobante?.message}>
+              <Input placeholder="N° factura, boleta, ticket..." {...register('comprobante')} />
             </FormField>
-            <FormField label="Cuenta origen">
-              <CuentaSelector placeholder="Cuenta origen..." {...register('cuentaId')} />
-            </FormField>
-            <FormField label="Tipo de pago">
-              <TipoPagoSelector placeholder="Método pago..." {...register('tipoPagoId')} />
-            </FormField>
-            <FormField label="Comprobante">
-              <Input placeholder="N° factura, boleta..." {...register('comprobante')} />
-            </FormField>
+
             <FormField label="Fecha">
               <Input type="date" {...register('fecha')} />
             </FormField>
+
+            {/* Cuenta origen — controla la moneda */}
+            <div className="col-span-2">
+              <FormField label="Cuenta origen">
+                <Select {...register('cuentaId')}>
+                  <option value="">Sin cuenta específica</option>
+                  {cuentas.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nombre} ({c.moneda?.simbolo} {c.moneda?.codigo})
+                    </option>
+                  ))}
+                </Select>
+              </FormField>
+              {cuentaSeleccionada && (
+                <p className="text-xs text-muted-foreground mt-1 ml-0.5">
+                  Moneda de la cuenta: <span className="font-semibold text-foreground">{cuentaSeleccionada.moneda?.codigo} ({cuentaSeleccionada.moneda?.simbolo})</span>
+                </p>
+              )}
+            </div>
+
+            {/* Moneda — se autocompleta y bloquea cuando hay cuenta seleccionada */}
+            <FormField
+              label="Moneda"
+              error={monedaError || errors.monedaId?.message}
+            >
+              <MonedaSelector
+                placeholder="Seleccionar moneda..."
+                {...register('monedaId')}
+                // Bloquear si hay cuenta seleccionada (la moneda la define la cuenta)
+                disabled={!!watchedCuentaId}
+                className={monedaError ? 'border-destructive' : ''}
+              />
+              {watchedCuentaId && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  La moneda se fija según la cuenta seleccionada.
+                </p>
+              )}
+            </FormField>
+
+            <FormField label="Tipo de pago">
+              <TipoPagoSelector placeholder="Método pago..." {...register('tipoPagoId')} />
+            </FormField>
+
             <div className="col-span-2">
               <FormField label="Pedido asociado (opcional)">
                 <Select {...register('pedidoId')}>
@@ -250,10 +413,31 @@ export default function GastosPage() {
                 </Select>
               </FormField>
             </div>
+
           </div>
+
+          {/* Alerta de error de moneda */}
+          {monedaError && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              {monedaError}
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
-            <Button variant="secondary" type="button" onClick={() => { setShowForm(false); reset(); }}>Cancelar</Button>
-            <Button type="submit" loading={isSubmitting || createMutation.isPending}>Registrar gasto</Button>
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => { setShowForm(false); reset(); setMonedaError(''); }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              loading={isSubmitting || createMutation.isPending}
+              disabled={!!monedaError}
+            >
+              Registrar gasto
+            </Button>
           </div>
         </form>
       </Modal>

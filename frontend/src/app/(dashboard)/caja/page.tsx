@@ -1,23 +1,23 @@
 // FILE: src/app/(dashboard)/caja/page.tsx
-// CAMBIOS:
-//   - Parte 1: nombre de caja visible (usuario + fecha), estado, saldo actual calculado
-//   - Parte 2: vista de movimientos por caja (modal) con saldo acumulado cronológico
-//   - Parte 3: saldo calculado automáticamente (ingresos - egresos + apertura)
-//   - Parte 4: filtros por fecha, tipo y caja en el panel global de movimientos
-//   - Parte 5: reporte PDF vía window.print() (zero-dependency)
-//   - Parte 6: validaciones de caja inexistente, fechas inválidas, rangos vacíos
+// CAMBIOS v2:
+//   - Nombre de caja: campo editable al abrir, visible en tabla y modal
+//   - Filtro fecha desde/hasta en la lista de cajas
+//   - Exportar Excel en movimientos de caja (usa xlsx ya instalado)
+//   - Sección movimientos por cuenta: seleccionar cuenta, ver ingresos/egresos/saldo
+//   - Exportar Excel de movimientos de cuenta
 
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import {
-  Plus, Lock, FileDown, Eye, ArrowUpCircle, ArrowDownCircle, Filter,
+  Plus, Lock, FileDown, Eye, ArrowUpCircle, ArrowDownCircle, Filter, X,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { cajaApi, cuentasApi } from '@/services/api';
 import { formatCurrency, formatDatetime, formatDate, getErrorMessage } from '@/lib/utils';
 import {
@@ -29,6 +29,7 @@ import type { Caja, MovimientoEnriquecido, MovimientosCajaResponse, TipoMov } fr
 
 // ─── Schemas ────────────────────────────────────────────────────────────────
 const abrirSchema = z.object({
+  nombre: z.string().optional(),
   saldoApertura: z.string().min(1, 'Saldo de apertura requerido'),
   observaciones: z.string().optional(),
 });
@@ -50,19 +51,14 @@ const editMovSchema = z.object({
   referencia: z.string().optional(),
 });
 
-const filtrosSchema = z.object({
-  desde: z.string().optional(),
-  hasta: z.string().optional(),
-  tipo: z.string().optional(),
-});
-
 // ─── Helper: nombre de caja ──────────────────────────────────────────────────
 function cajaNombre(caja: Caja): string {
+  if (caja.nombre) return caja.nombre;
   const fecha = formatDate(caja.fecha, 'dd/MM/yyyy');
   return `Caja – ${caja.usuario?.nombre ?? '?'} – ${fecha}`;
 }
 
-// ─── Componente de impresión PDF ─────────────────────────────────────────────
+// ─── PDF print helper ────────────────────────────────────────────────────────
 interface PrintData {
   caja: Caja;
   movimientos: MovimientoEnriquecido[];
@@ -93,8 +89,7 @@ function printMovimientos(data: PrintData) {
     </tr>
   `).join('');
 
-  const html = `
-    <!DOCTYPE html><html lang="es">
+  const html = `<!DOCTYPE html><html lang="es">
     <head>
       <meta charset="UTF-8"/>
       <title>Reporte de Caja</title>
@@ -110,36 +105,29 @@ function printMovimientos(data: PrintData) {
         .resumen div { flex: 1; }
         .resumen .label { font-size: 9px; color: #6b7280; text-transform: uppercase; }
         .resumen .value { font-size: 13px; font-weight: 700; margin-top: 2px; }
-        .green { color: #16a34a; }
-        .red { color: #dc2626; }
+        .green { color: #16a34a; } .red { color: #dc2626; }
         @media print { body { margin: 8mm; } }
       </style>
     </head>
     <body>
       <h1>Reporte de Caja</h1>
       <div class="meta">
-        <strong>${nombre}</strong> &nbsp;|&nbsp; Estado: ${caja.estado}<br/>
-        Período: ${rango}<br/>
-        Generado: ${new Date().toLocaleString('es-PE')}
+        <strong>${nombre}</strong><br/>Período: ${rango}
       </div>
-      ${movimientos.length === 0
-        ? '<p style="color:#6b7280;font-style:italic">No hay movimientos en el rango seleccionado.</p>'
-        : `<table>
-            <thead><tr>
-              <th>Fecha</th><th>Tipo</th><th>Concepto</th><th>Referencia</th>
-              <th>Ingreso</th><th>Egreso</th><th>Saldo</th>
-            </tr></thead>
-            <tbody>${filas}</tbody>
-          </table>`
-      }
+      <table>
+        <thead><tr>
+          <th>Fecha</th><th>Tipo</th><th>Concepto</th><th>Referencia</th>
+          <th>Ingreso</th><th>Egreso</th><th>Saldo</th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
       <div class="resumen">
         <div><div class="label">Saldo inicial</div><div class="value">${formatCurrency(saldoInicial)}</div></div>
         <div><div class="label">Total ingresos</div><div class="value green">${formatCurrency(totalIngresos)}</div></div>
         <div><div class="label">Total egresos</div><div class="value red">${formatCurrency(totalEgresos)}</div></div>
         <div><div class="label">Saldo final</div><div class="value">${formatCurrency(saldoFinal)}</div></div>
       </div>
-    </body></html>
-  `;
+    </body></html>`;
 
   const win = window.open('', '_blank', 'width=900,height=700');
   if (!win) { toast.error('Permite ventanas emergentes para imprimir'); return; }
@@ -147,6 +135,52 @@ function printMovimientos(data: PrintData) {
   win.document.close();
   win.focus();
   setTimeout(() => { win.print(); }, 400);
+}
+
+// ─── Excel export para movimientos de caja ────────────────────────────────────
+function exportMovimientosExcel(
+  movimientos: MovimientoEnriquecido[],
+  saldoInicial: number,
+  nombreCaja: string
+) {
+  const rows = movimientos.map((m) => ({
+    Fecha: formatDatetime(m.fecha),
+    Concepto: m.concepto,
+    Referencia: m.referencia ?? '',
+    Tipo: m.tipo === 'INGRESO' ? 'Ingreso' : 'Egreso',
+    Ingreso: m.tipo === 'INGRESO' && !m.anulado ? m.monto : '',
+    Egreso: m.tipo === 'EGRESO' && !m.anulado ? m.monto : '',
+    'Saldo Acumulado': m.anulado ? '' : m.saldoAcumulado,
+    Estado: m.anulado ? 'ANULADO' : 'ACTIVO',
+  }));
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Movimientos');
+  XLSX.writeFile(wb, `movimientos_caja_${new Date().toISOString().split('T')[0]}.xlsx`);
+}
+
+// ─── Excel export para movimientos de cuenta ─────────────────────────────────
+function exportCuentaExcel(movimientos: any[], nombreCuenta: string) {
+  let saldo = 0;
+  const rows = movimientos.map((m: any) => {
+    const ingreso = m.tipo === 'INGRESO' ? Number(m.monto) : 0;
+    const egreso = m.tipo === 'EGRESO' ? Number(m.monto) : 0;
+    saldo += ingreso - egreso;
+    return {
+      Fecha: formatDatetime(m.fecha),
+      Concepto: m.concepto,
+      Referencia: m.referencia ?? '',
+      Ingreso: ingreso || '',
+      Egreso: egreso || '',
+      Saldo: saldo,
+    };
+  });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Movimientos');
+  XLSX.writeFile(wb, `cuenta_${nombreCuenta.replace(/\s/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
 }
 
 // ─── Página principal ────────────────────────────────────────────────────────
@@ -158,21 +192,26 @@ export default function CajaPage() {
   const [showCerrar, setShowCerrar] = useState<number | null>(null);
   const [showMov, setShowMov] = useState<number | null>(null);
 
-  // NUEVO: modal de movimientos de una caja
+  // Modal movimientos de caja
   const [showMovimientos, setShowMovimientos] = useState<Caja | null>(null);
-  // MEJORA 2: estado para editar y anular movimientos
   const [editandoMov, setEditandoMov] = useState<MovimientoEnriquecido | null>(null);
   const [anulandoMov, setAnulandoMov] = useState<MovimientoEnriquecido | null>(null);
   const [filtroMovDesde, setFiltroMovDesde] = useState('');
   const [filtroMovHasta, setFiltroMovHasta] = useState('');
   const [filtroMovTipo, setFiltroMovTipo] = useState('');
 
-  // Datos de la caja en vista de movimientos
-  const {
-    data: movData,
-    isLoading: isLoadingMov,
-    error: errorMov,
-  } = useQuery({
+  // Filtros lista de cajas
+  const [filtroListaDesde, setFiltroListaDesde] = useState('');
+  const [filtroListaHasta, setFiltroListaHasta] = useState('');
+
+  // Movimientos por cuenta
+  const [showCuentaMov, setShowCuentaMov] = useState(false);
+  const [cuentaSelId, setCuentaSelId] = useState<string>('');
+  const [cuentaMovDesde, setCuentaMovDesde] = useState('');
+  const [cuentaMovHasta, setCuentaMovHasta] = useState('');
+
+  // Datos de movimientos de caja
+  const { data: movData, isLoading: isLoadingMov, error: errorMov } = useQuery({
     queryKey: ['caja-movimientos', showMovimientos?.id, filtroMovDesde, filtroMovHasta, filtroMovTipo],
     queryFn: () =>
       cajaApi
@@ -185,22 +224,38 @@ export default function CajaPage() {
     enabled: !!showMovimientos,
   });
 
-  // Cajas listadas
+  // Cajas listadas (con filtros de fecha)
   const { data: cajas = [], isLoading } = useQuery({
-    queryKey: ['cajas'],
-    queryFn: () => cajaApi.listar().then((r) => r.data.data),
+    queryKey: ['cajas', filtroListaDesde, filtroListaHasta],
+    queryFn: () =>
+      cajaApi.listar({
+        desde: filtroListaDesde || undefined,
+        hasta: filtroListaHasta || undefined,
+      }).then((r) => r.data.data),
   });
 
-  // Caja actual del usuario
+  // Caja actual
   const { data: cajaActual } = useQuery({
     queryKey: ['caja-actual'],
     queryFn: () => cajaApi.actual().then((r) => r.data.data),
   });
 
-  // Cuentas
+  // Resumen de cuentas (saldos)
   const { data: resumenCuentas } = useQuery({
     queryKey: ['cuentas', 'resumen'],
     queryFn: () => cuentasApi.getResumen().then((r) => r.data.data).catch(() => null),
+  });
+
+  // Movimientos de la cuenta seleccionada
+  const { data: cuentaMovData, isLoading: isLoadingCuentaMov } = useQuery({
+    queryKey: ['cuenta-movimientos', cuentaSelId, cuentaMovDesde, cuentaMovHasta],
+    queryFn: () =>
+      cuentasApi.getMovimientos({
+        cuentaId: parseInt(cuentaSelId),
+        desde: cuentaMovDesde || undefined,
+        hasta: cuentaMovHasta || undefined,
+      }).then((r) => r.data.data),
+    enabled: !!cuentaSelId,
   });
 
   // Forms
@@ -218,7 +273,7 @@ export default function CajaPage() {
 
   const abrirMutation = useMutation({
     mutationFn: (d: z.infer<typeof abrirSchema>) =>
-      cajaApi.abrir({ saldoApertura: parseFloat(d.saldoApertura), observaciones: d.observaciones }),
+      cajaApi.abrir({ nombre: d.nombre || undefined, saldoApertura: parseFloat(d.saldoApertura), observaciones: d.observaciones } as any),
     onSuccess: () => { toast.success('Caja abierta'); setShowAbrir(false); abrirForm.reset(); invalidate(); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
@@ -238,15 +293,11 @@ export default function CajaPage() {
       setShowMov(null);
       movForm.reset();
       invalidate();
-      // Refrescar movimientos si está abierto
-      if (showMovimientos) {
-        qc.invalidateQueries({ queryKey: ['caja-movimientos'] });
-      }
+      if (showMovimientos) qc.invalidateQueries({ queryKey: ['caja-movimientos'] });
     },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
-  // ── MEJORA 2: editarMutation
   const editMovForm = useForm<z.infer<typeof editMovSchema>>({ resolver: zodResolver(editMovSchema) });
 
   const editarMovMutation = useMutation({
@@ -278,7 +329,6 @@ export default function CajaPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Error al anular'),
   });
 
-  // ── Handler para abrir vista de movimientos
   function handleVerMovimientos(caja: Caja) {
     setFiltroMovDesde('');
     setFiltroMovHasta('');
@@ -286,7 +336,6 @@ export default function CajaPage() {
     setShowMovimientos(caja);
   }
 
-  // ── Handler para imprimir PDF
   function handlePrint() {
     if (!movData || !showMovimientos) return;
     printMovimientos({
@@ -300,6 +349,22 @@ export default function CajaPage() {
       hasta: filtroMovHasta || undefined,
     });
   }
+
+  function handleExcelMovimientos() {
+    if (!movData || !showMovimientos) return;
+    exportMovimientosExcel(movData.movimientos, movData.saldoInicial, cajaNombre(showMovimientos));
+  }
+
+  // Calcular totales de cuenta seleccionada
+  const cuentaNombre = resumenCuentas?.cuentas?.find((c: any) => String(c.id) === cuentaSelId)?.nombre ?? '';
+  const cuentaMovList: any[] = Array.isArray(cuentaMovData) ? cuentaMovData : [];
+  const cuentaTotalIngresos = cuentaMovList
+    .filter((m) => m.tipo === 'INGRESO')
+    .reduce((s, m) => s + Number(m.monto), 0);
+  const cuentaTotalEgresos = cuentaMovList
+    .filter((m) => m.tipo === 'EGRESO')
+    .reduce((s, m) => s + Number(m.monto), 0);
+  const cuentaSaldo = cuentaTotalIngresos - cuentaTotalEgresos;
 
   return (
     <div className="page-container">
@@ -322,7 +387,7 @@ export default function CajaPage() {
         }
       />
 
-      {/* ── PARTE 1: Caja actual con nombre, estado y saldo calculado */}
+      {/* Caja actual */}
       {cajaActual && (
         <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
           <div className="flex items-center justify-between flex-wrap gap-4">
@@ -357,7 +422,7 @@ export default function CajaPage() {
         </div>
       )}
 
-      {/* Saldos actuales por cuenta */}
+      {/* Saldos por cuenta */}
       {resumenCuentas?.cuentas && resumenCuentas.cuentas.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {resumenCuentas.cuentas.map((c: any) => (
@@ -374,6 +439,147 @@ export default function CajaPage() {
           ))}
         </div>
       )}
+
+      {/* ── MOVIMIENTOS POR CUENTA ─────────────────────────────────────── */}
+      <div className="bg-card border border-border rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+          <div>
+            <p className="text-sm font-semibold">Movimientos por cuenta</p>
+            <p className="text-xs text-muted-foreground">Ver ingresos, egresos y saldo de una cuenta específica</p>
+          </div>
+          {cuentaSelId && cuentaMovList.length > 0 && (
+            <Button variant="secondary" size="sm" onClick={() => exportCuentaExcel(cuentaMovList, cuentaNombre)}>
+              <FileDown className="w-4 h-4" /> Excel
+            </Button>
+          )}
+        </div>
+
+        {/* Selector de cuenta y filtros */}
+        <div className="flex gap-3 flex-wrap items-end mb-4">
+          <div className="flex flex-col gap-0.5">
+            <label className="text-xs text-muted-foreground">Cuenta</label>
+            <Select
+              value={cuentaSelId}
+              onChange={(e) => setCuentaSelId(e.target.value)}
+              className="w-56"
+            >
+              <option value="">Seleccionar cuenta...</option>
+              {resumenCuentas?.cuentas?.map((c: any) => (
+                <option key={c.id} value={c.id}>
+                  {c.nombre} ({c.moneda?.simbolo} {c.moneda?.codigo})
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <label className="text-xs text-muted-foreground">Desde</label>
+            <Input type="date" value={cuentaMovDesde} onChange={(e) => setCuentaMovDesde(e.target.value)} className="w-36" />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <label className="text-xs text-muted-foreground">Hasta</label>
+            <Input type="date" value={cuentaMovHasta} onChange={(e) => setCuentaMovHasta(e.target.value)} className="w-36" />
+          </div>
+          {(cuentaMovDesde || cuentaMovHasta) && (
+            <Button variant="ghost" size="sm" onClick={() => { setCuentaMovDesde(''); setCuentaMovHasta(''); }}>
+              <X className="w-3.5 h-3.5" /> Limpiar
+            </Button>
+          )}
+        </div>
+
+        {cuentaSelId ? (
+          <>
+            {/* Resumen de la cuenta */}
+            {!isLoadingCuentaMov && (
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-center">
+                  <p className="text-xs text-muted-foreground">Total ingresos</p>
+                  <p className="font-semibold text-sm text-emerald-600 dark:text-emerald-400 mt-1">{formatCurrency(cuentaTotalIngresos)}</p>
+                </div>
+                <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-center">
+                  <p className="text-xs text-muted-foreground">Total egresos</p>
+                  <p className="font-semibold text-sm text-destructive mt-1">{formatCurrency(cuentaTotalEgresos)}</p>
+                </div>
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-center">
+                  <p className="text-xs text-muted-foreground">Saldo acumulado</p>
+                  <p className={`font-bold text-sm mt-1 ${cuentaSaldo >= 0 ? 'text-primary' : 'text-destructive'}`}>{formatCurrency(cuentaSaldo)}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Tabla de movimientos de cuenta */}
+            {isLoadingCuentaMov ? (
+              <TableSkeleton rows={4} cols={6} />
+            ) : cuentaMovList.length === 0 ? (
+              <EmptyState message="Sin movimientos en el período seleccionado" />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <Th>Fecha</Th>
+                      <Th>Concepto</Th>
+                      <Th>Referencia</Th>
+                      <Th className="text-right">Ingreso</Th>
+                      <Th className="text-right">Egreso</Th>
+                      <Th className="text-right">Saldo</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      let saldoAcc = 0;
+                      return cuentaMovList.map((m: any) => {
+                        const ing = m.tipo === 'INGRESO' ? Number(m.monto) : 0;
+                        const egr = m.tipo === 'EGRESO' ? Number(m.monto) : 0;
+                        saldoAcc += ing - egr;
+                        return (
+                          <Tr key={m.id}>
+                            <Td><span className="text-xs text-muted-foreground">{formatDatetime(m.fecha)}</span></Td>
+                            <Td><span className="text-sm">{m.concepto}</span></Td>
+                            <Td><span className="text-xs text-muted-foreground">{m.referencia ?? '—'}</span></Td>
+                            <Td className="text-right">
+                              {ing > 0
+                                ? <span className="font-medium text-emerald-600 dark:text-emerald-400">{formatCurrency(ing)}</span>
+                                : <span className="text-muted-foreground">—</span>}
+                            </Td>
+                            <Td className="text-right">
+                              {egr > 0
+                                ? <span className="font-medium text-destructive">{formatCurrency(egr)}</span>
+                                : <span className="text-muted-foreground">—</span>}
+                            </Td>
+                            <Td className="text-right">
+                              <span className={`font-semibold ${saldoAcc >= 0 ? '' : 'text-destructive'}`}>{formatCurrency(saldoAcc)}</span>
+                            </Td>
+                          </Tr>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground text-center py-6">Selecciona una cuenta para ver sus movimientos</p>
+        )}
+      </div>
+
+      {/* ── Filtros de la lista de cajas */}
+      <div className="flex gap-3 flex-wrap items-end">
+        <p className="text-sm font-semibold self-center">Historial de cajas</p>
+        <div className="flex flex-col gap-0.5">
+          <label className="text-xs text-muted-foreground">Desde</label>
+          <Input type="date" value={filtroListaDesde} onChange={(e) => setFiltroListaDesde(e.target.value)} className="w-36" />
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <label className="text-xs text-muted-foreground">Hasta</label>
+          <Input type="date" value={filtroListaHasta} onChange={(e) => setFiltroListaHasta(e.target.value)} className="w-36" />
+        </div>
+        {(filtroListaDesde || filtroListaHasta) && (
+          <Button variant="ghost" size="sm" onClick={() => { setFiltroListaDesde(''); setFiltroListaHasta(''); }}>
+            <X className="w-3.5 h-3.5" /> Limpiar
+          </Button>
+        )}
+      </div>
 
       {/* ── Tabla de cajas */}
       {isLoading ? <TableSkeleton rows={5} cols={7} /> : (
@@ -393,13 +599,11 @@ export default function CajaPage() {
           <tbody>
             {cajas.length > 0 ? cajas.map((c: Caja) => (
               <Tr key={c.id}>
-                {/* PARTE 1: nombre de la caja */}
                 <Td>
                   <span className="text-sm font-medium">{cajaNombre(c)}</span>
                 </Td>
                 <Td><span className="text-sm">{c.usuario?.nombre}</span></Td>
                 <Td><span className="font-medium">{formatCurrency(Number(c.saldoApertura))}</span></Td>
-                {/* PARTE 3: totales calculados */}
                 <Td>
                   <span className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">
                     {formatCurrency(c.ingresosTotales ?? 0)}
@@ -410,7 +614,6 @@ export default function CajaPage() {
                     {formatCurrency(c.egresosTotales ?? 0)}
                   </span>
                 </Td>
-                {/* PARTE 1: saldo actual */}
                 <Td>
                   <span className="font-bold text-primary">
                     {formatCurrency(c.saldoActual ?? (Number(c.saldoApertura) + (c.ingresosTotales ?? 0) - (c.egresosTotales ?? 0)))}
@@ -419,7 +622,6 @@ export default function CajaPage() {
                 <Td><Badge value={c.estado} label={c.estado === 'ABIERTA' ? 'Abierta' : 'Cerrada'} /></Td>
                 <Td>
                   <div className="flex gap-2 flex-wrap">
-                    {/* PARTE 2: ver movimientos */}
                     <button
                       onClick={() => handleVerMovimientos(c)}
                       className="text-xs text-primary hover:underline flex items-center gap-1"
@@ -444,7 +646,7 @@ export default function CajaPage() {
         </Table>
       )}
 
-      {/* ── PARTE 2 + 4 + 5: Modal de movimientos de una caja */}
+      {/* ── Modal: Movimientos de caja */}
       <Modal
         open={!!showMovimientos}
         onClose={() => setShowMovimientos(null)}
@@ -452,7 +654,7 @@ export default function CajaPage() {
         maxWidth="max-w-5xl"
       >
         <div className="flex flex-col gap-4">
-          {/* PARTE 4: Filtros */}
+          {/* Filtros */}
           <div className="flex flex-wrap gap-3 p-3 bg-muted/30 rounded-lg border border-border">
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
               <Filter className="w-3 h-3" /> Filtros:
@@ -460,54 +662,37 @@ export default function CajaPage() {
             <div className="flex flex-wrap gap-2 flex-1">
               <div className="flex flex-col gap-0.5">
                 <label className="text-xs text-muted-foreground">Desde</label>
-                <input
-                  type="date"
-                  value={filtroMovDesde}
-                  onChange={(e) => setFiltroMovDesde(e.target.value)}
-                  className="text-xs border border-border rounded px-2 py-1 bg-background"
-                />
+                <input type="date" value={filtroMovDesde} onChange={(e) => setFiltroMovDesde(e.target.value)} className="text-xs border border-border rounded px-2 py-1 bg-background" />
               </div>
               <div className="flex flex-col gap-0.5">
                 <label className="text-xs text-muted-foreground">Hasta</label>
-                <input
-                  type="date"
-                  value={filtroMovHasta}
-                  onChange={(e) => setFiltroMovHasta(e.target.value)}
-                  className="text-xs border border-border rounded px-2 py-1 bg-background"
-                />
+                <input type="date" value={filtroMovHasta} onChange={(e) => setFiltroMovHasta(e.target.value)} className="text-xs border border-border rounded px-2 py-1 bg-background" />
               </div>
               <div className="flex flex-col gap-0.5">
                 <label className="text-xs text-muted-foreground">Tipo</label>
-                <select
-                  value={filtroMovTipo}
-                  onChange={(e) => setFiltroMovTipo(e.target.value)}
-                  className="text-xs border border-border rounded px-2 py-1 bg-background"
-                >
+                <select value={filtroMovTipo} onChange={(e) => setFiltroMovTipo(e.target.value)} className="text-xs border border-border rounded px-2 py-1 bg-background">
                   <option value="">Todos</option>
                   <option value="INGRESO">Ingreso</option>
                   <option value="EGRESO">Egreso</option>
                 </select>
               </div>
               {(filtroMovDesde || filtroMovHasta || filtroMovTipo) && (
-                <button
-                  onClick={() => { setFiltroMovDesde(''); setFiltroMovHasta(''); setFiltroMovTipo(''); }}
-                  className="self-end text-xs text-muted-foreground hover:text-foreground underline"
-                >
+                <button onClick={() => { setFiltroMovDesde(''); setFiltroMovHasta(''); setFiltroMovTipo(''); }} className="self-end text-xs text-muted-foreground hover:text-foreground underline">
                   Limpiar
                 </button>
               )}
             </div>
-            {/* PARTE 5: Botón PDF */}
-            <Button
-              variant="secondary"
-              onClick={handlePrint}
-              disabled={!movData || isLoadingMov}
-            >
-              <FileDown className="w-4 h-4" /> Descargar PDF
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={handlePrint} disabled={!movData || isLoadingMov}>
+                <FileDown className="w-4 h-4" /> PDF
+              </Button>
+              <Button variant="secondary" onClick={handleExcelMovimientos} disabled={!movData || isLoadingMov}>
+                <FileDown className="w-4 h-4" /> Excel
+              </Button>
+            </div>
           </div>
 
-          {/* Resumen de la caja */}
+          {/* Resumen */}
           {movData && (
             <div className="grid grid-cols-4 gap-3">
               <div className="rounded-lg border border-border p-3 text-center">
@@ -516,32 +701,24 @@ export default function CajaPage() {
               </div>
               <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-center">
                 <p className="text-xs text-muted-foreground">Total ingresos</p>
-                <p className="font-semibold text-sm text-emerald-600 dark:text-emerald-400 mt-1">
-                  {formatCurrency(movData.totalIngresos)}
-                </p>
+                <p className="font-semibold text-sm text-emerald-600 dark:text-emerald-400 mt-1">{formatCurrency(movData.totalIngresos)}</p>
               </div>
               <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-center">
                 <p className="text-xs text-muted-foreground">Total egresos</p>
-                <p className="font-semibold text-sm text-destructive mt-1">
-                  {formatCurrency(movData.totalEgresos)}
-                </p>
+                <p className="font-semibold text-sm text-destructive mt-1">{formatCurrency(movData.totalEgresos)}</p>
               </div>
               <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-center">
                 <p className="text-xs text-muted-foreground">Saldo final</p>
-                <p className="font-bold text-sm text-primary mt-1">
-                  {formatCurrency(movData.saldoFinal)}
-                </p>
+                <p className="font-bold text-sm text-primary mt-1">{formatCurrency(movData.saldoFinal)}</p>
               </div>
             </div>
           )}
 
-          {/* PARTE 2: Tabla de movimientos */}
+          {/* Tabla de movimientos */}
           {isLoadingMov ? (
             <TableSkeleton rows={5} cols={6} />
           ) : errorMov ? (
-            <div className="p-4 text-center text-sm text-destructive">
-              {getErrorMessage(errorMov)}
-            </div>
+            <div className="p-4 text-center text-sm text-destructive">{getErrorMessage(errorMov)}</div>
           ) : movData?.movimientos.length === 0 ? (
             <EmptyState message="No hay movimientos en el rango seleccionado" />
           ) : (
@@ -549,14 +726,9 @@ export default function CajaPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
-                    <Th>Fecha</Th>
-                    <Th>Tipo</Th>
-                    <Th>Concepto</Th>
-                    <Th>Referencia</Th>
-                    <Th className="text-right">Ingreso</Th>
-                    <Th className="text-right">Egreso</Th>
-                    <Th className="text-right">Saldo</Th>
-                    <Th></Th>
+                    <Th>Fecha</Th><Th>Tipo</Th><Th>Concepto</Th><Th>Referencia</Th>
+                    <Th className="text-right">Ingreso</Th><Th className="text-right">Egreso</Th>
+                    <Th className="text-right">Saldo</Th><Th></Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -568,27 +740,18 @@ export default function CajaPage() {
                         </span>
                         {m.anulado && <span className="ml-1 text-[10px] font-medium text-destructive uppercase">anulado</span>}
                       </Td>
-                      <Td>
-                        <Badge
-                          value={m.tipo}
-                          label={m.tipo === 'INGRESO' ? 'Ingreso' : 'Egreso'}
-                        />
-                      </Td>
+                      <Td><Badge value={m.tipo} label={m.tipo === 'INGRESO' ? 'Ingreso' : 'Egreso'} /></Td>
                       <Td><span className={`text-sm ${m.anulado ? 'line-through' : ''}`}>{m.concepto}</span></Td>
                       <Td><span className="text-xs text-muted-foreground">{m.referencia ?? '—'}</span></Td>
                       <Td className="text-right">
-                        {m.tipo === 'INGRESO' ? (
-                          <span className={`font-medium ${m.anulado ? 'line-through text-muted-foreground' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                            {formatCurrency(m.monto)}
-                          </span>
-                        ) : <span className="text-muted-foreground">—</span>}
+                        {m.tipo === 'INGRESO'
+                          ? <span className={`font-medium ${m.anulado ? 'line-through text-muted-foreground' : 'text-emerald-600 dark:text-emerald-400'}`}>{formatCurrency(m.monto)}</span>
+                          : <span className="text-muted-foreground">—</span>}
                       </Td>
                       <Td className="text-right">
-                        {m.tipo === 'EGRESO' ? (
-                          <span className={`font-medium ${m.anulado ? 'line-through text-muted-foreground' : 'text-destructive'}`}>
-                            {formatCurrency(m.monto)}
-                          </span>
-                        ) : <span className="text-muted-foreground">—</span>}
+                        {m.tipo === 'EGRESO'
+                          ? <span className={`font-medium ${m.anulado ? 'line-through text-muted-foreground' : 'text-destructive'}`}>{formatCurrency(m.monto)}</span>
+                          : <span className="text-muted-foreground">—</span>}
                       </Td>
                       <Td className="text-right">
                         <span className="font-semibold">{m.anulado ? '—' : formatCurrency(m.saldoAcumulado)}</span>
@@ -596,23 +759,8 @@ export default function CajaPage() {
                       <Td>
                         {m.esManual && !m.anulado && (
                           <div className="flex gap-1 justify-end">
-                            <Button
-                              size="xs" variant="ghost"
-                              onClick={() => {
-                                setEditandoMov(m);
-                                editMovForm.reset({
-                                  monto: String(m.monto),
-                                  concepto: m.concepto,
-                                  fecha: m.fecha.split('T')[0],
-                                  referencia: m.referencia ?? '',
-                                });
-                              }}
-                            >Editar</Button>
-                            <Button
-                              size="xs" variant="ghost"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => setAnulandoMov(m)}
-                            >Anular</Button>
+                            <Button size="xs" variant="ghost" onClick={() => { setEditandoMov(m); editMovForm.reset({ monto: String(m.monto), concepto: m.concepto, fecha: m.fecha.split('T')[0], referencia: m.referencia ?? '' }); }}>Editar</Button>
+                            <Button size="xs" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setAnulandoMov(m)}>Anular</Button>
                           </div>
                         )}
                       </Td>
@@ -625,7 +773,7 @@ export default function CajaPage() {
         </div>
       </Modal>
 
-      {/* ── Modal: Editar movimiento */}
+      {/* Modal: Editar movimiento */}
       <Modal open={!!editandoMov} onClose={() => { setEditandoMov(null); editMovForm.reset(); }} title="Editar movimiento">
         <form onSubmit={editMovForm.handleSubmit((d) => editarMovMutation.mutate(d))} className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-3">
@@ -649,7 +797,7 @@ export default function CajaPage() {
         </form>
       </Modal>
 
-      {/* ── Modal: Confirmar anulación */}
+      {/* Modal: Confirmar anulación */}
       <Modal open={!!anulandoMov} onClose={() => setAnulandoMov(null)} title="Anular movimiento">
         <div className="flex flex-col gap-4">
           <p className="text-sm text-muted-foreground">
@@ -665,9 +813,12 @@ export default function CajaPage() {
         </div>
       </Modal>
 
-      {/* ── Modal: Abrir caja */}
+      {/* Modal: Abrir caja */}
       <Modal open={showAbrir} onClose={() => { setShowAbrir(false); abrirForm.reset(); }} title="Abrir caja">
         <form onSubmit={abrirForm.handleSubmit((d) => abrirMutation.mutate(d))} className="flex flex-col gap-4">
+          <FormField label="Nombre de caja (opcional)">
+            <Input placeholder="Ej: Caja principal, Caja turno mañana..." {...abrirForm.register('nombre')} />
+          </FormField>
           <FormField label="Saldo de apertura (S/)" required error={abrirForm.formState.errors.saldoApertura?.message}>
             <Input type="number" step="0.01" placeholder="0.00" {...abrirForm.register('saldoApertura')} />
           </FormField>
@@ -679,7 +830,7 @@ export default function CajaPage() {
         </form>
       </Modal>
 
-      {/* ── Modal: Cerrar caja */}
+      {/* Modal: Cerrar caja */}
       <Modal open={!!showCerrar} onClose={() => { setShowCerrar(null); cerrarForm.reset(); }} title="Cerrar caja">
         <form onSubmit={cerrarForm.handleSubmit((d) => cerrarMutation.mutate(d))} className="flex flex-col gap-4">
           <FormField label="Saldo de cierre (S/)" required error={cerrarForm.formState.errors.saldoCierre?.message}>
@@ -693,7 +844,7 @@ export default function CajaPage() {
         </form>
       </Modal>
 
-      {/* ── Modal: Registrar movimiento */}
+      {/* Modal: Registrar movimiento */}
       <Modal open={!!showMov} onClose={() => { setShowMov(null); movForm.reset(); }} title="Registrar movimiento">
         <form onSubmit={movForm.handleSubmit((d) => movMutation.mutate(d))} className="flex flex-col gap-4">
           <FormField label="Tipo" required error={movForm.formState.errors.tipo?.message}>

@@ -220,6 +220,7 @@ model Pago {
 model Caja {
   id              Int        @id @default(autoincrement())
   usuarioId       Int        @map("usuario_id")
+  nombre          String?
   fecha           DateTime   @db.Date
   saldoApertura   Decimal    @default(0) @map("saldo_apertura") @db.Decimal(10, 2)
   saldoCierre     Decimal?   @map("saldo_cierre") @db.Decimal(10, 2)

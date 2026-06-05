@@ -35,6 +35,9 @@ export const MonedaSelector = React.forwardRef<HTMLSelectElement, MonedaSelector
 MonedaSelector.displayName = 'MonedaSelector';
 
 // ─── CUENTA SELECTOR ─────────────────────────────────────────────────────────
+// CORRECCIÓN: getCuentas espera { activo?: boolean } como params, no un boolean directo.
+// Antes: getCuentas(soloActivas) → pasaba true/false como el argumento params completo.
+// Ahora: getCuentas({ activo: soloActivas }) → envía ?activo=true en la URL correctamente.
 interface CuentaSelectorProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   placeholder?: string;
   soloActivas?: boolean;
@@ -44,7 +47,11 @@ export const CuentaSelector = React.forwardRef<HTMLSelectElement, CuentaSelector
   ({ placeholder, soloActivas = true, className, ...props }, ref) => {
     const { data: cuentas = [] } = useQuery({
       queryKey: ['cuentas', soloActivas],
-      queryFn: () => cuentasApi.getCuentas(soloActivas).then(r => r.data.data).catch(() => []),
+      queryFn: () =>
+        cuentasApi
+          .getCuentas(soloActivas ? { activo: true } : undefined)
+          .then(r => r.data.data)
+          .catch(() => []),
       staleTime: 5 * 60 * 1000,
     });
 

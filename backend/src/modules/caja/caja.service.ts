@@ -5,6 +5,7 @@ import { EstadoCaja, TipoMovimientoCaja } from '../../utils/enums';
 
 export interface AbrirCajaDto {
   saldoApertura: number;
+  nombre?: string;
   observaciones?: string;
 }
 
@@ -119,6 +120,7 @@ export class CajaService {
     const caja = await prisma.caja.findFirst({
       where: {
         usuarioId,
+        estado: EstadoCaja.ABIERTA,
         fecha: { gte: hoy, lt: manana },
       },
       include: {
@@ -154,6 +156,7 @@ export class CajaService {
       data: {
         usuarioId,
         fecha: new Date(),
+        nombre: dto.nombre ?? null,
         saldoApertura: dto.saldoApertura,
         estado: EstadoCaja.ABIERTA,
         observaciones: dto.observaciones,
@@ -333,6 +336,7 @@ export class CajaService {
         caja: {
           select: {
             id: true,
+            nombre: true,
             fecha: true,
             saldoApertura: true,
             estado: true,
@@ -357,7 +361,7 @@ export class CajaService {
       return {
         id: m.id,
         cajaId: m.cajaId,
-        cajaNombre: `Caja ${m.caja.usuario.nombre} – ${new Date(m.caja.fecha).toLocaleDateString('es-PE')}`,
+        cajaNombre: m.caja.nombre ?? `Caja ${m.caja.usuario.nombre} – ${new Date(m.caja.fecha).toLocaleDateString('es-PE')}`,
         cajaEstado: m.caja.estado,
         tipo: m.tipo,
         monto: Number(m.monto),
@@ -411,6 +415,7 @@ export class CajaService {
     if (mov.anulado) throw new Error('El movimiento ya está anulado');
     if (mov.pagoId || mov.gastoId) throw new Error('No se pueden anular movimientos generados automáticamente');
     if (mov.caja.usuarioId !== usuarioId) throw new Error('No puede anular movimientos de otro usuario');
+    if (mov.caja.estado === 'CERRADA') throw new Error('No se pueden anular movimientos de una caja cerrada');
 
     return prisma.movimientoCaja.update({
       where: { id: movimientoId },

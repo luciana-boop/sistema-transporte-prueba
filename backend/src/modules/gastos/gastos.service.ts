@@ -10,6 +10,10 @@ export interface CreateGastoDto {
   descripcion: string;
   comprobante?: string;
   fecha?: Date;
+  // Financiero — no se persiste en Gasto pero se puede usar para MovimientoCuentaV2 futuro
+  cuentaId?: number;
+  monedaId?: number;
+  tipoPagoId?: number;
 }
 
 export interface UpdateGastoDto extends Partial<CreateGastoDto> {}
@@ -21,6 +25,7 @@ export class GastosService {
     usuarioId?: string;
     desde?: string;
     hasta?: string;
+    search?: string;
   }) {
     const where: any = {};
 
@@ -31,6 +36,16 @@ export class GastosService {
       where.fecha = {};
       if (query.desde) where.fecha.gte = new Date(query.desde);
       if (query.hasta) where.fecha.lte = new Date(query.hasta + 'T23:59:59');
+    }
+
+    // Búsqueda en comprobante, descripcion (concepto), y a través de relaciones
+    if (query.search) {
+      const s = query.search.toLowerCase();
+      where.OR = [
+        { descripcion: { contains: query.search, mode: 'insensitive' } },
+        { comprobante: { contains: query.search, mode: 'insensitive' } },
+        { tipoGasto: { equals: query.search.toUpperCase() as TipoGasto } },
+      ];
     }
 
     return prisma.gasto.findMany({
@@ -62,9 +77,12 @@ export class GastosService {
     }
     if (dto.monto <= 0) throw new Error('El monto debe ser mayor a 0');
 
+    // Extraer campos no persistidos en Gasto
+    const { cuentaId: _c, monedaId: _m, tipoPagoId: _t, ...gastoData } = dto;
+
     return prisma.gasto.create({
       data: {
-        ...dto,
+        ...gastoData,
         usuarioId,
         fecha: dto.fecha ? new Date(dto.fecha) : new Date(),
       },
@@ -84,7 +102,8 @@ export class GastosService {
     if (dto.monto !== undefined && dto.monto <= 0) {
       throw new Error('El monto debe ser mayor a 0');
     }
-    return prisma.gasto.update({ where: { id }, data: dto });
+    const { cuentaId: _c, monedaId: _m, tipoPagoId: _t, ...updateData } = dto;
+    return prisma.gasto.update({ where: { id }, data: updateData });
   }
 
   async remove(id: number, usuarioRol: string) {
