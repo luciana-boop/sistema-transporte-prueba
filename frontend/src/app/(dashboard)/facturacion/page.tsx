@@ -144,6 +144,9 @@ export default function FacturacionPage() {
   const { usuario } = useAuthStore();
   const config = useConfig();
   const [filtroEstado, setFiltroEstado] = useState('');
+  const [searchText, setSearchText] = useState('');
+  const [filtroDesde, setFiltroDesde] = useState('');
+  const [filtroHasta, setFiltroHasta] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [showXmlMasivo, setShowXmlMasivo] = useState(false);
   const [xmlMasivoResult, setXmlMasivoResult] = useState<{
@@ -153,9 +156,24 @@ export default function FacturacionPage() {
   const xmlSingleRef = useRef<HTMLInputElement>(null);
 
   // ─── QUERIES ─────────────────────────────────────────────────────────────
-  const { data: facturas = [], isLoading } = useQuery({
-    queryKey: ['facturas', filtroEstado],
-    queryFn: () => facturacionApi.listar({ estado: filtroEstado || undefined }).then((r) => r.data.data),
+  const { data: facturasRaw = [], isLoading } = useQuery({
+    queryKey: ['facturas', filtroEstado, filtroDesde, filtroHasta],
+    queryFn: () => facturacionApi.listar({
+      estado: filtroEstado || undefined,
+      desde: filtroDesde || undefined,
+      hasta: filtroHasta || undefined,
+    }).then((r) => r.data.data),
+  });
+
+  // Filtro client-side por número de factura y cliente
+  const facturas = facturasRaw.filter((f) => {
+    if (!searchText) return true;
+    const q = searchText.toLowerCase();
+    return (
+      f.numeroFactura?.toLowerCase().includes(q) ||
+      f.cliente?.razonSocial?.toLowerCase().includes(q) ||
+      f.cliente?.ruc?.toLowerCase().includes(q)
+    );
   });
 
   const { data: series = [] } = useQuery({
@@ -441,7 +459,16 @@ export default function FacturacionPage() {
       </div>
 
       {/* Filtros */}
-      <div className="flex gap-3 flex-wrap">
+      <div className="flex gap-3 flex-wrap items-center">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por N° factura o cliente…"
+            className="pl-9 w-64"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+        </div>
         <Select
           value={filtroEstado}
           onChange={(e) => setFiltroEstado(e.target.value)}
@@ -452,6 +479,22 @@ export default function FacturacionPage() {
             <option key={v} value={v}>{l}</option>
           ))}
         </Select>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground">Desde</label>
+          <Input type="date" className="w-36" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)} />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground">Hasta</label>
+          <Input type="date" className="w-36" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} />
+        </div>
+        {(searchText || filtroDesde || filtroHasta) && (
+          <button
+            onClick={() => { setSearchText(''); setFiltroDesde(''); setFiltroHasta(''); }}
+            className="text-xs text-muted-foreground hover:text-foreground underline"
+          >
+            Limpiar filtros
+          </button>
+        )}
       </div>
 
       {/* Tabla */}

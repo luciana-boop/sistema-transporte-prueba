@@ -1,4 +1,5 @@
 // FILE: src/modules/cobranza/cobranza.controller.ts
+// NUEVO: editar (PUT /:id), anular (PATCH /:id/anular)
 
 import { Request, Response } from 'express';
 import { cobranzaService } from './cobranza.service';
@@ -50,6 +51,38 @@ export class CobranzaController {
       if (msg.includes('no encontrada') || msg.includes('excede') || msg.includes('anulada') || msg.includes('pagada')) {
         R.badRequest(res, msg);
       } else R.serverError(res, e);
+    }
+  }
+
+  async actualizar(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
+      const { metodoPago, referencia, observaciones, fechaPago } = req.body;
+      R.ok(res,
+        await cobranzaService.update(id, { metodoPago, referencia, observaciones, fechaPago }, req.usuario!.rol),
+        'Pago actualizado'
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'Pago no encontrado') R.notFound(res, msg);
+      else if (msg.includes('anulado')) R.badRequest(res, msg);
+      else R.serverError(res, e);
+    }
+  }
+
+  async anular(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
+      const { motivo } = req.body;
+      R.ok(res, await cobranzaService.anular(id, req.usuario!.rol, motivo), 'Pago anulado');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'Pago no encontrado') R.notFound(res, msg);
+      else if (msg.includes('Solo el')) R.forbidden(res, msg);
+      else if (msg.includes('ya está')) R.badRequest(res, msg);
+      else R.serverError(res, e);
     }
   }
 

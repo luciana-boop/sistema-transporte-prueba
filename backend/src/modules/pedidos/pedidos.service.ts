@@ -35,6 +35,8 @@ export class PedidosService {
         { origen: { contains: query.search, mode: 'insensitive' } },
         { destino: { contains: query.search, mode: 'insensitive' } },
         { tipoCarga: { contains: query.search, mode: 'insensitive' } },
+        { cliente: { razonSocial: { contains: query.search, mode: 'insensitive' } } },
+        { cliente: { ruc: { contains: query.search, mode: 'insensitive' } } },
       ];
     }
     return prisma.pedido.findMany({

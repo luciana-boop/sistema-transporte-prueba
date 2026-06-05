@@ -190,6 +190,13 @@ export const cobranzaApi = {
     referencia?: string; observaciones?: string; fechaPago?: string;
   }) => api.post<ApiResponse<Pago>>('/api/cobranza', data),
 
+  actualizar: (id: number, data: {
+    metodoPago?: MetodoPago; referencia?: string; observaciones?: string; fechaPago?: string;
+  }) => api.put<ApiResponse<Pago>>(`/api/cobranza/${id}`, data),
+
+  anular: (id: number, data?: { motivo?: string }) =>
+    api.patch<ApiResponse<{ message: string }>>(`/api/cobranza/${id}/anular`, data ?? {}),
+
   eliminar: (id: number) =>
     api.delete<ApiResponse<null>>(`/api/cobranza/${id}`),
 };

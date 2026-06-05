@@ -1,9 +1,9 @@
 // FILE: src/modules/cobranza/cobranza.service.ts
 // MODIFICADO: flujo cliente→factura, pagos parciales, estado automático PARCIAL
+// NUEVO: editar pago (campos no financieros), anular pago (lógico), filtro por referencia
 
 import prisma from '../../prisma/client';
 import { EstadoFactura } from '../../utils/enums';
-import { facturacionService } from '../facturacion/facturacion.service';
 
 export interface CreatePagoDto {
   facturaId: number;
@@ -14,12 +14,19 @@ export interface CreatePagoDto {
   fechaPago?: string;
 }
 
+export interface UpdatePagoDto {
+  metodoPago?: string;
+  referencia?: string;
+  observaciones?: string;
+  fechaPago?: string;
+}
+
 export class CobranzaService {
   async findAll(query: {
     clienteId?: string; metodoPago?: string;
     desde?: string; hasta?: string; facturaId?: string;
   }) {
-    const where: any = {};
+    const where: any = { anulado: false };
     if (query.clienteId) where.clienteId = parseInt(query.clienteId);
     if (query.metodoPago) where.metodoPago = query.metodoPago;
     if (query.facturaId) where.facturaId = parseInt(query.facturaId);
@@ -141,6 +148,71 @@ export class CobranzaService {
     return this.findById(resultado.id);
   }
 
+  /**
+   * Editar campos no financieros de un pago.
+   * Campos editables: metodoPago, referencia, observaciones, fechaPago.
+   * NO se permite editar monto ni facturaId (afectaría integridad financiera).
+   */
+  async update(id: number, dto: UpdatePagoDto, usuarioRol: string) {
+    const pago = await this.findById(id);
+    if (pago.anulado) throw new Error('No se puede editar un pago anulado');
+
+    return prisma.pago.update({
+      where: { id },
+      data: {
+        metodoPago: dto.metodoPago as any ?? pago.metodoPago,
+        referencia: dto.referencia !== undefined ? dto.referencia : pago.referencia,
+        observaciones: dto.observaciones !== undefined ? dto.observaciones : pago.observaciones,
+        fechaPago: dto.fechaPago ? new Date(dto.fechaPago) : pago.fechaPago,
+      },
+      include: {
+        factura: { select: { id: true, numeroFactura: true } },
+        cliente: { select: { id: true, razonSocial: true } },
+        usuario: { select: { id: true, nombre: true } },
+      },
+    });
+  }
+
+  /**
+   * Anular pago lógicamente (anulado=true).
+   * Recalcula totalPagado y estado de la factura asociada.
+   * Solo ADMIN puede anular.
+   */
+  async anular(id: number, usuarioRol: string, motivo?: string) {
+    if (usuarioRol !== 'ADMIN') throw new Error('Solo el administrador puede anular pagos');
+    const pago = await this.findById(id);
+    if (pago.anulado) throw new Error('El pago ya está anulado');
+
+    await prisma.$transaction(async (tx: any) => {
+      // Marcar como anulado
+      await tx.pago.update({
+        where: { id },
+        data: {
+          anulado: true,
+          motivoAnulacion: motivo ?? 'Anulado por administrador',
+          anuladoEn: new Date(),
+        },
+      });
+
+      // Recalcular totalPagado de la factura (solo pagos activos)
+      const factura = await tx.factura.findUnique({
+        where: { id: pago.facturaId },
+        include: { pagos: { where: { anulado: false }, select: { monto: true } } },
+      });
+      if (factura && factura.estado !== EstadoFactura.ANULADA) {
+        const totalPagado = factura.pagos.reduce((s: number, p: any) => s + Number(p.monto), 0);
+        const total = Number(factura.total);
+        let estado: string;
+        if (totalPagado <= 0) estado = EstadoFactura.EMITIDA;
+        else if (Math.abs(totalPagado - total) < 0.01) estado = EstadoFactura.PAGADA;
+        else estado = EstadoFactura.PARCIAL;
+        await tx.factura.update({ where: { id: pago.facturaId }, data: { totalPagado, estado: estado as any } });
+      }
+    });
+
+    return { message: 'Pago anulado correctamente' };
+  }
+
   async remove(id: number, usuarioRol: string) {
     if (usuarioRol !== 'ADMIN') throw new Error('Solo el administrador puede eliminar pagos');
     const pago = await this.findById(id);
@@ -150,7 +222,7 @@ export class CobranzaService {
       // Recalculate factura state after deletion
       const factura = await tx.factura.findUnique({
         where: { id: pago.facturaId },
-        include: { pagos: { select: { monto: true } } },
+        include: { pagos: { where: { anulado: false }, select: { monto: true } } },
       });
       if (factura) {
         const totalPagado = factura.pagos.reduce((s: number, p: any) => s + Number(p.monto), 0);

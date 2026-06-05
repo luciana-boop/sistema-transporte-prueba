@@ -203,6 +203,10 @@ model Pago {
   referencia     String?
   observaciones  String?
   fechaPago      DateTime   @default(now()) @map("fecha_pago")
+  // Anulación lógica — no se elimina físicamente
+  anulado        Boolean    @default(false)
+  motivoAnulacion String?   @map("motivo_anulacion")
+  anuladoEn      DateTime?  @map("anulado_en")
   creadoEn       DateTime   @default(now()) @map("creado_en")
 
   factura        Factura    @relation(fields: [facturaId], references: [id])

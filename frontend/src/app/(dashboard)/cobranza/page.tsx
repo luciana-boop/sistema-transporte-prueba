@@ -1,5 +1,6 @@
 // FILE: src/app/(dashboard)/cobranza/page.tsx
 // MODIFICADO: flujo cliente→factura filtrada, pagos parciales, estado PARCIAL
+// NUEVO: columna referencia, búsqueda libre, filtros de fecha, editar pago, anular pago
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -8,13 +9,14 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, AlertTriangle, Download } from 'lucide-react';
+import { Plus, AlertTriangle, Download, Search, Edit2, XCircle } from 'lucide-react';
 import { cobranzaApi, clientesApi, cuentasApi } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage, METODO_PAGO_LABEL, ESTADO_FACTURA_LABEL } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
   EmptyState, Modal, FormField, Input, Select, Textarea, StatCard,
 } from '@/components/shared';
+import { useAuthStore } from '@/store/auth.store';
 import type { MetodoPago } from '@/types';
 import * as XLSX from 'xlsx';
 
@@ -30,16 +32,45 @@ const schema = z.object({
 });
 type FormData = z.infer<typeof schema>;
 
+const editSchema = z.object({
+  metodoPago: z.enum(['EFECTIVO', 'TRANSFERENCIA', 'TARJETA', 'CHEQUE']),
+  referencia: z.string().optional(),
+  observaciones: z.string().optional(),
+  fechaPago: z.string().optional(),
+});
+type EditFormData = z.infer<typeof editSchema>;
+
 export default function CobranzaPage() {
   const qc = useQueryClient();
+  const { usuario } = useAuthStore();
   const [tab, setTab] = useState<'pagos' | 'cpc'>('pagos');
   const [showForm, setShowForm] = useState(false);
+  const [editingPago, setEditingPago] = useState<any>(null);
   const [clienteSeleccionado, setClienteSeleccionado] = useState('');
   const [facturaSeleccionada, setFacturaSeleccionada] = useState<any>(null);
 
-  const { data: pagos = [], isLoading: loadPagos } = useQuery({
-    queryKey: ['pagos'],
-    queryFn: () => cobranzaApi.listar().then((r) => r.data.data),
+  // Filtros y búsqueda
+  const [searchText, setSearchText] = useState('');
+  const [filtroDesde, setFiltroDesde] = useState('');
+  const [filtroHasta, setFiltroHasta] = useState('');
+
+  const { data: pagosRaw = [], isLoading: loadPagos } = useQuery({
+    queryKey: ['pagos', filtroDesde, filtroHasta],
+    queryFn: () => cobranzaApi.listar({
+      desde: filtroDesde || undefined,
+      hasta: filtroHasta || undefined,
+    }).then((r) => r.data.data),
+  });
+
+  // Filtro client-side: cliente, factura, referencia
+  const pagos = pagosRaw.filter((p) => {
+    if (!searchText) return true;
+    const q = searchText.toLowerCase();
+    return (
+      p.cliente?.razonSocial?.toLowerCase().includes(q) ||
+      p.factura?.numeroFactura?.toLowerCase().includes(q) ||
+      p.referencia?.toLowerCase().includes(q)
+    );
   });
 
   const { data: cpc = [], isLoading: loadCpc } = useQuery({
@@ -70,6 +101,10 @@ export default function CobranzaPage() {
   const { register, handleSubmit, reset, watch, setValue, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { metodoPago: 'EFECTIVO' },
+  });
+
+  const { register: regEdit, handleSubmit: handleEdit, reset: resetEdit, setValue: setEditVal, formState: { errors: editErrors, isSubmitting: editSubmitting } } = useForm<EditFormData>({
+    resolver: zodResolver(editSchema),
   });
 
   const watchCliente = watch('clienteId');
@@ -116,6 +151,35 @@ export default function CobranzaPage() {
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
+  const updateMutation = useMutation({
+    mutationFn: (d: EditFormData) => (cobranzaApi as any).actualizar(editingPago!.id, d),
+    onSuccess: () => {
+      toast.success('Pago actualizado');
+      setEditingPago(null);
+      resetEdit();
+      invalidate();
+    },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  const anularMutation = useMutation({
+    mutationFn: ({ id, motivo }: { id: number; motivo?: string }) =>
+      (cobranzaApi as any).anular(id, { motivo }),
+    onSuccess: () => {
+      toast.success('Pago anulado');
+      invalidate();
+    },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  const openEdit = (p: any) => {
+    setEditingPago(p);
+    setEditVal('metodoPago', p.metodoPago);
+    setEditVal('referencia', p.referencia ?? '');
+    setEditVal('observaciones', p.observaciones ?? '');
+    setEditVal('fechaPago', p.fechaPago ? new Date(p.fechaPago).toISOString().split('T')[0] : '');
+  };
+
   const exportExcel = () => {
     const rows = pagos.map((p) => ({
       '#': p.id, Factura: p.factura?.numeroFactura, Cliente: p.cliente?.razonSocial,
@@ -128,7 +192,7 @@ export default function CobranzaPage() {
     XLSX.writeFile(wb, `cobranza_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  const totalCobrado = pagos.reduce((s, p) => s + Number(p.monto), 0);
+  const totalCobrado = pagosRaw.reduce((s, p) => s + Number(p.monto), 0);
   const totalVencido = cpc.filter((c) => c.vencida).reduce((s, c) => s + c.saldoPendiente, 0);
 
   return (
@@ -166,27 +230,94 @@ export default function CobranzaPage() {
         ))}
       </div>
 
-      {tab === 'pagos' ? (
-        loadPagos ? <TableSkeleton rows={6} cols={6} /> : (
-          <Table>
-            <thead>
-              <tr><Th>#</Th><Th>Factura</Th><Th>Cliente</Th><Th>Monto</Th><Th>Método</Th><Th>Fecha</Th></tr>
-            </thead>
-            <tbody>
-              {pagos.length > 0 ? pagos.map((p) => (
-                <Tr key={p.id}>
-                  <Td><span className="font-mono text-xs text-muted-foreground">#{p.id}</span></Td>
-                  <Td><span className="font-mono text-xs">{p.factura?.numeroFactura}</span></Td>
-                  <Td><span className="text-sm font-medium">{p.cliente?.razonSocial}</span></Td>
-                  <Td><span className="font-semibold text-emerald-500">{formatCurrency(Number(p.monto))}</span></Td>
-                  <Td><Badge value={p.metodoPago} label={METODO_PAGO_LABEL[p.metodoPago]} /></Td>
-                  <Td><span className="text-xs text-muted-foreground">{formatDate(p.fechaPago)}</span></Td>
-                </Tr>
-              )) : <tr><td colSpan={6}><EmptyState message="No hay pagos registrados" /></td></tr>}
-            </tbody>
-          </Table>
-        )
-      ) : (
+      {tab === 'pagos' && (
+        <>
+          {/* Filtros */}
+          <div className="flex gap-3 flex-wrap items-center">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por cliente, factura o referencia…"
+                className="pl-9 w-72"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-muted-foreground">Desde</label>
+              <Input type="date" className="w-36" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)} />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-muted-foreground">Hasta</label>
+              <Input type="date" className="w-36" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} />
+            </div>
+            {(searchText || filtroDesde || filtroHasta) && (
+              <button
+                onClick={() => { setSearchText(''); setFiltroDesde(''); setFiltroHasta(''); }}
+                className="text-xs text-muted-foreground hover:text-foreground underline"
+              >
+                Limpiar filtros
+              </button>
+            )}
+          </div>
+
+          {loadPagos ? <TableSkeleton rows={6} cols={7} /> : (
+            <Table>
+              <thead>
+                <tr>
+                  <Th>#</Th><Th>Factura</Th><Th>Cliente</Th><Th>Monto</Th>
+                  <Th>Método</Th><Th>Referencia</Th><Th>Fecha</Th>
+                  {usuario?.rol === 'ADMIN' && <Th className="text-right">Acciones</Th>}
+                </tr>
+              </thead>
+              <tbody>
+                {pagos.length > 0 ? pagos.map((p) => (
+                  <Tr key={p.id}>
+                    <Td><span className="font-mono text-xs text-muted-foreground">#{p.id}</span></Td>
+                    <Td><span className="font-mono text-xs">{p.factura?.numeroFactura}</span></Td>
+                    <Td><span className="text-sm font-medium">{p.cliente?.razonSocial}</span></Td>
+                    <Td><span className="font-semibold text-emerald-500">{formatCurrency(Number(p.monto))}</span></Td>
+                    <Td><Badge value={p.metodoPago} label={METODO_PAGO_LABEL[p.metodoPago]} /></Td>
+                    <Td>
+                      <span className="text-xs text-muted-foreground font-mono">
+                        {p.referencia ?? '—'}
+                      </span>
+                    </Td>
+                    <Td><span className="text-xs text-muted-foreground">{formatDate(p.fechaPago)}</span></Td>
+                    {usuario?.rol === 'ADMIN' && (
+                      <Td>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => openEdit(p)}
+                            className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
+                            title="Editar"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              const motivo = prompt('Motivo de anulación (opcional):') ?? undefined;
+                              if (confirm('¿Anular este pago? La factura volverá al estado anterior.')) {
+                                anularMutation.mutate({ id: p.id, motivo });
+                              }
+                            }}
+                            className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                            title="Anular pago"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </Td>
+                    )}
+                  </Tr>
+                )) : <tr><td colSpan={8}><EmptyState message="No hay pagos registrados" /></td></tr>}
+              </tbody>
+            </Table>
+          )}
+        </>
+      )}
+
+      {tab === 'cpc' && (
         loadCpc ? <TableSkeleton rows={5} cols={7} /> : (
           <Table>
             <thead>
@@ -216,10 +347,9 @@ export default function CobranzaPage() {
         )
       )}
 
-      {/* Pago Modal */}
+      {/* Modal: Registrar pago */}
       <Modal open={showForm} onClose={() => { setShowForm(false); reset(); setClienteSeleccionado(''); setFacturaSeleccionada(null); }} title="Registrar pago" maxWidth="max-w-lg">
         <form onSubmit={handleSubmit((d) => createMutation.mutate(d))} className="flex flex-col gap-4">
-          {/* Step 1: Select client */}
           <FormField label="1. Seleccionar cliente" required error={errors.clienteId?.message}>
             <Select {...register('clienteId')}>
               <option value="">Seleccionar cliente...</option>
@@ -229,7 +359,6 @@ export default function CobranzaPage() {
             </Select>
           </FormField>
 
-          {/* Step 2: Select invoice filtered by client */}
           <FormField label="2. Seleccionar factura con saldo pendiente" required error={errors.facturaId?.message}>
             <Select {...register('facturaId')} disabled={!clienteSeleccionado || facturasPendientes.length === 0}>
               <option value="">
@@ -247,7 +376,6 @@ export default function CobranzaPage() {
             </Select>
           </FormField>
 
-          {/* Factura detail preview */}
           {facturaSeleccionada && (
             <div className="bg-muted/40 rounded-lg p-3 grid grid-cols-3 gap-2 text-center text-sm border border-border">
               <div><p className="text-xs text-muted-foreground">Total factura</p><p className="font-medium">{formatCurrency(facturaSeleccionada.total)}</p></div>
@@ -286,6 +414,45 @@ export default function CobranzaPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Modal: Editar pago */}
+      <Modal open={!!editingPago} onClose={() => { setEditingPago(null); resetEdit(); }} title="Editar pago" maxWidth="max-w-md">
+        {editingPago && (
+          <div className="flex flex-col gap-4">
+            <div className="bg-muted/40 rounded-lg p-3 text-sm border border-border">
+              <p className="font-medium">{editingPago.factura?.numeroFactura}</p>
+              <p className="text-muted-foreground text-xs">{editingPago.cliente?.razonSocial} · {formatCurrency(Number(editingPago.monto))}</p>
+              <p className="text-xs text-amber-600 mt-1">⚠ El monto no puede editarse para mantener integridad financiera.</p>
+            </div>
+            <form onSubmit={handleEdit((d) => updateMutation.mutate(d))} className="flex flex-col gap-4">
+              <div className="grid grid-cols-2 gap-3">
+                <FormField label="Método de pago" required error={editErrors.metodoPago?.message}>
+                  <Select {...regEdit('metodoPago')}>
+                    {Object.entries(METODO_PAGO_LABEL).map(([v, l]) => (
+                      <option key={v} value={v}>{l}</option>
+                    ))}
+                  </Select>
+                </FormField>
+                <FormField label="Fecha de pago" error={editErrors.fechaPago?.message}>
+                  <Input type="date" {...regEdit('fechaPago')} />
+                </FormField>
+              </div>
+              <FormField label="Referencia">
+                <Input placeholder="N° transferencia..." {...regEdit('referencia')} />
+              </FormField>
+              <FormField label="Observaciones">
+                <Textarea placeholder="Notas..." {...regEdit('observaciones')} />
+              </FormField>
+              <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                <Button variant="secondary" type="button" onClick={() => { setEditingPago(null); resetEdit(); }}>Cancelar</Button>
+                <Button type="submit" loading={editSubmitting || updateMutation.isPending}>
+                  Guardar cambios
+                </Button>
+              </div>
+            </form>
+          </div>
+        )}
       </Modal>
     </div>
   );
