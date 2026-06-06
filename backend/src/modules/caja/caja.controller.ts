@@ -1,4 +1,8 @@
 // FILE: src/modules/caja/caja.controller.ts
+// CHAT 9: Agrega 3 endpoints de liquidaciones:
+//   GET  /caja/liquidaciones-pendientes
+//   POST /caja/pagar-liquidacion
+//   POST /caja/liquidaciones/:liquidacionId/anular-pago
 
 import { Request, Response } from 'express';
 import { cajaService } from './caja.service';
@@ -122,9 +126,9 @@ export class CajaController {
       if (isNaN(movimientoId)) { R.badRequest(res, 'ID inválido'); return; }
       const { monto, concepto, fecha, referencia } = req.body;
       const dto: any = {};
-      if (monto !== undefined)     dto.monto     = parseFloat(monto);
-      if (concepto !== undefined)  dto.concepto  = concepto;
-      if (fecha !== undefined)     dto.fecha     = fecha;
+      if (monto !== undefined)      dto.monto      = parseFloat(monto);
+      if (concepto !== undefined)   dto.concepto   = concepto;
+      if (fecha !== undefined)      dto.fecha      = fecha;
       if (referencia !== undefined) dto.referencia = referencia;
       const data = await cajaService.editarMovimiento(movimientoId, dto, req.usuario!.id);
       R.ok(res, data, 'Movimiento actualizado');
@@ -160,6 +164,63 @@ export class CajaController {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Caja no encontrada') R.notFound(res, msg);
       else if (msg.includes('Solo') || msg.includes('abierta')) R.badRequest(res, msg);
+      else R.serverError(res, e);
+    }
+  }
+
+  // ── CHAT 9: Liquidaciones pendientes ──────────────────────────────────────
+
+  async liquidacionesPendientes(req: Request, res: Response): Promise<void> {
+    try {
+      const data = await cajaService.liquidacionesPendientes();
+      R.ok(res, data);
+    } catch (e) { R.serverError(res, e); }
+  }
+
+  async pagarLiquidacion(req: Request, res: Response): Promise<void> {
+    try {
+      const { liquidacionId, cuentaId, monedaId, tipoPagoId, observaciones } = req.body;
+      if (!liquidacionId) { R.badRequest(res, 'liquidacionId es requerido'); return; }
+      if (!cuentaId)      { R.badRequest(res, 'Debe seleccionar una cuenta'); return; }
+      if (!monedaId)      { R.badRequest(res, 'Debe seleccionar una moneda'); return; }
+
+      const data = await cajaService.pagarLiquidacion(
+        {
+          liquidacionId: parseInt(liquidacionId),
+          cuentaId: parseInt(cuentaId),
+          monedaId: parseInt(monedaId),
+          tipoPagoId: tipoPagoId ? parseInt(tipoPagoId) : undefined,
+          observaciones,
+        },
+        req.usuario!.id
+      );
+      R.created(res, data, 'Liquidación pagada correctamente');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (
+        msg.includes('no encontrada') ||
+        msg.includes('PENDIENTE') ||
+        msg.includes('Saldo insuficiente') ||
+        msg.includes('Debe seleccionar') ||
+        msg.includes('mayor a') ||
+        msg.includes('inactiva')
+      ) {
+        R.badRequest(res, msg);
+      } else R.serverError(res, e);
+    }
+  }
+
+  async anularPagoLiquidacion(req: Request, res: Response): Promise<void> {
+    try {
+      const liquidacionId = parseInt(req.params.liquidacionId);
+      if (isNaN(liquidacionId)) { R.badRequest(res, 'ID inválido'); return; }
+      const data = await cajaService.anularPagoLiquidacion(liquidacionId, req.usuario!.id, req.usuario!.rol);
+      R.ok(res, data, 'Pago de liquidación anulado');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg.includes('no encontrada') || msg.includes('PAGADA')) R.badRequest(res, msg);
+      else if (msg.includes('Solo el')) R.forbidden(res, msg);
+      else if (msg.includes('No se encontró') || msg.includes('Saldo insuficiente')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }

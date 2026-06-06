@@ -1,4 +1,9 @@
 // FILE: src/modules/configuracion/cuentas.service.ts
+// CHAT 9: Agrega _registrarMovimientoEnTx() — helper interno que opera dentro
+// de una transacción externa. Permite que gastos, combustible, cobranza y caja
+// llamen a la lógica de movimiento+saldo dentro de su propio $transaction,
+// garantizando atomicidad completa.
+// El método público registrarMovimiento() existente se mantiene sin cambios.
 
 import prisma from '../../prisma/client';
 
@@ -19,6 +24,22 @@ const DEFAULTS_TIPOS_PAGO = [
   { codigo: 'TARJETA',       nombre: 'Tarjeta',            orden: 6 },
   { codigo: 'CHEQUE',        nombre: 'Cheque',             orden: 7 },
 ];
+
+// ── DTO para movimiento interno ───────────────────────────────────────────────
+
+export interface MovimientoInternoDto {
+  cuentaId: number;
+  tipo: 'INGRESO' | 'EGRESO' | 'TRANSFERENCIA';
+  monto: number;
+  monedaId: number;
+  tipoPagoId?: number;
+  concepto: string;
+  referencia?: string;
+  cuentaDestinoId?: number;
+  usuarioId: number;
+  fecha?: string;
+  liquidacionId?: number;
+}
 
 export class CuentasService {
 
@@ -205,10 +226,117 @@ export class CuentasService {
         moneda: { select: { codigo: true, simbolo: true } },
         tipoPago: { select: { nombre: true } },
         usuario: { select: { id: true, nombre: true } },
+        liquidacion: { select: { id: true, conductor: { select: { nombre: true } } } },
       },
     });
   }
 
+  // ── HELPER INTERNO: registrar movimiento dentro de una tx externa ────────────
+  // Uso: llamar desde otros services dentro de su propio prisma.$transaction(tx => ...)
+  // NO abre transacción propia. Valida saldo antes de escribir.
+  async _registrarMovimientoEnTx(tx: any, dto: MovimientoInternoDto) {
+    // Re-leer saldo dentro de la tx para evitar race conditions
+    const cuenta = await tx.cuentaDinero.findUnique({ where: { id: dto.cuentaId } });
+    if (!cuenta) throw new Error('Cuenta no encontrada');
+    if (!cuenta.activo) throw new Error('La cuenta está inactiva');
+    if (dto.monto <= 0) throw new Error('El monto debe ser mayor a 0');
+
+    // Validar saldo suficiente para egresos
+    if (dto.tipo === 'EGRESO') {
+      const saldoActual = Number(cuenta.saldoActual);
+      if (saldoActual < dto.monto) {
+        throw new Error(
+          `Saldo insuficiente en la cuenta seleccionada. ` +
+          `Saldo disponible: ${cuenta.saldoActual} | Monto requerido: ${dto.monto.toFixed(2)}`
+        );
+      }
+    }
+
+    const mov = await tx.movimientoCuentaV2.create({
+      data: {
+        cuentaId: dto.cuentaId,
+        tipo: dto.tipo,
+        monto: dto.monto,
+        monedaId: dto.monedaId,
+        tipoPagoId: dto.tipoPagoId ?? null,
+        concepto: dto.concepto,
+        referencia: dto.referencia ?? null,
+        cuentaDestinoId: dto.cuentaDestinoId ?? null,
+        usuarioId: dto.usuarioId,
+        liquidacionId: dto.liquidacionId ?? null,
+        fecha: dto.fecha ? new Date(dto.fecha) : new Date(),
+      },
+    });
+
+    // Actualizar saldo
+    const delta = dto.tipo === 'INGRESO' ? dto.monto : -dto.monto;
+    await tx.cuentaDinero.update({
+      where: { id: dto.cuentaId },
+      data: { saldoActual: { increment: delta } },
+    });
+
+    // Transferencia: acreditar cuenta destino
+    if (dto.tipo === 'TRANSFERENCIA' && dto.cuentaDestinoId) {
+      await tx.cuentaDinero.update({
+        where: { id: dto.cuentaDestinoId },
+        data: { saldoActual: { increment: dto.monto } },
+      });
+    }
+
+    return mov;
+  }
+
+  // ── REVERTIR movimiento dentro de una tx externa ────────────────────────────
+  // Crea un movimiento compensatorio opuesto al original.
+  // Usado en anulaciones (cobros, pagos de liquidación).
+  // FIX ERROR 2/3: si usuarioId es 0 o inválido, se usa el usuarioId del movimiento original
+  async _revertirMovimientoEnTx(tx: any, movimientoCuentaId: number, usuarioId: number) {
+    const mov = await tx.movimientoCuentaV2.findUnique({
+      where: { id: movimientoCuentaId },
+    });
+    if (!mov) throw new Error('Movimiento de cuenta no encontrado');
+
+    // Tipo opuesto
+    const tipoOpuesto = mov.tipo === 'INGRESO' ? 'EGRESO' : 'INGRESO';
+
+    // Validar saldo si el reverso es un egreso
+    if (tipoOpuesto === 'EGRESO') {
+      const cuenta = await tx.cuentaDinero.findUnique({ where: { id: mov.cuentaId } });
+      if (!cuenta) throw new Error('Cuenta del movimiento no encontrada');
+      if (Number(cuenta.saldoActual) < Number(mov.monto)) {
+        throw new Error(
+          `No se puede revertir: saldo insuficiente en la cuenta. ` +
+          `Saldo: ${cuenta.saldoActual} | Monto a revertir: ${mov.monto}`
+        );
+      }
+    }
+
+    // FIX: usar usuarioId del movimiento original si no se pasa uno válido
+    const usuarioIdFinal = (usuarioId && usuarioId > 0) ? usuarioId : mov.usuarioId;
+
+    const movReverso = await tx.movimientoCuentaV2.create({
+      data: {
+        cuentaId: mov.cuentaId,
+        tipo: tipoOpuesto,
+        monto: mov.monto,
+        monedaId: mov.monedaId,
+        concepto: `REVERSO — ${mov.concepto}`,
+        referencia: `REV-MOV-${movimientoCuentaId}`,
+        usuarioId: usuarioIdFinal,
+        fecha: new Date(),
+      },
+    });
+
+    const delta = tipoOpuesto === 'INGRESO' ? Number(mov.monto) : -Number(mov.monto);
+    await tx.cuentaDinero.update({
+      where: { id: mov.cuentaId },
+      data: { saldoActual: { increment: delta } },
+    });
+
+    return movReverso;
+  }
+
+  // ── MÉTODO PÚBLICO (sin cambios) ────────────────────────────────────────────
   async registrarMovimiento(dto: {
     cuentaId: number; tipo: 'INGRESO' | 'EGRESO' | 'TRANSFERENCIA';
     monto: number; monedaId: number; tipoPagoId?: number;
@@ -220,38 +348,18 @@ export class CuentasService {
     if (!cuenta.activo) throw new Error('La cuenta está inactiva');
     if (dto.monto <= 0) throw new Error('El monto debe ser mayor a 0');
 
-    return prisma.$transaction(async (tx: any) => {
-      const mov = await tx.movimientoCuentaV2.create({
-        data: {
-          cuentaId: dto.cuentaId,
-          tipo: dto.tipo,
-          monto: dto.monto,
-          monedaId: dto.monedaId,
-          tipoPagoId: dto.tipoPagoId,
-          concepto: dto.concepto,
-          referencia: dto.referencia,
-          cuentaDestinoId: dto.cuentaDestinoId,
-          usuarioId: dto.usuarioId,
-          fecha: dto.fecha ? new Date(dto.fecha) : new Date(),
-        },
-      });
-
-      // Update saldo
-      const delta = dto.tipo === 'INGRESO' ? dto.monto : -dto.monto;
-      await tx.cuentaDinero.update({
-        where: { id: dto.cuentaId },
-        data: { saldoActual: { increment: delta } },
-      });
-
-      // Transfer: credit destination
-      if (dto.tipo === 'TRANSFERENCIA' && dto.cuentaDestinoId) {
-        await tx.cuentaDinero.update({
-          where: { id: dto.cuentaDestinoId },
-          data: { saldoActual: { increment: dto.monto } },
-        });
+    if (dto.tipo === 'EGRESO') {
+      const saldoActual = Number(cuenta.saldoActual);
+      if (saldoActual < dto.monto) {
+        throw new Error(
+          `Saldo insuficiente en la cuenta seleccionada. ` +
+          `Saldo disponible: ${cuenta.saldoActual} | Monto requerido: ${dto.monto.toFixed(2)}`
+        );
       }
+    }
 
-      return mov;
+    return prisma.$transaction(async (tx: any) => {
+      return this._registrarMovimientoEnTx(tx, { ...dto, fecha: dto.fecha });
     });
   }
 

@@ -1,4 +1,5 @@
 // FILE: src/modules/gastos/gastos.controller.ts
+// CHAT 9: cuentaId y monedaId ahora son validados como obligatorios en el controller.
 
 import { Request, Response } from 'express';
 import { gastosService } from './gastos.service';
@@ -30,12 +31,21 @@ export class GastosController {
   async crear(req: Request, res: Response): Promise<void> {
     try {
       const { pedidoId, tipoGasto, monto, descripcion, comprobante, fecha, cuentaId, monedaId, tipoPagoId } = req.body;
+
       if (!tipoGasto || !monto || !descripcion) {
         R.badRequest(res, 'tipoGasto, monto y descripcion son requeridos'); return;
       }
       if (!Object.values(TipoGasto).includes(tipoGasto)) {
         R.badRequest(res, `tipoGasto inválido. Valores: ${Object.values(TipoGasto).join(', ')}`); return;
       }
+      // CHAT 9: validar cuenta y moneda obligatorios
+      if (!cuentaId) {
+        R.badRequest(res, 'Debe seleccionar una cuenta para el gasto'); return;
+      }
+      if (!monedaId) {
+        R.badRequest(res, 'Debe seleccionar una moneda'); return;
+      }
+
       const data = await gastosService.create(
         {
           pedidoId: pedidoId ? parseInt(pedidoId) : undefined,
@@ -44,8 +54,8 @@ export class GastosController {
           descripcion,
           comprobante,
           fecha,
-          cuentaId: cuentaId ? parseInt(cuentaId) : undefined,
-          monedaId: monedaId ? parseInt(monedaId) : undefined,
+          cuentaId: parseInt(cuentaId),
+          monedaId: parseInt(monedaId),
           tipoPagoId: tipoPagoId ? parseInt(tipoPagoId) : undefined,
         },
         req.usuario!.id
@@ -53,8 +63,15 @@ export class GastosController {
       R.created(res, data, 'Gasto registrado correctamente');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('no encontrado') || msg.includes('mayor a')) R.badRequest(res, msg);
-      else R.serverError(res, e);
+      if (
+        msg.includes('no encontrado') ||
+        msg.includes('mayor a') ||
+        msg.includes('Saldo insuficiente') ||
+        msg.includes('Debe seleccionar') ||
+        msg.includes('inactiva')
+      ) {
+        R.badRequest(res, msg);
+      } else R.serverError(res, e);
     }
   }
 
@@ -62,7 +79,9 @@ export class GastosController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      const data = await gastosService.update(id, req.body);
+      // Solo pasar campos no-financieros al update
+      const { pedidoId, tipoGasto, descripcion, comprobante, fecha } = req.body;
+      const data = await gastosService.update(id, { pedidoId, tipoGasto, descripcion, comprobante, fecha });
       R.ok(res, data, 'Gasto actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';

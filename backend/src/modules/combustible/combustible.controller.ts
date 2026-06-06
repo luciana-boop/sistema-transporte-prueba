@@ -1,4 +1,5 @@
 // FILE: src/modules/combustible/combustible.controller.ts
+// CHAT 9: cuentaId y monedaId son obligatorios. Se pasa usuarioId al service.
 
 import { Request, Response } from 'express';
 import { combustibleService } from './combustible.service';
@@ -33,22 +34,39 @@ export class CombustibleController {
 
   async crear(req: Request, res: Response): Promise<void> {
     try {
-      const { vehiculoId, fecha, galones, monto } = req.body;
+      const { vehiculoId, fecha, galones, monto, conductorId, kilometraje, grifo, observaciones, cuentaId, monedaId, tipoPagoId } = req.body;
+
       if (!vehiculoId || !fecha || galones === undefined || monto === undefined) {
         R.badRequest(res, 'vehiculoId, fecha, galones y monto son requeridos'); return;
       }
+      // CHAT 9: obligatorios
+      if (!cuentaId) { R.badRequest(res, 'Debe seleccionar una cuenta para el combustible'); return; }
+      if (!monedaId) { R.badRequest(res, 'Debe seleccionar una moneda'); return; }
+
       R.created(res, await combustibleService.create({
-        ...req.body,
         vehiculoId: parseInt(vehiculoId),
-        conductorId: req.body.conductorId ? parseInt(req.body.conductorId) : undefined,
+        conductorId: conductorId ? parseInt(conductorId) : undefined,
+        fecha,
         galones: parseFloat(galones),
         monto: parseFloat(monto),
-        kilometraje: req.body.kilometraje ? parseFloat(req.body.kilometraje) : undefined,
-      }), 'Carga registrada');
+        kilometraje: kilometraje ? parseFloat(kilometraje) : undefined,
+        grifo,
+        observaciones,
+        cuentaId: parseInt(cuentaId),
+        monedaId: parseInt(monedaId),
+        tipoPagoId: tipoPagoId ? parseInt(tipoPagoId) : undefined,
+      }, req.usuario!.id), 'Carga registrada');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('no encontrado')) R.badRequest(res, msg);
-      else R.serverError(res, e);
+      if (
+        msg.includes('no encontrado') ||
+        msg.includes('Saldo insuficiente') ||
+        msg.includes('Debe seleccionar') ||
+        msg.includes('mayor a') ||
+        msg.includes('inactiva')
+      ) {
+        R.badRequest(res, msg);
+      } else R.serverError(res, e);
     }
   }
 
@@ -56,7 +74,9 @@ export class CombustibleController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      R.ok(res, await combustibleService.update(id, req.body), 'Registro actualizado');
+      // Solo campos no financieros
+      const { vehiculoId, conductorId, fecha, galones, kilometraje, grifo, observaciones } = req.body;
+      R.ok(res, await combustibleService.update(id, { vehiculoId, conductorId, fecha, galones, kilometraje, grifo, observaciones }), 'Registro actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Registro no encontrado') R.notFound(res, msg);
@@ -68,11 +88,12 @@ export class CombustibleController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      await combustibleService.remove(id);
+      await combustibleService.remove(id, req.usuario!.rol);
       R.ok(res, null, 'Registro eliminado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Registro no encontrado') R.notFound(res, msg);
+      else if (msg.includes('Solo')) R.forbidden(res, msg);
       else R.serverError(res, e);
     }
   }

@@ -1,6 +1,11 @@
 // FILE: src/modules/combustible/combustible.service.ts
+// CHAT 9: cuentaId ahora es OBLIGATORIO.
+// Al crear un registro se genera MovimientoCuentaV2 (EGRESO) dentro de la misma
+// transacción. Si el saldo es insuficiente se rechaza antes de escribir nada.
+// Al eliminar se crea un movimiento compensatorio.
 
 import prisma from '../../prisma/client';
+import { cuentasService } from '../configuracion/cuentas.service';
 
 export interface CreateCombustibleDto {
   vehiculoId: number;
@@ -11,6 +16,10 @@ export interface CreateCombustibleDto {
   kilometraje?: number;
   grifo?: string;
   observaciones?: string;
+  // CHAT 9: obligatorios
+  cuentaId: number;
+  monedaId: number;
+  tipoPagoId?: number;
 }
 
 export class CombustibleService {
@@ -87,14 +96,61 @@ export class CombustibleService {
     return c;
   }
 
-  async create(dto: CreateCombustibleDto) {
+  async create(dto: CreateCombustibleDto, usuarioId: number) {
+    if (!dto.cuentaId) throw new Error('Debe seleccionar una cuenta para el combustible');
+    if (!dto.monedaId) throw new Error('Debe seleccionar una moneda');
+    if (dto.monto <= 0) throw new Error('El monto debe ser mayor a 0');
+    if (dto.galones <= 0) throw new Error('Los galones deben ser mayor a 0');
+
     const vehiculo = await prisma.vehiculo.findUnique({ where: { id: dto.vehiculoId } });
     if (!vehiculo) throw new Error('Vehículo no encontrado');
 
-    return prisma.combustible.create({
+    // Extraer campos financieros
+    const { cuentaId, monedaId, tipoPagoId, ...combustibleData } = dto;
+
+    return prisma.$transaction(async (tx: any) => {
+      // 1. Crear registro de combustible operativo
+      const registro = await tx.combustible.create({
+        data: {
+          ...combustibleData,
+          fecha: new Date(dto.fecha),
+        },
+        include: {
+          vehiculo: { select: { id: true, placa: true, marca: true } },
+          conductor: { select: { id: true, nombre: true } },
+        },
+      });
+
+      // 2. Crear movimiento financiero (valida saldo dentro de la tx)
+      await cuentasService._registrarMovimientoEnTx(tx, {
+        cuentaId,
+        tipo: 'EGRESO',
+        monto: dto.monto,
+        monedaId,
+        tipoPagoId,
+        concepto: `Combustible — ${vehiculo.placa} (${dto.galones} gal)`,
+        referencia: `COMBUSTIBLE-${registro.id}`,
+        usuarioId,
+        fecha: dto.fecha,
+      });
+
+      return registro;
+    });
+  }
+
+  async update(id: number, dto: Partial<Omit<CreateCombustibleDto, 'cuentaId' | 'monedaId' | 'tipoPagoId' | 'monto'>>) {
+    await this.findById(id);
+    // Solo actualizar campos no financieros (monto y cuenta no se pueden cambiar)
+    return prisma.combustible.update({
+      where: { id },
       data: {
-        ...dto,
-        fecha: new Date(dto.fecha),
+        ...(dto.vehiculoId !== undefined && { vehiculoId: dto.vehiculoId }),
+        ...(dto.conductorId !== undefined && { conductorId: dto.conductorId }),
+        ...(dto.fecha !== undefined && { fecha: new Date(dto.fecha) }),
+        ...(dto.galones !== undefined && { galones: dto.galones }),
+        ...(dto.kilometraje !== undefined && { kilometraje: dto.kilometraje }),
+        ...(dto.grifo !== undefined && { grifo: dto.grifo }),
+        ...(dto.observaciones !== undefined && { observaciones: dto.observaciones }),
       },
       include: {
         vehiculo: { select: { id: true, placa: true, marca: true } },
@@ -103,17 +159,22 @@ export class CombustibleService {
     });
   }
 
-  async update(id: number, dto: Partial<CreateCombustibleDto>) {
+  async remove(id: number, usuarioRol: string) {
+    if (usuarioRol !== 'ADMIN') throw new Error('Solo el administrador puede eliminar registros de combustible');
     await this.findById(id);
-    return prisma.combustible.update({
-      where: { id },
-      data: { ...dto, fecha: dto.fecha ? new Date(dto.fecha) : undefined },
-    });
-  }
 
-  async remove(id: number) {
-    await this.findById(id);
-    return prisma.combustible.delete({ where: { id } });
+    return prisma.$transaction(async (tx: any) => {
+      // Buscar el MovimientoCuentaV2 vinculado
+      const movCuenta = await tx.movimientoCuentaV2.findFirst({
+        where: { referencia: `COMBUSTIBLE-${id}` },
+      });
+
+      if (movCuenta) {
+        await cuentasService._revertirMovimientoEnTx(tx, movCuenta.id, 0);
+      }
+
+      return tx.combustible.delete({ where: { id } });
+    });
   }
 }
 

@@ -1,9 +1,12 @@
 // FILE: src/modules/cobranza/cobranza.service.ts
-// MODIFICADO: flujo cliente→factura, pagos parciales, estado automático PARCIAL
-// NUEVO: editar pago (campos no financieros), anular pago (lógico), filtro por referencia
+// CHAT 9: cuentaId ahora es OBLIGATORIO al registrar un cobro.
+// Al crear un pago se genera MovimientoCuentaV2 (INGRESO) dentro de la misma
+// transacción. Al anular un pago se revierte el MovimientoCuentaV2 y el
+// MovimientoCaja si existe.
 
 import prisma from '../../prisma/client';
 import { EstadoFactura } from '../../utils/enums';
+import { cuentasService } from '../configuracion/cuentas.service';
 
 export interface CreatePagoDto {
   facturaId: number;
@@ -12,6 +15,10 @@ export interface CreatePagoDto {
   referencia?: string;
   observaciones?: string;
   fechaPago?: string;
+  // CHAT 9: obligatorios
+  cuentaId: number;
+  monedaId: number;
+  tipoPagoId?: number;
 }
 
 export interface UpdatePagoDto {
@@ -55,7 +62,6 @@ export class CobranzaService {
     return pago;
   }
 
-  // Facturas pendientes/parciales de un cliente específico
   async facturasPendientesPorCliente(clienteId: number) {
     const facturas = await prisma.factura.findMany({
       where: {
@@ -83,6 +89,8 @@ export class CobranzaService {
   }
 
   async create(dto: CreatePagoDto, usuarioId: number) {
+    if (!dto.cuentaId) throw new Error('Debe seleccionar una cuenta para registrar el cobro');
+
     const factura = await prisma.factura.findUnique({ where: { id: dto.facturaId } });
     if (!factura) throw new Error('Factura no encontrada');
     if (factura.estado === EstadoFactura.ANULADA) throw new Error('No se puede registrar pago en una factura anulada');
@@ -96,7 +104,19 @@ export class CobranzaService {
       throw new Error(`El monto (S/${dto.monto.toFixed(2)}) excede el saldo pendiente (S/${saldoPendiente.toFixed(2)})`);
     }
 
+    // FIX ERROR 1: resolver monedaId desde la cuenta si no viene o es inválido
+    let monedaId = dto.monedaId && dto.monedaId > 0 ? dto.monedaId : 0;
+    if (!monedaId) {
+      const cuenta = await prisma.cuentaDinero.findUnique({
+        where: { id: dto.cuentaId },
+        select: { monedaId: true },
+      });
+      if (!cuenta) throw new Error('Cuenta no encontrada');
+      monedaId = cuenta.monedaId;
+    }
+
     const resultado = await prisma.$transaction(async (tx: any) => {
+      // 1. Crear el pago
       const pago = await tx.pago.create({
         data: {
           facturaId: dto.facturaId,
@@ -110,7 +130,7 @@ export class CobranzaService {
         },
       });
 
-      // Recalculate totalPagado and estado
+      // 2. Recalcular totalPagado y estado de factura
       const nuevoTotalPagado = totalPagadoActual + dto.monto;
       const total = Number(factura.total);
       let nuevoEstado: string;
@@ -125,7 +145,20 @@ export class CobranzaService {
         data: { totalPagado: nuevoTotalPagado, estado: nuevoEstado as any },
       });
 
-      // Auto-register in open caja if exists
+      // 3. Crear MovimientoCuentaV2 (INGRESO) — obligatorio
+      const movCuenta = await cuentasService._registrarMovimientoEnTx(tx, {
+        cuentaId: dto.cuentaId,
+        tipo: 'INGRESO',
+        monto: dto.monto,
+        monedaId,           // FIX: usa el monedaId resuelto desde la cuenta
+        tipoPagoId: dto.tipoPagoId,
+        concepto: `Cobro factura ${factura.numeroFactura}`,
+        referencia: `PAGO-${pago.id}`,
+        usuarioId,
+        fecha: dto.fechaPago,
+      });
+
+      // 4. Si existe caja abierta, también crear MovimientoCaja
       const cajaAbierta = await tx.caja.findFirst({
         where: { estado: 'ABIERTA', usuarioId },
         orderBy: { aperturaEn: 'desc' },
@@ -137,7 +170,10 @@ export class CobranzaService {
             tipo: 'INGRESO',
             monto: dto.monto,
             concepto: `Cobro factura ${factura.numeroFactura}`,
+            referencia: `PAGO-${pago.id}`,
             pagoId: pago.id,
+            movimientoCuentaId: movCuenta.id,
+            fecha: dto.fechaPago ? new Date(dto.fechaPago) : new Date(),
           },
         });
       }
@@ -148,11 +184,6 @@ export class CobranzaService {
     return this.findById(resultado.id);
   }
 
-  /**
-   * Editar campos no financieros de un pago.
-   * Campos editables: metodoPago, referencia, observaciones, fechaPago.
-   * NO se permite editar monto ni facturaId (afectaría integridad financiera).
-   */
   async update(id: number, dto: UpdatePagoDto, usuarioRol: string) {
     const pago = await this.findById(id);
     if (pago.anulado) throw new Error('No se puede editar un pago anulado');
@@ -173,18 +204,13 @@ export class CobranzaService {
     });
   }
 
-  /**
-   * Anular pago lógicamente (anulado=true).
-   * Recalcula totalPagado y estado de la factura asociada.
-   * Solo ADMIN puede anular.
-   */
   async anular(id: number, usuarioRol: string, motivo?: string) {
     if (usuarioRol !== 'ADMIN') throw new Error('Solo el administrador puede anular pagos');
     const pago = await this.findById(id);
     if (pago.anulado) throw new Error('El pago ya está anulado');
 
     await prisma.$transaction(async (tx: any) => {
-      // Marcar como anulado
+      // 1. Marcar pago como anulado
       await tx.pago.update({
         where: { id },
         data: {
@@ -194,7 +220,7 @@ export class CobranzaService {
         },
       });
 
-      // Recalcular totalPagado de la factura (solo pagos activos)
+      // 2. Recalcular totalPagado de la factura (solo pagos activos)
       const factura = await tx.factura.findUnique({
         where: { id: pago.facturaId },
         include: { pagos: { where: { anulado: false }, select: { monto: true } } },
@@ -208,6 +234,20 @@ export class CobranzaService {
         else estado = EstadoFactura.PARCIAL;
         await tx.factura.update({ where: { id: pago.facturaId }, data: { totalPagado, estado: estado as any } });
       }
+
+      // 3. Revertir MovimientoCuentaV2 si existe (buscar por referencia)
+      const movCuenta = await tx.movimientoCuentaV2.findFirst({
+        where: { referencia: `PAGO-${id}`, tipo: 'INGRESO' },
+      });
+      if (movCuenta) {
+        await cuentasService._revertirMovimientoEnTx(tx, movCuenta.id, 0);
+      }
+
+      // 4. Anular MovimientoCaja si existe y está vinculado a este pago
+      await tx.movimientoCaja.updateMany({
+        where: { pagoId: id, anulado: false },
+        data: { anulado: true },
+      });
     });
 
     return { message: 'Pago anulado correctamente' };
@@ -218,8 +258,17 @@ export class CobranzaService {
     const pago = await this.findById(id);
 
     await prisma.$transaction(async (tx: any) => {
+      // Revertir movimiento de cuenta si existe
+      const movCuenta = await tx.movimientoCuentaV2.findFirst({
+        where: { referencia: `PAGO-${id}`, tipo: 'INGRESO' },
+      });
+      if (movCuenta) {
+        await cuentasService._revertirMovimientoEnTx(tx, movCuenta.id, 0);
+      }
+
       await tx.pago.delete({ where: { id } });
-      // Recalculate factura state after deletion
+
+      // Recalcular estado factura
       const factura = await tx.factura.findUnique({
         where: { id: pago.facturaId },
         include: { pagos: { where: { anulado: false }, select: { monto: true } } },

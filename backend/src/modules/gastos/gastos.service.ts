@@ -1,7 +1,12 @@
 // FILE: src/modules/gastos/gastos.service.ts
+// CHAT 9: cuentaId ahora es OBLIGATORIO.
+// Al crear un gasto se genera MovimientoCuentaV2 (EGRESO) dentro de la misma
+// transacción. Si el saldo es insuficiente se rechaza antes de escribir nada.
+// Al eliminar un gasto se crea un movimiento compensatorio (INGRESO reverso).
 
 import prisma from '../../prisma/client';
 import { TipoGasto } from '../../utils/enums';
+import { cuentasService } from '../configuracion/cuentas.service';
 
 export interface CreateGastoDto {
   pedidoId?: number;
@@ -9,14 +14,21 @@ export interface CreateGastoDto {
   monto: number;
   descripcion: string;
   comprobante?: string;
-  fecha?: Date;
-  // Financiero — no se persiste en Gasto pero se puede usar para MovimientoCuentaV2 futuro
-  cuentaId?: number;
-  monedaId?: number;
+  fecha?: string;
+  // CHAT 9: ahora obligatorios en la capa de servicio
+  cuentaId: number;
+  monedaId: number;
   tipoPagoId?: number;
 }
 
-export interface UpdateGastoDto extends Partial<CreateGastoDto> {}
+export interface UpdateGastoDto {
+  pedidoId?: number;
+  tipoGasto?: TipoGasto;
+  descripcion?: string;
+  comprobante?: string;
+  fecha?: string;
+  // Nota: monto y cuentaId no son editables para preservar integridad del movimiento
+}
 
 export class GastosService {
   async findAll(query: {
@@ -38,9 +50,7 @@ export class GastosService {
       if (query.hasta) where.fecha.lte = new Date(query.hasta + 'T23:59:59');
     }
 
-    // Búsqueda en comprobante, descripcion (concepto), y a través de relaciones
     if (query.search) {
-      const s = query.search.toLowerCase();
       where.OR = [
         { descripcion: { contains: query.search, mode: 'insensitive' } },
         { comprobante: { contains: query.search, mode: 'insensitive' } },
@@ -71,25 +81,48 @@ export class GastosService {
   }
 
   async create(dto: CreateGastoDto, usuarioId: number) {
+    // Validaciones previas a la transacción
+    if (!dto.cuentaId) throw new Error('Debe seleccionar una cuenta para el gasto');
+    if (!dto.monedaId) throw new Error('Debe seleccionar una moneda');
+    if (dto.monto <= 0) throw new Error('El monto debe ser mayor a 0');
+
     if (dto.pedidoId) {
       const pedido = await prisma.pedido.findUnique({ where: { id: dto.pedidoId } });
       if (!pedido) throw new Error('Pedido no encontrado');
     }
-    if (dto.monto <= 0) throw new Error('El monto debe ser mayor a 0');
 
-    // Extraer campos no persistidos en Gasto
-    const { cuentaId: _c, monedaId: _m, tipoPagoId: _t, ...gastoData } = dto;
+    return prisma.$transaction(async (tx: any) => {
+      // 1. Crear el gasto operativo
+      const gasto = await tx.gasto.create({
+        data: {
+          pedidoId: dto.pedidoId ?? null,
+          tipoGasto: dto.tipoGasto,
+          monto: dto.monto,
+          descripcion: dto.descripcion,
+          comprobante: dto.comprobante ?? null,
+          fecha: dto.fecha ? new Date(dto.fecha) : new Date(),
+          usuarioId,
+        },
+        include: {
+          pedido: { select: { id: true, origen: true, destino: true } },
+          usuario: { select: { id: true, nombre: true } },
+        },
+      });
 
-    return prisma.gasto.create({
-      data: {
-        ...gastoData,
+      // 2. Crear movimiento financiero (valida saldo dentro de la tx)
+      await cuentasService._registrarMovimientoEnTx(tx, {
+        cuentaId: dto.cuentaId,
+        tipo: 'EGRESO',
+        monto: dto.monto,
+        monedaId: dto.monedaId,
+        tipoPagoId: dto.tipoPagoId,
+        concepto: `Gasto — ${dto.descripcion}`,
+        referencia: `GASTO-${gasto.id}`,
         usuarioId,
-        fecha: dto.fecha ? new Date(dto.fecha) : new Date(),
-      },
-      include: {
-        pedido: { select: { id: true, origen: true, destino: true } },
-        usuario: { select: { id: true, nombre: true } },
-      },
+        fecha: dto.fecha,
+      });
+
+      return gasto;
     });
   }
 
@@ -99,17 +132,40 @@ export class GastosService {
       const pedido = await prisma.pedido.findUnique({ where: { id: dto.pedidoId } });
       if (!pedido) throw new Error('Pedido no encontrado');
     }
-    if (dto.monto !== undefined && dto.monto <= 0) {
-      throw new Error('El monto debe ser mayor a 0');
-    }
-    const { cuentaId: _c, monedaId: _m, tipoPagoId: _t, ...updateData } = dto;
-    return prisma.gasto.update({ where: { id }, data: updateData });
+    // Solo actualizar campos no financieros
+    return prisma.gasto.update({
+      where: { id },
+      data: {
+        ...(dto.pedidoId !== undefined && { pedidoId: dto.pedidoId }),
+        ...(dto.tipoGasto !== undefined && { tipoGasto: dto.tipoGasto }),
+        ...(dto.descripcion !== undefined && { descripcion: dto.descripcion }),
+        ...(dto.comprobante !== undefined && { comprobante: dto.comprobante }),
+        ...(dto.fecha !== undefined && { fecha: new Date(dto.fecha) }),
+      },
+      include: {
+        pedido: { select: { id: true, origen: true, destino: true } },
+        usuario: { select: { id: true, nombre: true } },
+      },
+    });
   }
 
   async remove(id: number, usuarioRol: string) {
     if (usuarioRol !== 'ADMIN') throw new Error('Solo el administrador puede eliminar gastos');
-    await this.findById(id);
-    return prisma.gasto.delete({ where: { id } });
+    const gasto = await this.findById(id);
+
+    return prisma.$transaction(async (tx: any) => {
+      // Buscar el MovimientoCuentaV2 vinculado por referencia
+      const movCuenta = await tx.movimientoCuentaV2.findFirst({
+        where: { referencia: `GASTO-${id}` },
+      });
+
+      if (movCuenta) {
+        // Crear movimiento compensatorio (revierte el egreso)
+        await cuentasService._revertirMovimientoEnTx(tx, movCuenta.id, 0 /* system */);
+      }
+
+      return tx.gasto.delete({ where: { id } });
+    });
   }
 
   async resumenPorTipo(query: { desde?: string; hasta?: string; pedidoId?: string }) {

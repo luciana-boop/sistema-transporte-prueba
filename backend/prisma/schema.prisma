@@ -238,22 +238,25 @@ model Caja {
 }
 
 model MovimientoCaja {
-  id              Int                @id @default(autoincrement())
-  cajaId          Int                @map("caja_id")
-  tipo            TipoMovimientoCaja
-  monto           Decimal            @db.Decimal(10, 2)
-  concepto        String
+  id                 Int                @id @default(autoincrement())
+  cajaId             Int                @map("caja_id")
+  tipo               TipoMovimientoCaja
+  monto              Decimal            @db.Decimal(10, 2)
+  concepto           String
   // BUG 5 FIX: fecha editable y referencia externa
-  fecha           DateTime?          @map("fecha")
-  referencia      String?
+  fecha              DateTime?          @map("fecha")
+  referencia         String?
   // MEJORA 2: anulación lógica (false = activo, true = anulado; default false)
-  anulado         Boolean            @default(false)
-  pagoId          Int?               @map("pago_id")
-  gastoId         Int?               @map("gasto_id")
-  creadoEn        DateTime           @default(now()) @map("creado_en")
+  anulado            Boolean            @default(false)
+  pagoId             Int?               @map("pago_id")
+  gastoId            Int?               @map("gasto_id")
+  // CHAT 9: vínculo con MovimientoCuentaV2 (nullable para compatibilidad histórica)
+  movimientoCuentaId Int?               @map("movimiento_cuenta_id")
+  creadoEn           DateTime           @default(now()) @map("creado_en")
 
-  caja            Caja               @relation(fields: [cajaId], references: [id])
-  pago            Pago?              @relation(fields: [pagoId], references: [id])
+  caja               Caja              @relation(fields: [cajaId], references: [id])
+  pago               Pago?             @relation(fields: [pagoId], references: [id])
+  movimientoCuenta   MovimientoCuentaV2? @relation("MovCajaCuenta", fields: [movimientoCuentaId], references: [id])
 
   @@map("movimientos_caja")
 }
@@ -365,6 +368,8 @@ model Liquidacion {
   detalles       LiquidacionDetalle[]
   // NUEVO: pedidos relacionados
   pedidos        LiquidacionPedido[]
+  // CHAT 9: movimientos de cuenta asociados a pagos de esta liquidación
+  movimientosCuenta MovimientoCuentaV2[] @relation("LiquidacionPago")
 
   @@map("liquidaciones")
 }
@@ -614,6 +619,8 @@ model MovimientoCuentaV2 {
   referencia       String?
   cuentaDestinoId  Int?     @map("cuenta_destino_id")
   usuarioId        Int      @map("usuario_id")
+  // CHAT 9: vínculo directo con liquidación pagada (nullable para compatibilidad)
+  liquidacionId    Int?     @map("liquidacion_id")
   fecha            DateTime @default(now())
   creadoEn         DateTime @default(now()) @map("creado_en")
 
@@ -622,6 +629,9 @@ model MovimientoCuentaV2 {
   tipoPago         TipoPago?    @relation(fields: [tipoPagoId], references: [id])
   cuentaDestino    CuentaDinero? @relation("CuentaDestino", fields: [cuentaDestinoId], references: [id])
   usuario          Usuario      @relation(fields: [usuarioId], references: [id])
+  liquidacion      Liquidacion? @relation("LiquidacionPago", fields: [liquidacionId], references: [id])
+  // Back-relation: movimientos de caja que apuntan a este movimiento de cuenta
+  movimientosCaja  MovimientoCaja[] @relation("MovCajaCuenta")
 
   @@map("movimientos_cuenta_v2")
 }

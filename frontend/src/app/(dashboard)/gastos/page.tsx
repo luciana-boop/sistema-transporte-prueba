@@ -1,8 +1,9 @@
 // FILE: src/app/(dashboard)/gastos/page.tsx
-// CAMBIOS sobre Chat 8:
-//   - Al seleccionar cuenta origen, la moneda se autocompleta y bloquea
-//   - Si cuenta.moneda difiere de moneda seleccionada → error de validación
-//   - Validación solo en frontend (Gasto no persiste monedaId en DB)
+// CHAT 9:
+//   - cuentaId ahora OBLIGATORIO (Zod required, label "Cuenta origen *")
+//   - Muestra saldo disponible de la cuenta seleccionada
+//   - Validación de saldo insuficiente antes de enviar
+//   - La moneda sigue autocompletándose y bloqueándose según la cuenta
 
 'use client';
 
@@ -36,7 +37,8 @@ const schema = z.object({
   comprobante: z.string().optional(),
   fecha: z.string().optional(),
   monedaId: z.string().optional(),
-  cuentaId: z.string().optional(),
+  // CHAT 9: obligatorio
+  cuentaId: z.string().min(1, 'Debe seleccionar una cuenta'),
   tipoPagoId: z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
@@ -165,19 +167,26 @@ export default function GastosPage() {
   // ── Mutations ──────────────────────────────────────────────────────────────
   const createMutation = useMutation({
     mutationFn: (d: FormData) => {
-      // Bloquear si hay error de moneda
       if (monedaError) throw new Error(monedaError);
+      // CHAT 9: validar saldo insuficiente en cliente antes de enviar
+      const monto = parseFloat(d.monto);
+      if (cuentaSeleccionada && Number(cuentaSeleccionada.saldoActual) < monto) {
+        throw new Error(
+          `Saldo insuficiente en la cuenta seleccionada. ` +
+          `Saldo disponible: ${cuentaSeleccionada.moneda?.simbolo} ${Number(cuentaSeleccionada.saldoActual).toFixed(2)}`
+        );
+      }
       return gastosApi.crear({
         pedidoId: d.pedidoId ? parseInt(d.pedidoId) : undefined,
         tipoGasto: d.tipoGasto as TipoGasto,
-        monto: parseFloat(d.monto),
+        monto,
         descripcion: d.descripcion,
         comprobante: d.comprobante,
         fecha: d.fecha,
-        cuentaId: d.cuentaId ? parseInt(d.cuentaId) : undefined,
-        monedaId: d.monedaId ? parseInt(d.monedaId) : undefined,
+        cuentaId: parseInt(d.cuentaId),
+        monedaId: d.monedaId ? parseInt(d.monedaId) : 1,
         tipoPagoId: d.tipoPagoId ? parseInt(d.tipoPagoId) : undefined,
-      } as any);
+      });
     },
     onSuccess: () => {
       toast.success('Gasto registrado');
@@ -185,6 +194,7 @@ export default function GastosPage() {
       reset();
       setMonedaError('');
       invalidate();
+      qc.invalidateQueries({ queryKey: ['cuentas'] });
     },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
@@ -361,22 +371,25 @@ export default function GastosPage() {
               <Input type="date" {...register('fecha')} />
             </FormField>
 
-            {/* Cuenta origen — controla la moneda */}
+            {/* Cuenta origen — OBLIGATORIA — controla la moneda */}
             <div className="col-span-2">
-              <FormField label="Cuenta origen">
+              <FormField label="Cuenta origen" required error={errors.cuentaId?.message}>
                 <Select {...register('cuentaId')}>
-                  <option value="">Sin cuenta específica</option>
+                  <option value="">Seleccionar cuenta...</option>
                   {cuentas.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.nombre} ({c.moneda?.simbolo} {c.moneda?.codigo})
+                      {c.nombre} ({c.moneda?.simbolo} {c.moneda?.codigo}) — Saldo: {c.moneda?.simbolo} {Number(c.saldoActual).toFixed(2)}
                     </option>
                   ))}
                 </Select>
               </FormField>
               {cuentaSeleccionada && (
-                <p className="text-xs text-muted-foreground mt-1 ml-0.5">
-                  Moneda de la cuenta: <span className="font-semibold text-foreground">{cuentaSeleccionada.moneda?.codigo} ({cuentaSeleccionada.moneda?.simbolo})</span>
-                </p>
+                <div className="flex items-center justify-between mt-1.5 rounded-lg border border-border bg-muted/30 px-3 py-2">
+                  <span className="text-xs text-muted-foreground">Saldo disponible</span>
+                  <span className={`text-sm font-semibold ${Number(cuentaSeleccionada.saldoActual) <= 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                    {cuentaSeleccionada.moneda?.simbolo} {Number(cuentaSeleccionada.saldoActual).toFixed(2)}
+                  </span>
+                </div>
               )}
             </div>
 

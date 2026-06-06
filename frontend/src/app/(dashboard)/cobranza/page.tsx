@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
@@ -28,7 +28,9 @@ const schema = z.object({
   referencia: z.string().optional(),
   observaciones: z.string().optional(),
   fechaPago: z.string().optional(),
-  cuentaId: z.string().optional(),
+  // CHAT 9: obligatorios
+  cuentaId: z.string().min(1, 'Debe seleccionar una cuenta de destino'),
+  monedaId: z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
 
@@ -98,7 +100,7 @@ export default function CobranzaPage() {
     enabled: !!clienteSeleccionado,
   });
 
-  const { register, handleSubmit, reset, watch, setValue, formState: { errors, isSubmitting } } = useForm<FormData>({
+  const { register, handleSubmit, reset, watch, setValue, control, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { metodoPago: 'EFECTIVO' },
   });
@@ -109,6 +111,8 @@ export default function CobranzaPage() {
 
   const watchCliente = watch('clienteId');
   const watchFactura = watch('facturaId');
+  // FIX ERROR 1: observar cuentaId para autocompletar monedaId
+  const watchedCuentaId = useWatch({ control, name: 'cuentaId' });
 
   useEffect(() => {
     setClienteSeleccionado(watchCliente || '');
@@ -123,6 +127,15 @@ export default function CobranzaPage() {
       if (f) setValue('monto', String(f.saldoPendiente.toFixed(2)));
     }
   }, [watchFactura, facturasPendientes, setValue]);
+
+  // FIX ERROR 1: autocompletar monedaId cuando cambia la cuenta seleccionada
+  useEffect(() => {
+    if (!watchedCuentaId) return;
+    const cuenta = (cuentas as any[]).find((c) => String(c.id) === watchedCuentaId);
+    if (cuenta) {
+      setValue('monedaId', String(cuenta.monedaId), { shouldValidate: false });
+    }
+  }, [watchedCuentaId, cuentas, setValue]);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['pagos'] });
@@ -139,6 +152,9 @@ export default function CobranzaPage() {
       referencia: d.referencia,
       observaciones: d.observaciones,
       fechaPago: d.fechaPago,
+      // CHAT 9: obligatorios
+      cuentaId: parseInt(d.cuentaId),
+      monedaId: d.monedaId ? parseInt(d.monedaId) : 1,
     }),
     onSuccess: () => {
       toast.success('Pago registrado');
@@ -147,6 +163,7 @@ export default function CobranzaPage() {
       setClienteSeleccionado('');
       setFacturaSeleccionada(null);
       invalidate();
+      qc.invalidateQueries({ queryKey: ['cuentas'] });
     },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
@@ -396,11 +413,13 @@ export default function CobranzaPage() {
               </Select>
             </FormField>
             <FormField label="Referencia"><Input placeholder="N° transferencia..." {...register('referencia')} /></FormField>
-            <FormField label="Cuenta de destino">
+            <FormField label="Cuenta de destino" required error={errors.cuentaId?.message}>
               <Select {...register('cuentaId')}>
-                <option value="">Sin especificar</option>
+                <option value="">Seleccionar cuenta...</option>
                 {cuentas.map((c: any) => (
-                  <option key={c.id} value={c.id}>{c.nombre} ({c.moneda?.codigo ?? 'PEN'})</option>
+                  <option key={c.id} value={c.id}>
+                    {c.nombre} ({c.moneda?.simbolo} {c.moneda?.codigo}) — Saldo: {c.moneda?.simbolo} {Number(c.saldoActual).toFixed(2)}
+                  </option>
                 ))}
               </Select>
             </FormField>

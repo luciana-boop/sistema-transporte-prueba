@@ -1,5 +1,5 @@
 // FILE: src/modules/cobranza/cobranza.controller.ts
-// NUEVO: editar (PUT /:id), anular (PATCH /:id/anular)
+// CHAT 9: cuentaId y monedaId son obligatorios al registrar pago.
 
 import { Request, Response } from 'express';
 import { cobranzaService } from './cobranza.service';
@@ -35,20 +35,42 @@ export class CobranzaController {
 
   async registrarPago(req: Request, res: Response): Promise<void> {
     try {
-      const { facturaId, monto, metodoPago, referencia, observaciones, fechaPago } = req.body;
+      const { facturaId, monto, metodoPago, referencia, observaciones, fechaPago, cuentaId, monedaId, tipoPagoId } = req.body;
+
       if (!facturaId || !monto || !metodoPago) {
         R.badRequest(res, 'facturaId, monto y metodoPago son requeridos'); return;
       }
+      // CHAT 9: cuentaId obligatorio; monedaId es resuelto en el service desde la cuenta si no viene
+      if (!cuentaId) { R.badRequest(res, 'Debe seleccionar una cuenta para registrar el cobro'); return; }
+
       R.created(res,
         await cobranzaService.create(
-          { facturaId: parseInt(facturaId), monto: parseFloat(monto), metodoPago, referencia, observaciones, fechaPago },
+          {
+            facturaId: parseInt(facturaId),
+            monto: parseFloat(monto),
+            metodoPago,
+            referencia,
+            observaciones,
+            fechaPago,
+            cuentaId: parseInt(cuentaId),
+            monedaId: monedaId ? parseInt(monedaId) : 0,
+            tipoPagoId: tipoPagoId ? parseInt(tipoPagoId) : undefined,
+          },
           req.usuario!.id
         ),
         'Pago registrado'
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('no encontrada') || msg.includes('excede') || msg.includes('anulada') || msg.includes('pagada')) {
+      if (
+        msg.includes('no encontrada') ||
+        msg.includes('excede') ||
+        msg.includes('anulada') ||
+        msg.includes('pagada') ||
+        msg.includes('Debe seleccionar') ||
+        msg.includes('Saldo insuficiente') ||
+        msg.includes('inactiva')
+      ) {
         R.badRequest(res, msg);
       } else R.serverError(res, e);
     }
@@ -81,7 +103,7 @@ export class CobranzaController {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Pago no encontrado') R.notFound(res, msg);
       else if (msg.includes('Solo el')) R.forbidden(res, msg);
-      else if (msg.includes('ya está')) R.badRequest(res, msg);
+      else if (msg.includes('ya está') || msg.includes('Saldo insuficiente')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }
