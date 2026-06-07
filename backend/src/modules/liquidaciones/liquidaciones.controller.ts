@@ -1,5 +1,10 @@
 // FILE: src/modules/liquidaciones/liquidaciones.controller.ts
-// CAMBIO: Agrega endpoint GET /pedidos-disponibles y manejo de pedidoIds en create/update.
+// CAMBIOS v2 (P3):
+//   - cajasAbiertas(): devuelve cajas abiertas disponibles para pago
+//   - pagar(): pago total de liquidación desde caja abierta
+//   - reintegro(): registra ingreso en caja cuando conductor devuelve exceso
+//   - devolucion(): registra egreso en caja cuando empresa paga deuda al conductor
+//   - historialFinanciero(): movimientos financieros de la liquidación
 
 import { Request, Response } from 'express';
 import { liquidacionesService } from './liquidaciones.service';
@@ -25,14 +30,111 @@ export class LiquidacionesController {
     }
   }
 
-  /**
-   * GET /api/liquidaciones/pedidos-disponibles
-   * Devuelve pedidos ACTIVOS sin liquidación asignada para poblar el selector del formulario.
-   */
   async pedidosDisponibles(req: Request, res: Response): Promise<void> {
     try {
       R.ok(res, await liquidacionesService.findPedidosDisponibles());
     } catch (e) { R.serverError(res, e); }
+  }
+
+  // ── P3: cajas abiertas ────────────────────────────────────────────────────────
+  async cajasAbiertas(req: Request, res: Response): Promise<void> {
+    try {
+      R.ok(res, await liquidacionesService.getCajasAbiertas());
+    } catch (e) { R.serverError(res, e); }
+  }
+
+  // ── P3: pago total desde caja ─────────────────────────────────────────────────
+  async pagar(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
+      const { cajaId, observaciones } = req.body;
+      if (!cajaId) { R.badRequest(res, 'cajaId es requerido'); return; }
+
+      const result = await liquidacionesService.pagarLiquidacion(
+        { liquidacionId: id, cajaId: parseInt(cajaId), observaciones },
+        req.usuario!.id,
+      );
+      R.ok(res, result, 'Liquidación pagada');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg.includes('no encontrada') || msg.includes('ya fue pagada') || msg.includes('cerrada')) {
+        R.badRequest(res, msg);
+      } else { R.serverError(res, e); }
+    }
+  }
+
+  // ── P3: reintegro ─────────────────────────────────────────────────────────────
+  async reintegro(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
+      const { cajaId, monto, concepto, observaciones } = req.body;
+      if (!cajaId || !monto) { R.badRequest(res, 'cajaId y monto son requeridos'); return; }
+
+      const result = await liquidacionesService.registrarReintegro(
+        {
+          liquidacionId: id,
+          cajaId: parseInt(cajaId),
+          monto: parseFloat(monto),
+          concepto,
+          observaciones,
+        },
+        req.usuario!.id,
+      );
+      R.ok(res, result, 'Reintegro registrado');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (
+        msg.includes('no encontrada') || msg.includes('Solo se puede') ||
+        msg.includes('cerrada') || msg.includes('no tiene monto')
+      ) {
+        R.badRequest(res, msg);
+      } else { R.serverError(res, e); }
+    }
+  }
+
+  // ── P3: devolución ───────────────────────────────────────────────────────────
+  async devolucion(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
+      const { cajaId, monto, concepto, observaciones } = req.body;
+      if (!cajaId || !monto) { R.badRequest(res, 'cajaId y monto son requeridos'); return; }
+
+      const result = await liquidacionesService.registrarDevolucion(
+        {
+          liquidacionId: id,
+          cajaId: parseInt(cajaId),
+          monto: parseFloat(monto),
+          concepto,
+          observaciones,
+        },
+        req.usuario!.id,
+      );
+      R.ok(res, result, 'Devolución registrada');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (
+        msg.includes('no encontrada') || msg.includes('Solo se puede') ||
+        msg.includes('cerrada') || msg.includes('no tiene monto')
+      ) {
+        R.badRequest(res, msg);
+      } else { R.serverError(res, e); }
+    }
+  }
+
+  // ── P3: historial financiero ─────────────────────────────────────────────────
+  async historialFinanciero(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
+      R.ok(res, await liquidacionesService.getHistorialFinanciero(id));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'Liquidación no encontrada') R.notFound(res, msg);
+      else R.serverError(res, e);
+    }
   }
 
   async crear(req: Request, res: Response): Promise<void> {
@@ -47,7 +149,6 @@ export class LiquidacionesController {
         R.badRequest(res, 'detalles debe ser un array');
         return;
       }
-      // pedidoIds es opcional; si viene debe ser un array de números
       if (pedidoIds !== undefined && !Array.isArray(pedidoIds)) {
         R.badRequest(res, 'pedidoIds debe ser un array');
         return;
@@ -73,9 +174,7 @@ export class LiquidacionesController {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('no encontrado') || msg.includes('ya está asignado') || msg.includes('duplicados')) {
         R.badRequest(res, msg);
-      } else {
-        R.serverError(res, e);
-      }
+      } else { R.serverError(res, e); }
     }
   }
 
@@ -85,13 +184,9 @@ export class LiquidacionesController {
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
 
       const { pedidoIds, ...rest } = req.body;
-
       const updateData: any = { ...rest };
       if (pedidoIds !== undefined) {
-        if (!Array.isArray(pedidoIds)) {
-          R.badRequest(res, 'pedidoIds debe ser un array');
-          return;
-        }
+        if (!Array.isArray(pedidoIds)) { R.badRequest(res, 'pedidoIds debe ser un array'); return; }
         updateData.pedidoIds = (pedidoIds as any[]).map((id) => parseInt(id));
       }
 
@@ -99,11 +194,9 @@ export class LiquidacionesController {
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Liquidación no encontrada') R.notFound(res, msg);
-      else if (msg.includes('ya está asignado') || msg.includes('duplicados') || msg.includes('no encontrado')) {
+      else if (msg.includes('ya asignado') || msg.includes('duplicados') || msg.includes('no encontrado') || msg.includes('pagada')) {
         R.badRequest(res, msg);
-      } else {
-        R.serverError(res, e);
-      }
+      } else { R.serverError(res, e); }
     }
   }
 
@@ -116,6 +209,7 @@ export class LiquidacionesController {
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Liquidación no encontrada') R.notFound(res, msg);
+      else if (msg.includes('pagada')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }

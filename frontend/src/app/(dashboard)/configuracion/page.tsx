@@ -36,19 +36,15 @@ const TABS = [
   { id: 'gastos',     label: 'Cat. Gastos',    icon: Tags       },
   { id: 'alertas',    label: 'Alertas',        icon: Bell       },
   { id: 'vehiculos',  label: 'Tipos Vehículo', icon: Car        },
-  { id: 'tablas',     label: 'Tablas Maestras',icon: Database   },
-  { id: 'unidades',   label: 'Unid. Medida',  icon: Database   },
-  { id: 'codigos',    label: 'Cód. Factura',   icon: FileText   },
-  { id: 'pdf',        label: 'Config. PDF',    icon: Settings2  },
   { id: 'monedas',    label: 'Monedas',        icon: Database   },
   { id: 'tipospago',  label: 'Tipos de Pago',  icon: Database   },
   { id: 'cuentas',    label: 'Cuentas',        icon: Database   },
+  { id: 'tablas',     label: 'Tablas Maestras',icon: Database   },
+  { id: 'pdf',        label: 'Config. PDF',    icon: Settings2  },
 ];
 
 const TIPOS_TABLA = [
   { tipo: 'banco',                label: 'Bancos' },
-  { tipo: 'tipo_pago',            label: 'Tipos de pago' },
-  { tipo: 'moneda',               label: 'Monedas' },
   { tipo: 'tipo_documento',       label: 'Tipos de documento' },
   { tipo: 'tipo_credito',         label: 'Tipos de crédito' },
   { tipo: 'tipo_carga',           label: 'Tipos de carga' },
@@ -181,18 +177,20 @@ export default function ConfiguracionPage() {
     enabled: tab === 'tablas',
   });
 
-  // ── Unidades de medida ────────────────────────────────────────────────────
+  // ── Unidades de medida — accedidas desde Tablas Maestras (tipo: unidad_medida) ──
+  // Los tabs independientes 'unidades' y 'codigos' fueron eliminados (P4).
+  // Estas queries ya no se activan; se mantienen solo para no romper referencias.
   const { data: unidadesData = [], isLoading: loadUnidades } = useQuery({
     queryKey: ['config', 'tabla', 'unidad_medida'],
     queryFn: () => configuracionApi.getTablaMaestra('unidad_medida').then(r => r.data.data),
-    enabled: tab === 'unidades',
+    enabled: false, // P4: eliminado tab independiente; usar Tablas Maestras
   });
 
-  // ── Códigos de facturación ────────────────────────────────────────────────
+  // ── Códigos de facturación — accedidos desde Tablas Maestras (tipo: codigo_factura) ──
   const { data: codigosData = [], isLoading: loadCodigos } = useQuery({
     queryKey: ['config', 'tabla', 'codigo_factura'],
     queryFn: () => configuracionApi.getTablaMaestra('codigo_factura').then(r => r.data.data),
-    enabled: tab === 'codigos',
+    enabled: false, // P4: eliminado tab independiente; usar Tablas Maestras
   });
 
   // ── Mutations ─────────────────────────────────────────────────────────────────
@@ -722,93 +720,6 @@ export default function ConfiguracionPage() {
       )}
 
       {/* ── TAB: MONEDAS ────────────────────────────────────────────────────── */}
-      {/* ── TAB: UNIDADES DE MEDIDA ─────────────────────────────────────────── */}
-      {tab === 'unidades' && (
-        <div className="flex flex-col gap-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <p className="text-sm font-semibold">Unidades de medida</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Se usan en las líneas de detalle de las facturas. Solo las activas aparecen al facturar.
-              </p>
-            </div>
-            <Button size="sm" onClick={() => openCreate('unidad')}>
-              <Plus className="w-4 h-4" /> Nueva unidad
-            </Button>
-          </div>
-          {loadUnidades ? <TableSkeleton rows={4} cols={4} /> : (
-            <Table>
-              <thead>
-                <tr><Th>Código</Th><Th>Nombre</Th><Th>Descripción</Th><Th>Activo</Th></tr>
-              </thead>
-              <tbody>
-                {unidadesData.length > 0 ? unidadesData.map((u) => (
-                  <Tr key={u.id}>
-                    <Td><span className="font-mono text-xs font-bold">{u.codigo}</span></Td>
-                    <Td><span className="text-sm font-medium">{u.nombre}</span></Td>
-                    <Td><span className="text-xs text-muted-foreground">{u.descripcion ?? '—'}</span></Td>
-                    <Td>
-                      <Switch
-                        checked={u.activo}
-                        onChange={(v) => { setEditingItem(u); updateUnidadMutation.mutate(v); }}
-                      />
-                    </Td>
-                  </Tr>
-                )) : <tr><td colSpan={4}><EmptyState message="Sin unidades. Crea una o ejecuta 'Inicializar defaults'." /></td></tr>}
-              </tbody>
-            </Table>
-          )}
-        </div>
-      )}
-
-      {/* ── TAB: CÓDIGOS DE FACTURACIÓN ──────────────────────────────────────── */}
-      {tab === 'codigos' && (
-        <div className="flex flex-col gap-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <p className="text-sm font-semibold">Códigos de facturación</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Al seleccionar un código en la factura, la descripción se autocompleta. Solo los activos están disponibles al facturar.
-              </p>
-            </div>
-            <Button size="sm" onClick={() => openCreate('codigo')}>
-              <Plus className="w-4 h-4" /> Nuevo código
-            </Button>
-          </div>
-          {loadCodigos ? <TableSkeleton rows={4} cols={4} /> : (
-            <Table>
-              <thead>
-                <tr><Th>Código</Th><Th>Descripción asociada</Th><Th>Activo</Th><Th className="text-right">Acciones</Th></tr>
-              </thead>
-              <tbody>
-                {codigosData.length > 0 ? codigosData.map((c) => (
-                  <Tr key={c.id}>
-                    <Td><span className="font-mono text-xs font-bold">{c.codigo}</span></Td>
-                    <Td><span className="text-sm">{c.descripcion ?? '—'}</span></Td>
-                    <Td>
-                      <Switch
-                        checked={c.activo}
-                        onChange={(v) => { setEditingItem(c); updateCodigoMutation.mutate(v); }}
-                      />
-                    </Td>
-                    <Td>
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => { setEditingItem(c); setFormData({ codigo: c.codigo, descripcion: c.descripcion ?? '' }); setShowModal('codigo'); }}
-                          className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </Td>
-                  </Tr>
-                )) : <tr><td colSpan={4}><EmptyState message="Sin códigos. Crea uno o ejecuta 'Inicializar defaults'." /></td></tr>}
-              </tbody>
-            </Table>
-          )}
-        </div>
-      )}
-
       {tab === 'monedas' && <MonedasTab />}
 
       {/* ── TAB: TIPOS PAGO ──────────────────────────────────────────────────── */}

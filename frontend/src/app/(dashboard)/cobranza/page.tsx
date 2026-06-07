@@ -9,7 +9,7 @@ import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, AlertTriangle, Download, Search, Edit2, XCircle } from 'lucide-react';
+import { Plus, AlertTriangle, Download, Search, Edit2, XCircle, Eye } from 'lucide-react';
 import { cobranzaApi, clientesApi, cuentasApi } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage, METODO_PAGO_LABEL, ESTADO_FACTURA_LABEL } from '@/lib/utils';
 import {
@@ -51,10 +51,12 @@ export default function CobranzaPage() {
   const [clienteSeleccionado, setClienteSeleccionado] = useState('');
   const [facturaSeleccionada, setFacturaSeleccionada] = useState<any>(null);
 
-  // Filtros y búsqueda
+  // Filtros y búsqueda — MEJORA 1: por defecto hoy
   const [searchText, setSearchText] = useState('');
-  const [filtroDesde, setFiltroDesde] = useState('');
-  const [filtroHasta, setFiltroHasta] = useState('');
+  const [filtroDesde, setFiltroDesde] = useState(() => new Date().toISOString().split('T')[0]);
+  const [filtroHasta, setFiltroHasta] = useState(() => new Date().toISOString().split('T')[0]);
+  // MEJORA 4: detalle
+  const [viewing, setViewing] = useState<any>(null);
 
   const { data: pagosRaw = [], isLoading: loadPagos } = useQuery({
     queryKey: ['pagos', filtroDesde, filtroHasta],
@@ -305,6 +307,13 @@ export default function CobranzaPage() {
                       <Td>
                         <div className="flex items-center justify-end gap-1">
                           <button
+                            onClick={() => setViewing(p)}
+                            className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
+                            title="Ver detalle"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                          <button
                             onClick={() => openEdit(p)}
                             className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
                             title="Editar"
@@ -470,6 +479,61 @@ export default function CobranzaPage() {
                 </Button>
               </div>
             </form>
+          </div>
+        )}
+      </Modal>
+
+      {/* MEJORA 4: Modal de detalle de pago */}
+      <Modal open={!!viewing} onClose={() => setViewing(null)} title={`Cobro — ${viewing?.factura?.numeroFactura ?? ''}`} maxWidth="max-w-lg">
+        {viewing && (
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Cliente</p>
+                <p className="font-semibold text-sm">{viewing.cliente?.razonSocial}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Factura</p>
+                <p className="font-mono font-bold text-sm">{viewing.factura?.numeroFactura}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Monto cobrado</p>
+                <p className="font-bold text-lg text-emerald-500">{formatCurrency(Number(viewing.monto))}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Método de pago</p>
+                <p className="font-medium text-sm">{METODO_PAGO_LABEL[viewing.metodoPago as keyof typeof METODO_PAGO_LABEL] ?? viewing.metodoPago}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Fecha de pago</p>
+                <p className="text-sm">{formatDate(viewing.fechaPago)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Estado de factura</p>
+                <p className="text-sm">{ESTADO_FACTURA_LABEL[viewing.factura?.estado as keyof typeof ESTADO_FACTURA_LABEL] ?? viewing.factura?.estado ?? '—'}</p>
+              </div>
+              {viewing.referencia && (
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-1">Referencia</p>
+                  <p className="text-sm font-mono">{viewing.referencia}</p>
+                </div>
+              )}
+              {viewing.observaciones && (
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-1">Observaciones</p>
+                  <p className="text-sm bg-muted/30 rounded p-2">{viewing.observaciones}</p>
+                </div>
+              )}
+              {viewing.anulado && (
+                <div className="col-span-2 bg-destructive/10 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-destructive uppercase">Pago anulado</p>
+                  {viewing.motivoAnulacion && <p className="text-xs text-muted-foreground mt-1">{viewing.motivoAnulacion}</p>}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end pt-2 border-t border-border">
+              <Button variant="secondary" onClick={() => setViewing(null)}>Cerrar</Button>
+            </div>
           </div>
         )}
       </Modal>

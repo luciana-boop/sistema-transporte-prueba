@@ -1,5 +1,6 @@
 // FILE: src/app/(dashboard)/pedidos/page.tsx
-// MODIFICADO: solo estados ACTIVO/ANULADO, sin pesoCarga
+// MEJORA 1: filtros de fecha inicializados en hoy.
+// MEJORA 4: modal de detalle completo con rentabilidad.
 'use client';
 
 import { useState } from 'react';
@@ -8,7 +9,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Search, Edit2, XCircle, Download } from 'lucide-react';
+import { Plus, Search, Edit2, XCircle, Download, Eye, X } from 'lucide-react';
 import { pedidosApi, clientesApi } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage, ESTADO_PEDIDO_LABEL } from '@/lib/utils';
 import {
@@ -17,6 +18,8 @@ import {
 } from '@/components/shared';
 import { useAuthStore } from '@/store/auth.store';
 import * as XLSX from 'xlsx';
+
+const today = () => new Date().toISOString().split('T')[0];
 
 const schema = z.object({
   clienteId: z.string().min(1, 'Selecciona un cliente'),
@@ -33,15 +36,27 @@ export default function PedidosPage() {
   const { usuario } = useAuthStore();
   const [search, setSearch] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('');
+  // MEJORA 1: por defecto hoy
+  const [filtroDesde, setFiltroDesde] = useState(today);
+  const [filtroHasta, setFiltroHasta] = useState(today);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<any>(null);
+  const [viewing, setViewing] = useState<any>(null);
 
   const { data: pedidos = [], isLoading } = useQuery({
-    queryKey: ['pedidos', search, filtroEstado],
+    queryKey: ['pedidos', search, filtroEstado, filtroDesde, filtroHasta],
     queryFn: () => pedidosApi.listar({
       search: search || undefined,
       estado: filtroEstado as any || undefined,
+      desde: filtroDesde || undefined,
+      hasta: filtroHasta || undefined,
     }).then((r) => r.data.data),
+  });
+
+  const { data: rentabilidad } = useQuery({
+    queryKey: ['pedido-rentabilidad', viewing?.id],
+    queryFn: () => pedidosApi.rentabilidad(viewing!.id).then((r) => r.data.data),
+    enabled: !!viewing?.id,
   });
 
   const { data: clientes = [] } = useQuery({
@@ -100,6 +115,11 @@ export default function PedidosPage() {
     XLSX.writeFile(wb, `pedidos_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
+  const limpiarFiltros = () => {
+    setSearch(''); setFiltroEstado(''); setFiltroDesde(''); setFiltroHasta('');
+  };
+  const hayFiltros = !!(search || filtroEstado || filtroDesde || filtroHasta);
+
   return (
     <div className="page-container">
       <PageHeader
@@ -117,10 +137,11 @@ export default function PedidosPage() {
         }
       />
 
-      <div className="flex flex-wrap gap-3">
+      {/* Filtros */}
+      <div className="flex flex-wrap gap-3 items-center">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Buscar..." className="pl-9 w-64" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input placeholder="Buscar..." className="pl-9 w-56" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
         <Select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)} className="w-44">
           <option value="">Todos los estados</option>
@@ -128,9 +149,22 @@ export default function PedidosPage() {
             <option key={v} value={v}>{l}</option>
           ))}
         </Select>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground">Desde</label>
+          <Input type="date" className="w-36" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)} />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground">Hasta</label>
+          <Input type="date" className="w-36" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} />
+        </div>
+        {hayFiltros && (
+          <button onClick={limpiarFiltros} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground underline">
+            <X className="w-3 h-3" /> Limpiar
+          </button>
+        )}
       </div>
 
-      {isLoading ? <TableSkeleton rows={7} cols={7} /> : (
+      {isLoading ? <TableSkeleton rows={7} cols={8} /> : (
         <Table>
           <thead>
             <tr>
@@ -151,6 +185,9 @@ export default function PedidosPage() {
                 <Td><span className="text-xs text-muted-foreground">{formatDate(p.fechaPedido)}</span></Td>
                 <Td>
                   <div className="flex items-center justify-end gap-1">
+                    <button onClick={() => setViewing(p)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Ver detalle">
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
                     {p.estado === 'ACTIVO' && (
                       <>
                         <button onClick={() => openEdit(p)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Editar">
@@ -168,9 +205,7 @@ export default function PedidosPage() {
                       </>
                     )}
                     {p.estado === 'FACTURADO' && (
-                      <span className="text-xs text-muted-foreground italic px-1" title="Tiene factura emitida">
-                        Facturado
-                      </span>
+                      <span className="text-xs text-muted-foreground italic px-1">Facturado</span>
                     )}
                   </div>
                 </Td>
@@ -180,6 +215,90 @@ export default function PedidosPage() {
         </Table>
       )}
 
+      {/* MEJORA 4: Modal de detalle */}
+      <Modal open={!!viewing} onClose={() => setViewing(null)} title={`Pedido #${viewing?.id}`} maxWidth="max-w-2xl">
+        {viewing && (
+          <div className="flex flex-col gap-5">
+            {/* Estado + fecha */}
+            <div className="flex items-center justify-between">
+              <Badge value={viewing.estado} label={ESTADO_PEDIDO_LABEL[viewing.estado] ?? viewing.estado} />
+              <span className="text-sm text-muted-foreground">{formatDate(viewing.fechaPedido)}</span>
+            </div>
+
+            {/* Datos principales */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground mb-1">Cliente</p>
+                <p className="font-semibold">{viewing.cliente?.razonSocial}</p>
+                <p className="text-xs text-muted-foreground">{viewing.cliente?.ruc}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Origen</p>
+                <p className="font-medium">{viewing.origen}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Destino</p>
+                <p className="font-medium">{viewing.destino}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Tipo de carga</p>
+                <p className="font-medium">{viewing.tipoCarga}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Tarifa</p>
+                <p className="font-semibold text-lg">{formatCurrency(Number(viewing.tarifa))}</p>
+              </div>
+            </div>
+
+            {/* Rentabilidad */}
+            {rentabilidad && (
+              <div className="bg-muted/30 rounded-lg p-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Rentabilidad</p>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Tarifa</p>
+                    <p className="font-semibold text-sm">{formatCurrency(rentabilidad.tarifa)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Total gastos</p>
+                    <p className="font-semibold text-sm text-red-500">{formatCurrency(rentabilidad.totalGastos)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Utilidad neta</p>
+                    <p className={`font-bold text-sm ${rentabilidad.utilidadNeta >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
+                      {formatCurrency(rentabilidad.utilidadNeta)}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-2 text-center">
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${rentabilidad.margenPorcentaje >= 0 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-destructive/10 text-destructive'}`}>
+                    Margen: {rentabilidad.margenPorcentaje.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Observaciones */}
+            {viewing.observaciones && (
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Observaciones</p>
+                <p className="text-sm bg-muted/30 rounded p-2">{viewing.observaciones}</p>
+              </div>
+            )}
+
+            <div className="flex justify-between pt-2 border-t border-border">
+              {viewing.estado === 'ACTIVO' && (
+                <Button size="sm" variant="secondary" onClick={() => { setViewing(null); openEdit(viewing); }}>
+                  <Edit2 className="w-3.5 h-3.5" /> Editar
+                </Button>
+              )}
+              <Button variant="secondary" onClick={() => setViewing(null)} className="ml-auto">Cerrar</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal crear/editar */}
       <Modal open={showForm || !!editing} onClose={() => { setShowForm(false); setEditing(null); reset(); }} title={editing ? 'Editar pedido' : 'Nuevo pedido'} maxWidth="max-w-xl">
         <form onSubmit={handleSubmit((d) => editing ? updateMutation.mutate(d) : createMutation.mutate(d))} className="flex flex-col gap-4">
           {!editing && (

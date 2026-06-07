@@ -26,8 +26,11 @@ const COLORS = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4'];
 
 export default function ReportesPage() {
   const [tab, setTab] = useState('pedidos');
-  const [desde, setDesde] = useState('');
-  const [hasta, setHasta] = useState('');
+  // MEJORA 1: últimos 7 días por defecto
+  const [desde, setDesde] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().split('T')[0];
+  });
+  const [hasta, setHasta] = useState(() => new Date().toISOString().split('T')[0]);
 
   const params = { desde: desde || undefined, hasta: hasta || undefined };
 

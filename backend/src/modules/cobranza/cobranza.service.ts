@@ -1,8 +1,6 @@
 // FILE: src/modules/cobranza/cobranza.service.ts
-// CHAT 9: cuentaId ahora es OBLIGATORIO al registrar un cobro.
-// Al crear un pago se genera MovimientoCuentaV2 (INGRESO) dentro de la misma
-// transacción. Al anular un pago se revierte el MovimientoCuentaV2 y el
-// MovimientoCaja si existe.
+// FIX PROBLEMA 2: MovimientoCaja solo se crea cuando la cuenta es de tipo CAJA.
+// Las cuentas bancarias (BANCO, DIGITAL) solo generan MovimientoCuentaV2.
 
 import prisma from '../../prisma/client';
 import { EstadoFactura } from '../../utils/enums';
@@ -15,7 +13,6 @@ export interface CreatePagoDto {
   referencia?: string;
   observaciones?: string;
   fechaPago?: string;
-  // CHAT 9: obligatorios
   cuentaId: number;
   monedaId: number;
   tipoPagoId?: number;
@@ -104,7 +101,7 @@ export class CobranzaService {
       throw new Error(`El monto (S/${dto.monto.toFixed(2)}) excede el saldo pendiente (S/${saldoPendiente.toFixed(2)})`);
     }
 
-    // FIX ERROR 1: resolver monedaId desde la cuenta si no viene o es inválido
+    // Resolver monedaId desde la cuenta si no viene o es inválido
     let monedaId = dto.monedaId && dto.monedaId > 0 ? dto.monedaId : 0;
     if (!monedaId) {
       const cuenta = await prisma.cuentaDinero.findUnique({
@@ -114,6 +111,14 @@ export class CobranzaService {
       if (!cuenta) throw new Error('Cuenta no encontrada');
       monedaId = cuenta.monedaId;
     }
+
+    // FIX PROBLEMA 2: verificar tipo de cuenta ANTES de la transacción
+    const cuentaInfo = await prisma.cuentaDinero.findUnique({
+      where: { id: dto.cuentaId },
+      select: { tipoCuenta: true },
+    });
+    if (!cuentaInfo) throw new Error('Cuenta no encontrada');
+    const esCuentaCaja = cuentaInfo.tipoCuenta === 'CAJA';
 
     const resultado = await prisma.$transaction(async (tx: any) => {
       // 1. Crear el pago
@@ -145,12 +150,12 @@ export class CobranzaService {
         data: { totalPagado: nuevoTotalPagado, estado: nuevoEstado as any },
       });
 
-      // 3. Crear MovimientoCuentaV2 (INGRESO) — obligatorio
+      // 3. Crear MovimientoCuentaV2 (INGRESO) — siempre obligatorio
       const movCuenta = await cuentasService._registrarMovimientoEnTx(tx, {
         cuentaId: dto.cuentaId,
         tipo: 'INGRESO',
         monto: dto.monto,
-        monedaId,           // FIX: usa el monedaId resuelto desde la cuenta
+        monedaId,
         tipoPagoId: dto.tipoPagoId,
         concepto: `Cobro factura ${factura.numeroFactura}`,
         referencia: `PAGO-${pago.id}`,
@@ -158,24 +163,26 @@ export class CobranzaService {
         fecha: dto.fechaPago,
       });
 
-      // 4. Si existe caja abierta, también crear MovimientoCaja
-      const cajaAbierta = await tx.caja.findFirst({
-        where: { estado: 'ABIERTA', usuarioId },
-        orderBy: { aperturaEn: 'desc' },
-      });
-      if (cajaAbierta) {
-        await tx.movimientoCaja.create({
-          data: {
-            cajaId: cajaAbierta.id,
-            tipo: 'INGRESO',
-            monto: dto.monto,
-            concepto: `Cobro factura ${factura.numeroFactura}`,
-            referencia: `PAGO-${pago.id}`,
-            pagoId: pago.id,
-            movimientoCuentaId: movCuenta.id,
-            fecha: dto.fechaPago ? new Date(dto.fechaPago) : new Date(),
-          },
+      // 4. FIX PROBLEMA 2: Solo crear MovimientoCaja si la cuenta es de tipo CAJA
+      if (esCuentaCaja) {
+        const cajaAbierta = await tx.caja.findFirst({
+          where: { estado: 'ABIERTA', usuarioId },
+          orderBy: { aperturaEn: 'desc' },
         });
+        if (cajaAbierta) {
+          await tx.movimientoCaja.create({
+            data: {
+              cajaId: cajaAbierta.id,
+              tipo: 'INGRESO',
+              monto: dto.monto,
+              concepto: `Cobro factura ${factura.numeroFactura}`,
+              referencia: `PAGO-${pago.id}`,
+              pagoId: pago.id,
+              movimientoCuentaId: movCuenta.id,
+              fecha: dto.fechaPago ? new Date(dto.fechaPago) : new Date(),
+            },
+          });
+        }
       }
 
       return pago;
@@ -258,7 +265,6 @@ export class CobranzaService {
     const pago = await this.findById(id);
 
     await prisma.$transaction(async (tx: any) => {
-      // Revertir movimiento de cuenta si existe
       const movCuenta = await tx.movimientoCuentaV2.findFirst({
         where: { referencia: `PAGO-${id}`, tipo: 'INGRESO' },
       });
@@ -268,7 +274,6 @@ export class CobranzaService {
 
       await tx.pago.delete({ where: { id } });
 
-      // Recalcular estado factura
       const factura = await tx.factura.findUnique({
         where: { id: pago.facturaId },
         include: { pagos: { where: { anulado: false }, select: { monto: true } } },

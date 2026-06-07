@@ -1,8 +1,6 @@
 // FILE: src/modules/caja/caja.service.ts
-// CHAT 9: Agrega flujo de pago de liquidaciones pendientes.
-//   - liquidacionesPendientes(): lista liquidaciones con estado PENDIENTE
-//   - pagarLiquidacion(): crea MovimientoCuentaV2 + MovimientoCaja + marca PAGADA
-//   - anularPagoLiquidacion(): revierte MovimientoCuentaV2 + MovimientoCaja + vuelve a PENDIENTE
+// FIX PROBLEMA 2: pagarLiquidacion solo crea MovimientoCaja si la cuenta es de tipo CAJA.
+// Las cuentas bancarias (BANCO, DIGITAL) no generan movimiento en caja operativa.
 
 import prisma from '../../prisma/client';
 import { EstadoCaja, TipoMovimientoCaja } from '../../utils/enums';
@@ -222,12 +220,6 @@ export class CajaService {
 
   // ─── LIQUIDACIONES PENDIENTES ──────────────────────────────────────────────
 
-  /**
-   * Retorna todas las liquidaciones que NO están PAGADAS.
-   * FIX ERROR 4: usa NOT IN ['PAGADA'] en lugar de = 'PENDIENTE' para cubrir
-   * liquidaciones existentes que podrían tener otros estados.
-   * Usadas en la sección "Liquidaciones Pendientes" del módulo Caja.
-   */
   async liquidacionesPendientes() {
     return prisma.liquidacion.findMany({
       where: {
@@ -255,11 +247,7 @@ export class CajaService {
 
   /**
    * Paga una liquidación desde Caja.
-   * Flujo:
-   *   1. Validar liquidación en estado PENDIENTE
-   *   2. Crear MovimientoCuentaV2 (EGRESO) — valida saldo dentro de la tx
-   *   3. Si hay caja abierta → crear MovimientoCaja (EGRESO) vinculado al movimiento de cuenta
-   *   4. Marcar liquidación como PAGADA
+   * FIX PROBLEMA 2: Solo crea MovimientoCaja si la cuenta seleccionada es de tipo CAJA.
    */
   async pagarLiquidacion(dto: PagarLiquidacionDto, usuarioId: number) {
     const liquidacion = await prisma.liquidacion.findUnique({
@@ -273,6 +261,14 @@ export class CajaService {
 
     const monto = Number(liquidacion.montoEntregado);
     if (monto <= 0) throw new Error('El monto de la liquidación debe ser mayor a 0');
+
+    // FIX: verificar tipo de cuenta antes de la transacción
+    const cuentaInfo = await prisma.cuentaDinero.findUnique({
+      where: { id: dto.cuentaId },
+      select: { tipoCuenta: true },
+    });
+    if (!cuentaInfo) throw new Error('Cuenta no encontrada');
+    const esCuentaCaja = cuentaInfo.tipoCuenta === 'CAJA';
 
     return prisma.$transaction(async (tx: any) => {
       // 1. Crear MovimientoCuentaV2 (EGRESO) con validación de saldo
@@ -288,23 +284,25 @@ export class CajaService {
         liquidacionId: dto.liquidacionId,
       });
 
-      // 2. Si hay caja abierta del usuario, también registrar en caja
-      const cajaAbierta = await tx.caja.findFirst({
-        where: { estado: 'ABIERTA', usuarioId },
-        orderBy: { aperturaEn: 'desc' },
-      });
-      if (cajaAbierta) {
-        await tx.movimientoCaja.create({
-          data: {
-            cajaId: cajaAbierta.id,
-            tipo: 'EGRESO',
-            monto,
-            concepto: `Pago liquidación — ${liquidacion.conductor.nombre}`,
-            referencia: `LIQUIDACION-${dto.liquidacionId}`,
-            movimientoCuentaId: movCuenta.id,
-            fecha: new Date(),
-          },
+      // 2. FIX: Solo registrar en caja si la cuenta es de tipo CAJA
+      if (esCuentaCaja) {
+        const cajaAbierta = await tx.caja.findFirst({
+          where: { estado: 'ABIERTA', usuarioId },
+          orderBy: { aperturaEn: 'desc' },
         });
+        if (cajaAbierta) {
+          await tx.movimientoCaja.create({
+            data: {
+              cajaId: cajaAbierta.id,
+              tipo: 'EGRESO',
+              monto,
+              concepto: `Pago liquidación — ${liquidacion.conductor.nombre}`,
+              referencia: `LIQUIDACION-${dto.liquidacionId}`,
+              movimientoCuentaId: movCuenta.id,
+              fecha: new Date(),
+            },
+          });
+        }
       }
 
       // 3. Marcar liquidación como PAGADA
@@ -324,11 +322,6 @@ export class CajaService {
     });
   }
 
-  /**
-   * Anula el pago de una liquidación.
-   * Busca el MovimientoCuentaV2 por referencia LIQUIDACION-{id},
-   * lo revierte, anula el MovimientoCaja vinculado, y vuelve la liquidación a PENDIENTE.
-   */
   async anularPagoLiquidacion(liquidacionId: number, usuarioId: number, usuarioRol: string) {
     if (usuarioRol !== 'ADMIN') throw new Error('Solo el administrador puede anular pagos de liquidaciones');
 
@@ -350,7 +343,7 @@ export class CajaService {
       });
       if (!movCuenta) throw new Error('No se encontró el movimiento de cuenta asociado al pago');
 
-      // 2. Revertir MovimientoCuentaV2 (crea INGRESO compensatorio)
+      // 2. Revertir MovimientoCuentaV2
       await cuentasService._revertirMovimientoEnTx(tx, movCuenta.id, usuarioId);
 
       // 3. Anular MovimientoCaja vinculado si existe
@@ -414,7 +407,6 @@ export class CajaService {
       if (!referencia && m.pagoId) referencia = `PAGO-${m.pagoId}`;
       else if (!referencia && m.gastoId) referencia = `GASTO-${m.gastoId}`;
 
-      // Detectar si es un movimiento de liquidación
       const esLiquidacion = !!(m.referencia && m.referencia.startsWith('LIQUIDACION-'));
       const liquidacionId = esLiquidacion
         ? parseInt(m.referencia.replace('LIQUIDACION-', ''))

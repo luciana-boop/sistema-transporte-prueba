@@ -13,9 +13,9 @@ import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Search, Trash2, Download, X } from 'lucide-react';
+import { Plus, Search, Trash2, Download, X, Eye } from 'lucide-react';
 import { gastosApi, pedidosApi, cuentasApi } from '@/services/api';
-import { formatDate, getErrorMessage, TIPO_GASTO_LABEL } from '@/lib/utils';
+import { formatDate, formatCurrency, getErrorMessage, TIPO_GASTO_LABEL } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
   EmptyState, Modal, FormField, Input, Select, Textarea, StatCard,
@@ -48,12 +48,14 @@ export default function GastosPage() {
   const { usuario } = useAuthStore();
   const { defaultSimbolo } = useMoneda();
 
-  // Filtros
+  // Filtros — MEJORA 1: por defecto hoy
   const [search, setSearch] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('');
-  const [filtroDesde, setFiltroDesde] = useState('');
-  const [filtroHasta, setFiltroHasta] = useState('');
+  const [filtroDesde, setFiltroDesde] = useState(() => new Date().toISOString().split('T')[0]);
+  const [filtroHasta, setFiltroHasta] = useState(() => new Date().toISOString().split('T')[0]);
   const [showForm, setShowForm] = useState(false);
+  // MEJORA 4: detalle
+  const [viewing, setViewing] = useState<any>(null);
 
   // Error de moneda inconsistente
   const [monedaError, setMonedaError] = useState('');
@@ -320,12 +322,21 @@ export default function GastosPage() {
                 <Td><span className="text-xs text-muted-foreground">{formatDate(g.fecha)}</span></Td>
                 {usuario?.rol === 'ADMIN' && (
                   <Td>
-                    <button
-                      onClick={() => { if (confirm('¿Eliminar gasto?')) deleteMutation.mutate(g.id); }}
-                      className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={() => setViewing(g)}
+                        className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
+                        title="Ver detalle"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => { if (confirm('¿Eliminar gasto?')) deleteMutation.mutate(g.id); }}
+                        className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </Td>
                 )}
               </Tr>
@@ -453,6 +464,53 @@ export default function GastosPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* MEJORA 4: Modal de detalle de gasto */}
+      <Modal open={!!viewing} onClose={() => setViewing(null)} title="Detalle del gasto" maxWidth="max-w-lg">
+        {viewing && (
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Tipo</p>
+                <p className="font-semibold text-sm">{TIPO_GASTO_LABEL[viewing.tipoGasto as keyof typeof TIPO_GASTO_LABEL] ?? viewing.tipoGasto}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Monto</p>
+                <p className="font-bold text-lg text-red-500">{formatCurrency(Number(viewing.monto))}</p>
+              </div>
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground mb-1">Descripción</p>
+                <p className="font-medium text-sm">{viewing.descripcion}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Fecha</p>
+                <p className="text-sm">{formatDate(viewing.fecha)}</p>
+              </div>
+              {viewing.comprobante && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Comprobante</p>
+                  <p className="text-sm font-mono">{viewing.comprobante}</p>
+                </div>
+              )}
+              {viewing.pedido && (
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-1">Pedido asociado</p>
+                  <p className="text-sm">#{viewing.pedido.id} — {viewing.pedido.origen} → {viewing.pedido.destino}</p>
+                </div>
+              )}
+              {viewing.cuenta && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Cuenta origen</p>
+                  <p className="text-sm">{viewing.cuenta.nombre}</p>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end pt-2 border-t border-border">
+              <Button variant="secondary" onClick={() => setViewing(null)}>Cerrar</Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

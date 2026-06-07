@@ -1,8 +1,10 @@
 // FILE: src/app/(dashboard)/liquidaciones/page.tsx
-// CAMBIO: Agrega sección "Pedidos Relacionados" al formulario de creación.
-// - Selector múltiple de pedidos disponibles (ACTIVO, sin liquidación).
-// - Visualización en modal de detalle: nro pedido, cliente, origen, destino.
-// - Validaciones en formulario (no duplicados, pedidos ya usados).
+// CAMBIO v2 (P3):
+//   - Pago total de liquidación usando SOLO cajas abiertas (sin cuentas bancarias)
+//   - Modal de pago con selector de caja abierta
+//   - Acciones de reintegro y devolución post-pago
+//   - Historial financiero en vista detalle
+//   - No se permiten pagos parciales
 
 'use client';
 
@@ -12,7 +14,7 @@ import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Search, Trash2, Eye, Printer, Download, Package, X } from 'lucide-react';
+import { Plus, Search, Trash2, Eye, Printer, Download, Package, X, CreditCard, ArrowDownLeft, ArrowUpRight, History } from 'lucide-react';
 import { liquidacionesApi, conductoresApi, vehiculosApi } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
 import {
@@ -48,8 +50,20 @@ const CATEGORIA_LABEL: Record<string, string> = {
 export default function LiquidacionesPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
+  // MEJORA 1: filtros de fecha — por defecto hoy
+  const [filtroDesde, setFiltroDesde] = useState(() => new Date().toISOString().split('T')[0]);
+  const [filtroHasta, setFiltroHasta] = useState(() => new Date().toISOString().split('T')[0]);
   const [showForm, setShowForm] = useState(false);
   const [viewing, setViewing] = useState<Liquidacion | null>(null);
+
+  // P3: estados para modales de pago
+  const [showPagarModal, setShowPagarModal] = useState<Liquidacion | null>(null);
+  const [showReintegroModal, setShowReintegroModal] = useState<Liquidacion | null>(null);
+  const [showDevolucionModal, setShowDevolucionModal] = useState<Liquidacion | null>(null);
+  const [showHistorial, setShowHistorial] = useState<Liquidacion | null>(null);
+  const [cajaSeleccionada, setCajaSeleccionada] = useState('');
+  const [montoMovimiento, setMontoMovimiento] = useState('');
+  const [conceptoMovimiento, setConceptoMovimiento] = useState('');
 
   // ─── Pedidos seleccionados para la nueva liquidación ────────────────────────
   const [pedidosSeleccionados, setPedidosSeleccionados] = useState<PedidoResumen[]>([]);
@@ -57,8 +71,11 @@ export default function LiquidacionesPage() {
   const [errorPedidos, setErrorPedidos] = useState<string>('');
 
   const { data: liquidaciones = [], isLoading } = useQuery({
-    queryKey: ['liquidaciones'],
-    queryFn: () => liquidacionesApi.listar().then((r) => r.data.data),
+    queryKey: ['liquidaciones', filtroDesde, filtroHasta],
+    queryFn: () => liquidacionesApi.listar({
+      desde: filtroDesde || undefined,
+      hasta: filtroHasta || undefined,
+    }).then((r) => r.data.data),
   });
 
   const { data: conductores = [] } = useQuery({
@@ -76,6 +93,21 @@ export default function LiquidacionesPage() {
     queryKey: ['liquidaciones-pedidos-disponibles'],
     queryFn: () => liquidacionesApi.pedidosDisponibles().then((r) => r.data.data),
     enabled: showForm, // solo cargar cuando el formulario esté abierto
+  });
+
+  // P3: cajas abiertas para selector de pago
+  const { data: cajasAbiertas = [] } = useQuery({
+    queryKey: ['liquidaciones-cajas-abiertas'],
+    queryFn: () => liquidacionesApi.cajasAbiertas().then((r) => r.data.data),
+    enabled: !!showPagarModal || !!showReintegroModal || !!showDevolucionModal,
+    refetchOnWindowFocus: false,
+  });
+
+  // P3: historial financiero
+  const { data: historialData, isLoading: loadingHistorial } = useQuery({
+    queryKey: ['liquidacion-historial', showHistorial?.id],
+    queryFn: () => liquidacionesApi.historialFinanciero(showHistorial!.id).then((r) => r.data.data),
+    enabled: !!showHistorial,
   });
 
   const { register, handleSubmit, reset, watch, setValue, control, formState: { errors, isSubmitting } } = useForm<FormData>({
@@ -182,6 +214,47 @@ export default function LiquidacionesPage() {
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
+  // P3: mutaciones financieras
+  const pagarMutation = useMutation({
+    mutationFn: ({ id, cajaId }: { id: number; cajaId: number }) =>
+      liquidacionesApi.pagar(id, { cajaId }),
+    onSuccess: () => {
+      toast.success('Liquidación pagada correctamente');
+      setShowPagarModal(null);
+      setCajaSeleccionada('');
+      invalidate();
+    },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  const reintegroMutation = useMutation({
+    mutationFn: ({ id, cajaId, monto, concepto }: { id: number; cajaId: number; monto: number; concepto: string }) =>
+      liquidacionesApi.reintegro(id, { cajaId, monto, concepto }),
+    onSuccess: () => {
+      toast.success('Reintegro registrado');
+      setShowReintegroModal(null);
+      setCajaSeleccionada('');
+      setMontoMovimiento('');
+      setConceptoMovimiento('');
+      invalidate();
+    },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  const devolucionMutation = useMutation({
+    mutationFn: ({ id, cajaId, monto, concepto }: { id: number; cajaId: number; monto: number; concepto: string }) =>
+      liquidacionesApi.devolucion(id, { cajaId, monto, concepto }),
+    onSuccess: () => {
+      toast.success('Devolución registrada');
+      setShowDevolucionModal(null);
+      setCajaSeleccionada('');
+      setMontoMovimiento('');
+      setConceptoMovimiento('');
+      invalidate();
+    },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
   const exportExcel = () => {
     const rows = liquidaciones.map((l) => ({
       '#': l.id, Fecha: formatDate(l.fecha), Conductor: l.conductor?.nombre,
@@ -277,9 +350,24 @@ export default function LiquidacionesPage() {
         <StatCard label="Total gastos" value={formatCurrency(liquidaciones.reduce((s, l) => s + Number(l.totalGastos), 0))} color="red" />
       </div>
 
-      <div className="relative w-full max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input placeholder="Buscar conductor, placa..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+      <div className="flex flex-wrap gap-3 items-center">
+        <div className="relative w-full max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Buscar conductor, placa..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground">Desde</label>
+          <Input type="date" className="w-36" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)} />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground">Hasta</label>
+          <Input type="date" className="w-36" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} />
+        </div>
+        {(filtroDesde || filtroHasta) && (
+          <button onClick={() => { setFiltroDesde(''); setFiltroHasta(''); }} className="text-xs text-muted-foreground hover:text-foreground underline">
+            Limpiar fechas
+          </button>
+        )}
       </div>
 
       {isLoading ? <TableSkeleton rows={5} cols={8} /> : (
@@ -328,12 +416,50 @@ export default function LiquidacionesPage() {
                   )}
                 </Td>
                 <Td>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 flex-wrap">
                     <button onClick={() => setViewing(l)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Ver detalle">
                       <Eye className="w-3.5 h-3.5" />
                     </button>
                     <button onClick={() => handlePrint(l)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Imprimir">
                       <Printer className="w-3.5 h-3.5" />
+                    </button>
+                    {/* P3: Pagar — solo si PENDIENTE */}
+                    {l.estado === 'PENDIENTE' && (
+                      <button
+                        onClick={() => { setShowPagarModal(l); setCajaSeleccionada(''); }}
+                        className="p-1.5 rounded-md hover:bg-emerald-50 text-emerald-600 hover:text-emerald-700 transition-all"
+                        title="Registrar pago"
+                      >
+                        <CreditCard className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {/* P3: Reintegro — solo si PAGADA y tiene reintegro */}
+                    {l.estado === 'PAGADA' && Number(l.reintegro) > 0 && (
+                      <button
+                        onClick={() => { setShowReintegroModal(l); setCajaSeleccionada(''); setMontoMovimiento(String(Number(l.reintegro))); }}
+                        className="p-1.5 rounded-md hover:bg-blue-50 text-blue-600 hover:text-blue-700 transition-all"
+                        title={`Reintegro: ${formatCurrency(Number(l.reintegro))}`}
+                      >
+                        <ArrowDownLeft className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {/* P3: Devolución — solo si PAGADA y tiene devolución */}
+                    {l.estado === 'PAGADA' && Number(l.devolucion) > 0 && (
+                      <button
+                        onClick={() => { setShowDevolucionModal(l); setCajaSeleccionada(''); setMontoMovimiento(String(Number(l.devolucion))); }}
+                        className="p-1.5 rounded-md hover:bg-amber-50 text-amber-600 hover:text-amber-700 transition-all"
+                        title={`Devolución: ${formatCurrency(Number(l.devolucion))}`}
+                      >
+                        <ArrowUpRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {/* P3: Historial financiero */}
+                    <button
+                      onClick={() => setShowHistorial(l)}
+                      className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
+                      title="Historial financiero"
+                    >
+                      <History className="w-3.5 h-3.5" />
                     </button>
                     <button onClick={() => { if (confirm('¿Eliminar liquidación?')) deleteMutation.mutate(l.id); }} className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all">
                       <Trash2 className="w-3.5 h-3.5" />
@@ -594,6 +720,184 @@ export default function LiquidacionesPage() {
                 <Printer className="w-4 h-4" /> Imprimir
               </Button>
               <Button variant="secondary" onClick={() => setViewing(null)}>Cerrar</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ─── P3: Modal Pagar ─────────────────────────────────────────────────── */}
+      <Modal
+        open={!!showPagarModal}
+        onClose={() => { setShowPagarModal(null); setCajaSeleccionada(''); }}
+        title="Registrar pago de liquidación"
+      >
+        {showPagarModal && (
+          <div className="flex flex-col gap-4">
+            <div className="bg-muted/30 rounded-lg p-3 text-sm">
+              <p className="font-semibold">{showPagarModal.conductor?.nombre}</p>
+              <p className="text-muted-foreground">Monto a pagar (total): <span className="font-bold text-foreground">{formatCurrency(Number(showPagarModal.montoEntregado))}</span></p>
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
+              ⚠️ Solo se aceptan <strong>cajas abiertas</strong>. Los pagos son siempre por el total — no se admiten pagos parciales.
+            </div>
+            <FormField label="Caja de pago" required>
+              <Select value={cajaSeleccionada} onChange={(e) => setCajaSeleccionada(e.target.value)}>
+                <option value="">Seleccionar caja...</option>
+                {cajasAbiertas.length === 0 && <option disabled>No hay cajas abiertas</option>}
+                {cajasAbiertas.map((c: any) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre ?? `Caja #${c.id}`} — {c.usuario?.nombre} — Saldo: {formatCurrency(c.saldoActual)}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+            {cajasAbiertas.length === 0 && (
+              <p className="text-xs text-destructive">No hay cajas abiertas. Abra una caja desde el módulo Caja antes de registrar el pago.</p>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="secondary" onClick={() => { setShowPagarModal(null); setCajaSeleccionada(''); }}>Cancelar</Button>
+              <Button
+                disabled={!cajaSeleccionada || pagarMutation.isPending || cajasAbiertas.length === 0}
+                onClick={() => {
+                  if (!cajaSeleccionada) return;
+                  pagarMutation.mutate({ id: showPagarModal.id, cajaId: parseInt(cajaSeleccionada) });
+                }}
+              >
+                {pagarMutation.isPending ? 'Registrando...' : `Pagar ${formatCurrency(Number(showPagarModal.montoEntregado))}`}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ─── P3: Modal Reintegro ─────────────────────────────────────────────── */}
+      <Modal
+        open={!!showReintegroModal}
+        onClose={() => { setShowReintegroModal(null); setCajaSeleccionada(''); setMontoMovimiento(''); }}
+        title="Registrar reintegro"
+      >
+        {showReintegroModal && (
+          <div className="flex flex-col gap-4">
+            <div className="bg-muted/30 rounded-lg p-3 text-sm">
+              <p className="font-semibold">{showReintegroModal.conductor?.nombre}</p>
+              <p className="text-muted-foreground">Reintegro calculado: <span className="font-bold text-blue-500">{formatCurrency(Number(showReintegroModal.reintegro))}</span></p>
+              <p className="text-xs text-muted-foreground mt-1">El conductor devuelve el exceso de efectivo a la empresa.</p>
+            </div>
+            <FormField label="Caja receptora" required>
+              <Select value={cajaSeleccionada} onChange={(e) => setCajaSeleccionada(e.target.value)}>
+                <option value="">Seleccionar caja...</option>
+                {cajasAbiertas.map((c: any) => (
+                  <option key={c.id} value={c.id}>{c.nombre ?? `Caja #${c.id}`} — {c.usuario?.nombre}</option>
+                ))}
+              </Select>
+            </FormField>
+            <FormField label="Monto (S/)" required>
+              <Input type="number" step="0.01" value={montoMovimiento} onChange={(e) => setMontoMovimiento(e.target.value)} />
+            </FormField>
+            <FormField label="Concepto">
+              <Input value={conceptoMovimiento} onChange={(e) => setConceptoMovimiento(e.target.value)} placeholder="Reintegro liquidación..." />
+            </FormField>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="secondary" onClick={() => { setShowReintegroModal(null); setCajaSeleccionada(''); setMontoMovimiento(''); }}>Cancelar</Button>
+              <Button
+                disabled={!cajaSeleccionada || !montoMovimiento || reintegroMutation.isPending}
+                onClick={() => {
+                  if (!cajaSeleccionada || !montoMovimiento) return;
+                  reintegroMutation.mutate({ id: showReintegroModal.id, cajaId: parseInt(cajaSeleccionada), monto: parseFloat(montoMovimiento), concepto: conceptoMovimiento });
+                }}
+              >
+                {reintegroMutation.isPending ? 'Registrando...' : 'Registrar reintegro'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ─── P3: Modal Devolución ─────────────────────────────────────────────── */}
+      <Modal
+        open={!!showDevolucionModal}
+        onClose={() => { setShowDevolucionModal(null); setCajaSeleccionada(''); setMontoMovimiento(''); }}
+        title="Registrar devolución"
+      >
+        {showDevolucionModal && (
+          <div className="flex flex-col gap-4">
+            <div className="bg-muted/30 rounded-lg p-3 text-sm">
+              <p className="font-semibold">{showDevolucionModal.conductor?.nombre}</p>
+              <p className="text-muted-foreground">Devolución calculada: <span className="font-bold text-emerald-500">{formatCurrency(Number(showDevolucionModal.devolucion))}</span></p>
+              <p className="text-xs text-muted-foreground mt-1">La empresa debe pagar este monto adicional al conductor.</p>
+            </div>
+            <FormField label="Caja de origen" required>
+              <Select value={cajaSeleccionada} onChange={(e) => setCajaSeleccionada(e.target.value)}>
+                <option value="">Seleccionar caja...</option>
+                {cajasAbiertas.map((c: any) => (
+                  <option key={c.id} value={c.id}>{c.nombre ?? `Caja #${c.id}`} — {c.usuario?.nombre} — Saldo: {formatCurrency(c.saldoActual)}</option>
+                ))}
+              </Select>
+            </FormField>
+            <FormField label="Monto (S/)" required>
+              <Input type="number" step="0.01" value={montoMovimiento} onChange={(e) => setMontoMovimiento(e.target.value)} />
+            </FormField>
+            <FormField label="Concepto">
+              <Input value={conceptoMovimiento} onChange={(e) => setConceptoMovimiento(e.target.value)} placeholder="Devolución liquidación..." />
+            </FormField>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="secondary" onClick={() => { setShowDevolucionModal(null); setCajaSeleccionada(''); setMontoMovimiento(''); }}>Cancelar</Button>
+              <Button
+                disabled={!cajaSeleccionada || !montoMovimiento || devolucionMutation.isPending}
+                onClick={() => {
+                  if (!cajaSeleccionada || !montoMovimiento) return;
+                  devolucionMutation.mutate({ id: showDevolucionModal.id, cajaId: parseInt(cajaSeleccionada), monto: parseFloat(montoMovimiento), concepto: conceptoMovimiento });
+                }}
+              >
+                {devolucionMutation.isPending ? 'Registrando...' : 'Registrar devolución'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ─── P3: Modal Historial Financiero ──────────────────────────────────── */}
+      <Modal
+        open={!!showHistorial}
+        onClose={() => setShowHistorial(null)}
+        title={`Historial financiero — Liquidación #${showHistorial?.id}`}
+        maxWidth="max-w-xl"
+      >
+        {showHistorial && (
+          <div className="flex flex-col gap-4">
+            {loadingHistorial ? (
+              <p className="text-sm text-muted-foreground">Cargando...</p>
+            ) : historialData ? (
+              <>
+                <div className="grid grid-cols-2 gap-3 bg-muted/30 rounded-lg p-3 text-sm">
+                  <div><p className="text-xs text-muted-foreground">Estado</p><p className="font-semibold">{historialData.liquidacion.estado}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Monto entregado</p><p className="font-semibold">{formatCurrency(historialData.liquidacion.montoEntregado)}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Total gastos</p><p className="font-semibold">{formatCurrency(historialData.liquidacion.totalGastos)}</p></div>
+                  {historialData.liquidacion.reintegro > 0 && <div><p className="text-xs text-muted-foreground">Reintegro</p><p className="font-semibold text-blue-500">{formatCurrency(historialData.liquidacion.reintegro)}</p></div>}
+                  {historialData.liquidacion.devolucion > 0 && <div><p className="text-xs text-muted-foreground">Devolución</p><p className="font-semibold text-emerald-500">{formatCurrency(historialData.liquidacion.devolucion)}</p></div>}
+                </div>
+                {historialData.movimientos.length > 0 ? (
+                  <Table>
+                    <thead><tr><Th>Fecha</Th><Th>Tipo</Th><Th>Concepto</Th><Th>Caja</Th><Th className="text-right">Monto</Th></tr></thead>
+                    <tbody>
+                      {historialData.movimientos.map((m) => (
+                        <Tr key={m.id}>
+                          <Td><span className="text-xs text-muted-foreground">{formatDate(m.fecha)}</span></Td>
+                          <Td><span className={`text-xs font-medium ${m.tipo === 'INGRESO' ? 'text-emerald-500' : 'text-red-500'}`}>{m.tipo}</span></Td>
+                          <Td><span className="text-xs">{m.concepto}</span></Td>
+                          <Td><span className="text-xs text-muted-foreground">{m.caja?.nombre ?? `#${m.caja?.id}`}</span></Td>
+                          <Td className="text-right"><span className="text-sm font-semibold">{formatCurrency(m.monto)}</span></Td>
+                        </Tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                ) : (
+                  <EmptyState message="Sin movimientos financieros registrados" />
+                )}
+              </>
+            ) : null}
+            <div className="flex justify-end">
+              <Button variant="secondary" onClick={() => setShowHistorial(null)}>Cerrar</Button>
             </div>
           </div>
         )}

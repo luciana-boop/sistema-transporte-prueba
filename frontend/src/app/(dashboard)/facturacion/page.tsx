@@ -25,7 +25,7 @@ import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Search, XCircle, Upload, FileText, Download, Trash2 } from 'lucide-react';
+import { Plus, Search, XCircle, Upload, FileText, Download, Trash2, Eye, ExternalLink, AlertCircle } from 'lucide-react';
 import { useRef } from 'react';
 import { facturacionApi, clientesApi, pedidosApi, configuracionApi } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage, ESTADO_FACTURA_LABEL } from '@/lib/utils';
@@ -145,10 +145,16 @@ export default function FacturacionPage() {
   const config = useConfig();
   const [filtroEstado, setFiltroEstado] = useState('');
   const [searchText, setSearchText] = useState('');
-  const [filtroDesde, setFiltroDesde] = useState('');
-  const [filtroHasta, setFiltroHasta] = useState('');
+  // MEJORA 1: por defecto hoy
+  const [filtroDesde, setFiltroDesde] = useState(() => new Date().toISOString().split('T')[0]);
+  const [filtroHasta, setFiltroHasta] = useState(() => new Date().toISOString().split('T')[0]);
   const [showForm, setShowForm] = useState(false);
   const [showXmlMasivo, setShowXmlMasivo] = useState(false);
+  // MEJORA 4: detalle de factura (solo visualización — facturas SUNAT no editables)
+  const [viewing, setViewing] = useState<any>(null);
+  // P1: estado de PDF para el modal de detalle
+  const [pdfInfo, setPdfInfo] = useState<{ tienePdf: boolean; archivoExiste: boolean; esUrl: boolean } | null>(null);
+  const [loadingPdf, setLoadingPdf] = useState(false);
   const [xmlMasivoResult, setXmlMasivoResult] = useState<{
     creadas: number; duplicadas: number; errores: string[];
   } | null>(null);
@@ -239,9 +245,15 @@ export default function FacturacionPage() {
     enabled: clienteIdNum > 0,
   });
 
-  // Limpiar pedido al cambiar cliente
+  // Limpiar pedido al cambiar cliente + MEJORA 3: heredar diasCredito del cliente
   useEffect(() => {
     setValue('pedidoId', '', { shouldValidate: false });
+    if (clienteIdVal) {
+      const cliente = (clientes as any[]).find((c: any) => String(c.id) === clienteIdVal);
+      if (cliente?.diasCredito != null) {
+        setValue('diasCredito', String(cliente.diasCredito), { shouldValidate: false });
+      }
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clienteIdVal]);
 
@@ -336,8 +348,26 @@ export default function FacturacionPage() {
       invalidate();
       qc.invalidateQueries({ queryKey: ['pedidos', 'disponibles'] });
     },
+    // P2: el backend devuelve mensaje claro cuando hay pagos activos
     onError: (e) => toast.error(getErrorMessage(e)),
   });
+
+  // P1: cargar info PDF al abrir detalle
+  const handleVerDetalle = async (factura: any) => {
+    setViewing(factura);
+    setPdfInfo(null);
+    if (factura.pdfPath) {
+      setLoadingPdf(true);
+      try {
+        const res = await facturacionApi.pdfInfo(factura.id);
+        setPdfInfo(res.data.data);
+      } catch {
+        setPdfInfo({ tienePdf: false, archivoExiste: false, esUrl: false });
+      } finally {
+        setLoadingPdf(false);
+      }
+    }
+  };
 
   const xmlMasivoMutation = useMutation({
     mutationFn: (xmlList: Record<string, unknown>[]) => facturacionApi.importacionMasivaXml(xmlList),
@@ -507,6 +537,7 @@ export default function FacturacionPage() {
               <Th>N° Factura</Th><Th>Cliente</Th><Th>Detalle</Th>
               <Th>Subtotal</Th><Th>IGV</Th><Th>Total</Th>
               <Th>Pagado</Th><Th>Estado</Th><Th>Emisión</Th><Th>Vencimiento</Th>
+              <Th className="text-right">Ver</Th>
               {usuario?.rol === 'ADMIN' && <Th>Acc.</Th>}
             </tr>
           </thead>
@@ -546,12 +577,25 @@ export default function FacturacionPage() {
                   <Td><Badge value={f.estado} label={ESTADO_FACTURA_LABEL[f.estado]} /></Td>
                   <Td><span className="text-xs text-muted-foreground">{formatDate(f.fechaEmision)}</span></Td>
                   <Td><span className="text-xs text-muted-foreground">{formatDate(f.fechaVencimiento)}</span></Td>
+                  <Td className="text-right">
+                    <button
+                      onClick={() => handleVerDetalle(f)}
+                      className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
+                      title="Ver detalle"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                  </Td>
                   {usuario?.rol === 'ADMIN' && (
                     <Td>
                       {f.estado !== 'ANULADA' && f.estado !== 'PAGADA' && (
                         <button
                           onClick={() => {
-                            if (confirm('¿Anular factura?')) anularMutation.mutate(f.id);
+                            // P2: advertencia extra para facturas con pago parcial
+                            const msg = f.estado === 'PARCIAL'
+                              ? '⚠️ Esta factura tiene pagos parciales registrados.\n\nSolo podrá anularse si primero anula todos los pagos asociados desde el módulo de Cobranza.\n\n¿Desea intentarlo de todas formas?'
+                              : '¿Anular factura?';
+                            if (confirm(msg)) anularMutation.mutate(f.id);
                           }}
                           className="flex items-center gap-1 text-xs text-destructive hover:underline"
                         >
@@ -1010,6 +1054,184 @@ export default function FacturacionPage() {
             <Button variant="secondary" onClick={() => setShowXmlMasivo(false)}>Cerrar</Button>
           </div>
         </div>
+      </Modal>
+
+      {/* MEJORA 4: Detalle de factura — solo lectura (asociada a SUNAT, no editable) */}
+      <Modal open={!!viewing} onClose={() => { setViewing(null); setPdfInfo(null); }} title={`Factura ${viewing?.numeroFactura ?? ''}`} maxWidth="max-w-2xl">
+        {viewing && (
+          <div className="flex flex-col gap-5">
+            <div className="flex items-center justify-between">
+              <Badge value={viewing.estado} label={ESTADO_FACTURA_LABEL[viewing.estado]} />
+              <span className="text-xs text-muted-foreground">Emisión: {formatDate(viewing.fechaEmision)}</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground mb-1">Cliente</p>
+                <p className="font-semibold">{viewing.cliente?.razonSocial}</p>
+                <p className="text-xs text-muted-foreground">{viewing.cliente?.ruc}</p>
+              </div>
+              {viewing.pedido && (
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-1">Pedido</p>
+                  <p className="text-sm">#{viewing.pedido.id} — {viewing.pedido.origen} → {viewing.pedido.destino}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Vencimiento</p>
+                <p className="text-sm">{formatDate(viewing.fechaVencimiento)}</p>
+              </div>
+              {viewing.diasCredito != null && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Días crédito</p>
+                  <p className="text-sm">{viewing.diasCredito} días</p>
+                </div>
+              )}
+              {viewing.tipoCredito && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Tipo crédito</p>
+                  <p className="text-sm">{viewing.tipoCredito}</p>
+                </div>
+              )}
+              {viewing.guiaReferencia && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Guía referencia</p>
+                  <p className="text-sm font-mono">{viewing.guiaReferencia}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Líneas de detalle */}
+            {(viewing.lineas ?? []).length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Detalle</p>
+                <Table>
+                  <thead>
+                    <tr>
+                      <Th>Cant.</Th><Th>U.M.</Th><Th>Descripción</Th>
+                      <Th className="text-right">V.Unit.</Th><Th className="text-right">Importe</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {viewing.lineas.map((l: any, i: number) => (
+                      <Tr key={i}>
+                        <Td><span className="text-sm">{l.cantidad}</span></Td>
+                        <Td><span className="text-xs text-muted-foreground">{l.unidadMedida}</span></Td>
+                        <Td><span className="text-sm">{l.descripcion}</span></Td>
+                        <Td className="text-right"><span className="text-sm">{formatCurrency(Number(l.valorUnitario))}</span></Td>
+                        <Td className="text-right"><span className="text-sm font-medium">{formatCurrency(Number(l.importe))}</span></Td>
+                      </Tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
+            )}
+
+            {/* Totales */}
+            <div className="bg-muted/30 rounded-lg p-4 grid grid-cols-3 gap-3 text-center">
+              <div>
+                <p className="text-xs text-muted-foreground">Subtotal</p>
+                <p className="font-semibold">{formatCurrency(Number(viewing.subtotal))}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">IGV ({viewing.porcentajeIgv ?? 18}%)</p>
+                <p className="font-semibold">{formatCurrency(Number(viewing.igv))}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Total</p>
+                <p className="font-bold text-lg">{formatCurrency(Number(viewing.total))}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Cobrado</p>
+                <p className="font-semibold text-emerald-500">{formatCurrency(Number(viewing.totalPagado ?? 0))}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Saldo</p>
+                <p className={`font-semibold ${Number(viewing.total) - Number(viewing.totalPagado ?? 0) > 0.01 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                  {formatCurrency(Math.max(0, Number(viewing.total) - Number(viewing.totalPagado ?? 0)))}
+                </p>
+              </div>
+              {Number(viewing.detraccion ?? 0) > 0 && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Detracción</p>
+                  <p className="font-semibold text-blue-500">{formatCurrency(Number(viewing.detraccion))}</p>
+                </div>
+              )}
+            </div>
+
+            {viewing.detalle && (
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Detalle / Concepto</p>
+                <p className="text-sm bg-muted/30 rounded p-2">{viewing.detalle}</p>
+              </div>
+            )}
+
+            {/* P1: Pagos registrados */}
+            {(viewing.pagos ?? []).filter((p: any) => !p.anulado).length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Pagos registrados</p>
+                <div className="flex flex-col gap-1">
+                  {viewing.pagos.filter((p: any) => !p.anulado).map((p: any) => (
+                    <div key={p.id} className="flex items-center justify-between text-sm bg-muted/20 rounded px-3 py-1.5">
+                      <span className="text-muted-foreground">{formatDate(p.fechaPago)} · {p.metodoPago}</span>
+                      <span className="font-semibold text-emerald-500">{formatCurrency(Number(p.monto))}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* P1: Info SUNAT */}
+            {(viewing.hashXml || viewing.estadoSunat) && (
+              <div className="bg-muted/20 rounded p-3 text-xs space-y-1">
+                <p className="font-semibold text-muted-foreground uppercase tracking-wider mb-1">Información SUNAT</p>
+                {viewing.estadoSunat && <p>Estado: <span className="font-mono font-bold">{viewing.estadoSunat}</span></p>}
+                {viewing.hashXml && <p className="font-mono text-muted-foreground break-all">Hash: {viewing.hashXml}</p>}
+              </div>
+            )}
+
+            {/* P1: Botones PDF */}
+            <div className="border-t border-border pt-4">
+              {loadingPdf ? (
+                <p className="text-xs text-muted-foreground">Verificando PDF...</p>
+              ) : pdfInfo?.tienePdf && pdfInfo?.archivoExiste ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-xs text-muted-foreground flex-1">PDF disponible</p>
+                  <a
+                    href={facturacionApi.pdfUrl(viewing.id, false)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" /> Ver PDF
+                  </a>
+                  <a
+                    href={facturacionApi.pdfUrl(viewing.id, true)}
+                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-border hover:bg-accent transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Descargar
+                  </a>
+                </div>
+              ) : viewing.pdfPath ? (
+                <div className="flex items-center gap-2 text-xs text-amber-500">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>El archivo PDF no está disponible en el servidor ({viewing.pdfPath})</span>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">
+                  Sin PDF generado. El PDF se crea al emitir la factura electrónica a través de su OSE/PSE.
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-border">
+              <p className="text-xs text-muted-foreground italic">
+                Las facturas emitidas no son editables (vinculadas a SUNAT)
+              </p>
+              <Button variant="secondary" onClick={() => setViewing(null)}>Cerrar</Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

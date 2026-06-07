@@ -1,9 +1,7 @@
 // FILE: src/modules/facturacion/facturacion.service.ts
-// CAMBIOS:
-//   - CreateFacturaDto incluye 'lineas' (FacturaDetalle[]) opcionales
-//   - fechaEmision aceptado desde el frontend (antes siempre era now())
-//   - fechaVencimiento calculada automáticamente = fechaEmision + diasCredito
-//   - Lógica existente de pedidos/estados NO modificada
+// CAMBIOS v2:
+//   P1 — getPdfPath(): devuelve la ruta del PDF almacenada en BD
+//   P2 — anular(): verifica que no existan pagos activos (anulado=false) antes de anular
 
 import prisma from '../../prisma/client';
 import { EstadoFactura } from '../../utils/enums';
@@ -32,16 +30,12 @@ export interface CreateFacturaDto {
   diasCredito?: number;
   guiaReferencia?: string;
   detalle?: string;
-  // NUEVO: fecha de emisión explícita (si no viene, se usa now())
   fechaEmision?: string;
-  // fechaVencimiento: se calcula automáticamente = fechaEmision + diasCredito
-  // Solo se usa como fallback si no hay tipo de crédito configurado
   fechaVencimiento?: string;
   observaciones?: string;
   xmlPath?: string;
   pdfPath?: string;
   hashXml?: string;
-  // NUEVO: líneas de detalle
   lineas?: LineaFacturaDto[];
 }
 
@@ -56,7 +50,6 @@ export interface UpdateFacturaDto {
 }
 
 // ─── MAPEO TIPO CRÉDITO → DÍAS ────────────────────────────────────────────────
-// Centraliza la lógica para no duplicarla en frontend/backend
 const DIAS_POR_TIPO_CREDITO: Record<string, number> = {
   '0':    0,
   '7':    7,
@@ -67,7 +60,6 @@ const DIAS_POR_TIPO_CREDITO: Record<string, number> = {
 };
 
 function calcularFechaVencimiento(fechaEmision: Date, tipoCredito?: string, diasCredito?: number): Date {
-  // Prioridad: diasCredito explícito > tipoCredito conocido > 0 días (contado)
   let dias = 0;
   if (diasCredito !== undefined && diasCredito > 0) {
     dias = diasCredito;
@@ -135,7 +127,14 @@ export class FacturacionService {
         usuario: { select: { id: true, nombre: true, email: true } },
         lineas: { orderBy: { orden: 'asc' } },
         pagos: {
-          select: { id: true, monto: true, metodoPago: true, fechaPago: true, referencia: true },
+          select: {
+            id: true,
+            monto: true,
+            metodoPago: true,
+            fechaPago: true,
+            referencia: true,
+            anulado: true,
+          },
           orderBy: { fechaPago: 'desc' },
         },
       },
@@ -143,6 +142,16 @@ export class FacturacionService {
     if (!factura) throw new Error('Factura no encontrada');
     const totalPagado = Number(factura.totalPagado);
     return { ...factura, totalPagado, saldoPendiente: Number(factura.total) - totalPagado };
+  }
+
+  // ── P1: devuelve el pdfPath guardado en BD ──────────────────────────────────
+  async getPdfPath(id: number): Promise<string | null> {
+    const factura = await prisma.factura.findUnique({
+      where: { id },
+      select: { pdfPath: true },
+    });
+    if (!factura) throw new Error('Factura no encontrada');
+    return factura.pdfPath ?? null;
   }
 
   async getSeries() {
@@ -164,7 +173,6 @@ export class FacturacionService {
     const cliente = await prisma.cliente.findUnique({ where: { id: dto.clienteId } });
     if (!cliente) throw new Error('Cliente no encontrado');
 
-    // ── Validaciones de integridad con pedido (sin cambios) ───────────────────
     if (dto.pedidoId) {
       const pedido = await prisma.pedido.findUnique({
         where: { id: dto.pedidoId },
@@ -189,7 +197,6 @@ export class FacturacionService {
         );
       }
     }
-    // ─────────────────────────────────────────────────────────────────────────
 
     const serie = (dto.serie || 'F001').toUpperCase();
     const correlativo = await this.getNextCorrelativo(serie);
@@ -207,17 +214,8 @@ export class FacturacionService {
       montoDetraccion = Math.round(total * dto.porcentajeDetraccion / 100 * 100) / 100;
     }
 
-    // CAMBIO: fechaEmision viene del DTO (o now() como fallback)
     const fechaEmision = dto.fechaEmision ? new Date(dto.fechaEmision) : new Date();
-
-    // CAMBIO: fechaVencimiento calculada automáticamente = fechaEmision + días del tipo crédito
-    const fechaVenc = calcularFechaVencimiento(
-      fechaEmision,
-      dto.tipoCredito,
-      dto.diasCredito,
-    );
-
-    // Preparar líneas de detalle
+    const fechaVenc = calcularFechaVencimiento(fechaEmision, dto.tipoCredito, dto.diasCredito);
     const lineas = dto.lineas ?? [];
 
     return prisma.$transaction(async (tx: any) => {
@@ -248,7 +246,6 @@ export class FacturacionService {
           pdfPath: dto.pdfPath,
           hashXml: dto.hashXml,
           totalPagado: 0,
-          // NUEVO: crear líneas de detalle en cascada
           lineas: lineas.length > 0 ? {
             createMany: {
               data: lineas.map((l, idx) => ({
@@ -266,13 +263,11 @@ export class FacturacionService {
         include: { lineas: true },
       });
 
-      // Actualizar correlativo en series
       await tx.serieFacturacion.updateMany({
         where: { serie },
         data: { correlativoActual: { increment: 1 } },
       });
 
-      // Marcar pedido como FACTURADO dentro de la misma transacción (sin cambios)
       if (dto.pedidoId) {
         await tx.pedido.update({
           where: { id: dto.pedidoId },
@@ -306,7 +301,7 @@ export class FacturacionService {
       : 18;
 
     const fechaEmision = new Date(xmlData.fechaEmision);
-    const fechaVenc = calcularFechaVencimiento(fechaEmision, '30'); // XML: 30 días por defecto
+    const fechaVenc = calcularFechaVencimiento(fechaEmision, '30');
 
     return prisma.factura.create({
       data: {
@@ -340,11 +335,22 @@ export class FacturacionService {
     });
   }
 
+  // ── P2: anular verifica pagos activos ───────────────────────────────────────
   async anular(id: number, usuarioRol: string) {
     const factura = await this.findById(id);
     if (usuarioRol !== 'ADMIN') throw new Error('Solo el administrador puede anular facturas');
     if (factura.estado === EstadoFactura.ANULADA) throw new Error('La factura ya está anulada');
     if (factura.estado === EstadoFactura.PAGADA) throw new Error('No se puede anular una factura ya pagada');
+
+    // P2: verificar si existen pagos activos (no anulados)
+    const pagosActivos = await prisma.pago.count({
+      where: { facturaId: id, anulado: false },
+    });
+    if (pagosActivos > 0) {
+      throw new Error(
+        'La factura tiene pagos registrados. Debe anular primero los pagos asociados antes de anular la factura.'
+      );
+    }
 
     return prisma.$transaction(async (tx: any) => {
       const facturaAnulada = await tx.factura.update({
@@ -352,13 +358,9 @@ export class FacturacionService {
         data: { estado: EstadoFactura.ANULADA },
       });
 
-      // Restaurar pedido a ACTIVO si la factura tenía uno asociado (sin cambios)
       if (factura.pedidoId) {
         await tx.pedido.updateMany({
-          where: {
-            id: factura.pedidoId,
-            estado: 'FACTURADO',
-          },
+          where: { id: factura.pedidoId, estado: 'FACTURADO' },
           data: { estado: 'ACTIVO' },
         });
       }
