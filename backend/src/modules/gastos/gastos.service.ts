@@ -9,7 +9,7 @@ import { TipoGasto } from '../../utils/enums';
 import { cuentasService } from '../configuracion/cuentas.service';
 
 export interface CreateGastoDto {
-  pedidoId?: number;
+  vehiculoId?: number;
   tipoGasto: TipoGasto;
   monto: number;
   descripcion: string;
@@ -22,7 +22,7 @@ export interface CreateGastoDto {
 }
 
 export interface UpdateGastoDto {
-  pedidoId?: number;
+  vehiculoId?: number;
   tipoGasto?: TipoGasto;
   descripcion?: string;
   comprobante?: string;
@@ -33,7 +33,7 @@ export interface UpdateGastoDto {
 export class GastosService {
   async findAll(query: {
     tipoGasto?: string;
-    pedidoId?: string;
+    vehiculoId?: string;
     usuarioId?: string;
     desde?: string;
     hasta?: string;
@@ -42,7 +42,7 @@ export class GastosService {
     const where: any = {};
 
     if (query.tipoGasto) where.tipoGasto = query.tipoGasto as TipoGasto;
-    if (query.pedidoId) where.pedidoId = parseInt(query.pedidoId);
+    if (query.vehiculoId) where.vehiculoId = parseInt(query.vehiculoId);
     if (query.usuarioId) where.usuarioId = parseInt(query.usuarioId);
     if (query.desde || query.hasta) {
       where.fecha = {};
@@ -62,7 +62,7 @@ export class GastosService {
       where,
       orderBy: { fecha: 'desc' },
       include: {
-        pedido: { select: { id: true, origen: true, destino: true, estado: true } },
+        vehiculo: { select: { id: true, placa: true, marca: true, modelo: true } },
         usuario: { select: { id: true, nombre: true } },
       },
     });
@@ -72,7 +72,7 @@ export class GastosService {
     const gasto = await prisma.gasto.findUnique({
       where: { id },
       include: {
-        pedido: true,
+        vehiculo: true,
         usuario: { select: { id: true, nombre: true } },
       },
     });
@@ -86,16 +86,16 @@ export class GastosService {
     if (!dto.monedaId) throw new Error('Debe seleccionar una moneda');
     if (dto.monto <= 0) throw new Error('El monto debe ser mayor a 0');
 
-    if (dto.pedidoId) {
-      const pedido = await prisma.pedido.findUnique({ where: { id: dto.pedidoId } });
-      if (!pedido) throw new Error('Pedido no encontrado');
+    if (dto.vehiculoId) {
+      const vehiculo = await prisma.vehiculo.findUnique({ where: { id: dto.vehiculoId } });
+      if (!vehiculo) throw new Error('Vehículo no encontrado');
     }
 
     return prisma.$transaction(async (tx: any) => {
       // 1. Crear el gasto operativo
       const gasto = await tx.gasto.create({
         data: {
-          pedidoId: dto.pedidoId ?? null,
+          vehiculoId: dto.vehiculoId ?? null,
           tipoGasto: dto.tipoGasto,
           monto: dto.monto,
           descripcion: dto.descripcion,
@@ -104,7 +104,7 @@ export class GastosService {
           usuarioId,
         },
         include: {
-          pedido: { select: { id: true, origen: true, destino: true } },
+          vehiculo: { select: { id: true, placa: true, marca: true, modelo: true } },
           usuario: { select: { id: true, nombre: true } },
         },
       });
@@ -128,22 +128,22 @@ export class GastosService {
 
   async update(id: number, dto: UpdateGastoDto) {
     await this.findById(id);
-    if (dto.pedidoId) {
-      const pedido = await prisma.pedido.findUnique({ where: { id: dto.pedidoId } });
-      if (!pedido) throw new Error('Pedido no encontrado');
+    if (dto.vehiculoId) {
+      const vehiculo = await prisma.vehiculo.findUnique({ where: { id: dto.vehiculoId } });
+      if (!vehiculo) throw new Error('Vehículo no encontrado');
     }
     // Solo actualizar campos no financieros
     return prisma.gasto.update({
       where: { id },
       data: {
-        ...(dto.pedidoId !== undefined && { pedidoId: dto.pedidoId }),
+        ...(dto.vehiculoId !== undefined && { vehiculoId: dto.vehiculoId }),
         ...(dto.tipoGasto !== undefined && { tipoGasto: dto.tipoGasto }),
         ...(dto.descripcion !== undefined && { descripcion: dto.descripcion }),
         ...(dto.comprobante !== undefined && { comprobante: dto.comprobante }),
         ...(dto.fecha !== undefined && { fecha: new Date(dto.fecha) }),
       },
       include: {
-        pedido: { select: { id: true, origen: true, destino: true } },
+        vehiculo: { select: { id: true, placa: true, marca: true, modelo: true } },
         usuario: { select: { id: true, nombre: true } },
       },
     });
@@ -168,9 +168,9 @@ export class GastosService {
     });
   }
 
-  async resumenPorTipo(query: { desde?: string; hasta?: string; pedidoId?: string }) {
+  async resumenPorTipo(query: { desde?: string; hasta?: string; vehiculoId?: string }) {
     const where: any = {};
-    if (query.pedidoId) where.pedidoId = parseInt(query.pedidoId);
+    if (query.vehiculoId) where.vehiculoId = parseInt(query.vehiculoId);
     if (query.desde || query.hasta) {
       where.fecha = {};
       if (query.desde) where.fecha.gte = new Date(query.desde);

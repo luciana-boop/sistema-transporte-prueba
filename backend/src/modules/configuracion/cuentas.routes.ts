@@ -33,8 +33,12 @@ router.put('/cuentas/:id',       soloAdmin,        cuentasController.updateCuent
 router.delete('/cuentas/:id',    soloAdmin,        cuentasController.deleteCuenta.bind(cuentasController));
 
 // Movimientos
-router.get('/movimientos',       adminOSecretario, cuentasController.getMovimientos.bind(cuentasController));
-router.post('/movimientos',      adminOSecretario, cuentasController.registrarMovimiento.bind(cuentasController));
+router.get('/movimientos',              adminOSecretario, cuentasController.getMovimientos.bind(cuentasController));
+router.post('/movimientos',             adminOSecretario, cuentasController.registrarMovimiento.bind(cuentasController));
+// P7: detalle / edición controlada / anulación con reversión de saldo
+router.get('/movimientos/:id',           adminOSecretario, cuentasController.obtenerMovimiento.bind(cuentasController));
+router.put('/movimientos/:id',           adminOSecretario, cuentasController.actualizarMovimiento.bind(cuentasController));
+router.patch('/movimientos/:id/anular',  adminOSecretario, cuentasController.anularMovimiento.bind(cuentasController));
 
 // Resumen financiero
 router.get('/resumen',           adminOSecretario, cuentasController.getResumenFinanciero.bind(cuentasController));

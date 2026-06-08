@@ -8,8 +8,8 @@ import * as R from '../../utils/response';
 export class CobranzaController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
-      const { clienteId, metodoPago, desde, hasta, facturaId } = req.query as Record<string, string>;
-      R.ok(res, await cobranzaService.findAll({ clienteId, metodoPago, desde, hasta, facturaId }));
+      const { clienteId, metodoPago, estado, desde, hasta, facturaId } = req.query as Record<string, string>;
+      R.ok(res, await cobranzaService.findAll({ clienteId, metodoPago, estado, desde, hasta, facturaId }));
     } catch (e) { R.serverError(res, e); }
   }
 
@@ -123,8 +123,22 @@ export class CobranzaController {
 
   async cuentasPorCobrar(req: Request, res: Response): Promise<void> {
     try {
-      R.ok(res, await cobranzaService.cuentasPorCobrar());
+      const { clienteId, estado, desde, hasta } = req.query as Record<string, string>;
+      R.ok(res, await cobranzaService.cuentasPorCobrar({ clienteId, estado, desde, hasta }));
     } catch (e) { R.serverError(res, e); }
+  }
+
+  // P8: vista de detalle uniforme para "Cuentas por cobrar"
+  async detalleCuentaPorCobrar(req: Request, res: Response): Promise<void> {
+    try {
+      const facturaId = parseInt(req.params.facturaId);
+      if (isNaN(facturaId)) { R.badRequest(res, 'ID inválido'); return; }
+      R.ok(res, await cobranzaService.detalleCuentaPorCobrar(facturaId));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'Factura no encontrada') R.notFound(res, msg);
+      else R.serverError(res, e);
+    }
   }
 }
 

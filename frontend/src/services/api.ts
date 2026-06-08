@@ -1,6 +1,4 @@
 // FILE: src/services/api.ts
-// FIX PROBLEMA 1: cajaApi ahora incluye liquidacionesPendientes, pagarLiquidacion,
-//   anularPagoLiquidacion (métodos que el frontend usa pero no estaban definidos).
 // FIX PROBLEMA 2: cobranzaApi.registrarPago acepta cuentaId obligatorio.
 // MEJORA: gastosApi.obtener agregado para vistas de detalle.
 // v2 P1: facturacionApi añade pdfInfo() y pdfUrl() para visualización/descarga de PDF.
@@ -10,10 +8,11 @@ import axios from 'axios';
 import type {
   ApiResponse, Usuario, Cliente, Pedido, Factura, Pago, Caja,
   Gasto, MetodoPago, Rol, CuentaPorCobrar, Conductor, Vehiculo,
-  Liquidacion, LiquidacionDetalle, Combustible, ConfigParam,
+  Liquidacion, LiquidacionDetalle, Combustible, CombustibleDetalle, ConfigParam,
   SerieFacturacion, CategoriaGasto, ConfigAlerta, TablaMaestra,
-  TipoVehiculoConfig, Moneda, TipoPago, CuentaDinero, MovimientoCuenta,
+  TipoVehiculoConfig, Moneda, TipoPago, CuentaDinero, MovimientoCuenta, MovimientoCuentaDetalle,
   ResumenFinanciero, TipoGasto, EstadoFactura, FacturaDetalle, PedidoResumen,
+  PagoDetalle, CuentaPorCobrarDetalle,
   MovimientosCajaResponse, MovimientosGlobalResponse,
 } from '@/types';
 
@@ -80,7 +79,16 @@ export const pedidosApi = {
     api.get<ApiResponse<Pedido[]>>('/api/pedidos/disponibles', { params: { clienteId } }),
   obtener: (id: number) => api.get<ApiResponse<Pedido>>(`/api/pedidos/${id}`),
   rentabilidad: (id: number) =>
-    api.get<ApiResponse<{ pedidoId: number; tarifa: number; totalGastos: number; utilidadNeta: number; margenPorcentaje: number }>>(`/api/pedidos/${id}/rentabilidad`),
+    api.get<ApiResponse<{
+      pedidoId: number;
+      conductor: { id: number; nombre: string } | null;
+      ganancia: number;
+      totalGastosLiquidacion: number;
+      totalCombustible: number;
+      totalGastos: number;
+      utilidadNeta: number;
+      margenPorcentaje: number;
+    }>>(`/api/pedidos/${id}/rentabilidad`),
   crear: (data: {
     clienteId: number; origen: string; destino: string;
     tipoCarga: string; tarifa: number; observaciones?: string;
@@ -133,11 +141,13 @@ export const facturacionApi = {
 
 // ─── COBRANZA ────────────────────────────────────────────────────────────────
 export const cobranzaApi = {
-  listar: (params?: { clienteId?: number; metodoPago?: MetodoPago; desde?: string; hasta?: string }) =>
+  listar: (params?: { clienteId?: number; metodoPago?: MetodoPago; estado?: EstadoFactura; desde?: string; hasta?: string }) =>
     api.get<ApiResponse<Pago[]>>('/api/cobranza', { params }),
-  obtener: (id: number) => api.get<ApiResponse<Pago>>(`/api/cobranza/${id}`),
-  cuentasPorCobrar: () =>
-    api.get<ApiResponse<CuentaPorCobrar[]>>('/api/cobranza/cuentas-por-cobrar'),
+  obtener: (id: number) => api.get<ApiResponse<PagoDetalle>>(`/api/cobranza/${id}`),
+  cuentasPorCobrar: (params?: { clienteId?: number; estado?: EstadoFactura; desde?: string; hasta?: string }) =>
+    api.get<ApiResponse<CuentaPorCobrar[]>>('/api/cobranza/cuentas-por-cobrar', { params }),
+  detalleCuentaPorCobrar: (facturaId: number) =>
+    api.get<ApiResponse<CuentaPorCobrarDetalle>>(`/api/cobranza/cuentas-por-cobrar/${facturaId}/detalle`),
   facturasPorCliente: (clienteId: number) =>
     api.get<ApiResponse<Array<{
       id: number; numeroFactura: string; total: number; pagado: number;
@@ -180,25 +190,15 @@ export const cajaApi = {
   anularMovimiento: (movimientoId: number) =>
     api.patch<ApiResponse<any>>(`/api/caja/movimientos/${movimientoId}/anular`),
   eliminar: (id: number) => api.delete<ApiResponse<null>>(`/api/caja/${id}`),
-
-  // ── FIX PROBLEMA 1: métodos que faltaban ──────────────────────────────────
-  liquidacionesPendientes: () =>
-    api.get<ApiResponse<Liquidacion[]>>('/api/caja/liquidaciones-pendientes'),
-  pagarLiquidacion: (data: {
-    liquidacionId: number; cuentaId: number; monedaId: number;
-    tipoPagoId?: number; observaciones?: string;
-  }) => api.post<ApiResponse<{ liquidacion: Liquidacion; movimientoCuentaId: number }>>('/api/caja/pagar-liquidacion', data),
-  anularPagoLiquidacion: (liquidacionId: number) =>
-    api.post<ApiResponse<{ liquidacion: Liquidacion; message: string }>>(`/api/caja/liquidaciones/${liquidacionId}/anular-pago`),
 };
 
 // ─── GASTOS ───────────────────────────────────────────────────────────────────
 export const gastosApi = {
-  listar: (params?: { pedidoId?: number; tipoGasto?: TipoGasto; desde?: string; hasta?: string; search?: string }) =>
+  listar: (params?: { vehiculoId?: number; tipoGasto?: TipoGasto; desde?: string; hasta?: string; search?: string }) =>
     api.get<ApiResponse<Gasto[]>>('/api/gastos', { params }),
   obtener: (id: number) => api.get<ApiResponse<Gasto>>(`/api/gastos/${id}`),
   crear: (data: {
-    pedidoId?: number; tipoGasto: TipoGasto; monto: number; descripcion: string;
+    vehiculoId?: number; tipoGasto: TipoGasto; monto: number; descripcion: string;
     comprobante?: string; fecha?: string; cuentaId?: number; monedaId?: number; tipoPagoId?: number;
   }) => api.post<ApiResponse<Gasto>>('/api/gastos', data),
   actualizar: (id: number, data: Partial<Gasto>) =>
@@ -317,9 +317,12 @@ export const liquidacionesApi = {
 export const combustibleApi = {
   listar: (params?: { vehiculoId?: number; conductorId?: number; desde?: string; hasta?: string }) =>
     api.get<ApiResponse<Combustible[]>>('/api/combustible', { params }),
+  /** P9: detalle de solo lectura — incluye el movimiento financiero generado */
+  obtener: (id: number) => api.get<ApiResponse<CombustibleDetalle>>(`/api/combustible/${id}`),
   crear: (data: {
-    vehiculoId: number; conductorId?: number; fecha: string;
+    vehiculoId: number; conductorId?: number; liquidacionId?: number; fecha: string;
     galones: number; monto: number; kilometraje?: number; grifo?: string; observaciones?: string;
+    cuentaId: number; monedaId: number; tipoPagoId?: number;
   }) => api.post<ApiResponse<Combustible>>('/api/combustible', data),
   actualizar: (id: number, data: Partial<Combustible>) =>
     api.put<ApiResponse<Combustible>>(`/api/combustible/${id}`, data),
@@ -410,10 +413,17 @@ export const cuentasApi = {
   getMovimientos: (params?: { cuentaId?: number; tipo?: string; desde?: string; hasta?: string }) =>
     api.get<ApiResponse<MovimientoCuenta[]>>('/api/cuentas/movimientos', { params }),
   registrarMovimiento: (data: {
-    cuentaId: number; tipo: string; monto: number; monedaId: number;
-    tipoPagoId?: number; concepto: string; referencia?: string;
-    cuentaDestinoId?: number; fecha?: string;
+    cuentaId: number; tipo: 'INGRESO' | 'EGRESO'; monto: number; monedaId: number;
+    tipoPagoId?: number; concepto: string; referencia?: string; fecha?: string;
   }) => api.post<ApiResponse<MovimientoCuenta>>('/api/cuentas/movimientos', data),
+  // P7: detalle / edición controlada / anulación
+  obtenerMovimiento: (id: number) =>
+    api.get<ApiResponse<MovimientoCuentaDetalle>>(`/api/cuentas/movimientos/${id}`),
+  actualizarMovimiento: (id: number, data: {
+    concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null;
+  }) => api.put<ApiResponse<MovimientoCuenta>>(`/api/cuentas/movimientos/${id}`, data),
+  anularMovimiento: (id: number) =>
+    api.patch<ApiResponse<MovimientoCuenta>>(`/api/cuentas/movimientos/${id}/anular`),
   inicializar: () =>
     api.post<ApiResponse<{ message: string }>>('/api/cuentas/inicializar'),
 };

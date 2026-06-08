@@ -60,7 +60,6 @@ export interface Pedido {
   fechaPedido: string;
   cliente: { id: number; razonSocial: string; ruc: string };
   usuario: { id: number; nombre: string };
-  _count?: { gastos: number };
 }
 
 // NUEVO: línea de detalle de factura
@@ -119,6 +118,38 @@ export interface Pago {
   factura: { id: number; numeroFactura: string; total: number; estado: EstadoFactura };
   cliente: { id: number; razonSocial: string; ruc: string };
   usuario: { id: number; nombre: string };
+}
+
+/** P8: detalle enriquecido de un pago — incluye el movimiento financiero generado */
+export interface PagoDetalle extends Pago {
+  anulado?: boolean;
+  motivoAnulacion?: string;
+  movimiento?: {
+    referencia: string | null;
+    concepto: string;
+    cuenta: { id: number; nombre: string; tipoCuenta: string };
+    moneda: { codigo: string; nombre: string; simbolo: string };
+  } | null;
+}
+
+/** P8: detalle uniforme de una cuenta por cobrar — incluye el último cobro asociado (si existe) */
+export interface CuentaPorCobrarDetalle {
+  facturaId: number;
+  numeroFactura: string;
+  cliente: { id: number; razonSocial: string; ruc: string };
+  fecha: string;
+  estado: EstadoFactura;
+  observaciones?: string;
+  ultimoPago: {
+    id: number;
+    monto: number;
+    metodoPago: MetodoPago;
+    fechaPago: string;
+    usuario: { id: number; nombre: string };
+  } | null;
+  cuenta: { id: number; nombre: string; tipoCuenta: string } | null;
+  moneda: { codigo: string; nombre: string; simbolo: string } | null;
+  movimiento: { referencia: string | null; concepto: string } | null;
 }
 
 export interface CuentaPorCobrar {
@@ -210,14 +241,14 @@ export interface MovimientosGlobalResponse {
 
 export interface Gasto {
   id: number;
-  pedidoId?: number;
+  vehiculoId?: number;
   usuarioId: number;
   tipoGasto: TipoGasto;
   monto: number;
   descripcion: string;
   comprobante?: string;
   fecha: string;
-  pedido?: { id: number; origen: string; destino: string; estado: EstadoPedido };
+  vehiculo?: { id: number; placa: string; marca: string; modelo?: string };
   usuario: { id: number; nombre: string };
 }
 
@@ -347,6 +378,7 @@ export interface Combustible {
   id: number;
   vehiculoId: number;
   conductorId?: number;
+  liquidacionId?: number;
   fecha: string;
   galones: number;
   monto: number;
@@ -355,7 +387,19 @@ export interface Combustible {
   observaciones?: string;
   vehiculo: { id: number; placa: string; marca: string };
   conductor?: { id: number; nombre: string };
+  liquidacion?: { id: number; fecha: string; estado: string; montoEntregado?: number };
   creadoEn: string;
+}
+
+/** P9: detalle enriquecido de una carga de combustible — incluye el movimiento financiero generado */
+export interface CombustibleDetalle extends Combustible {
+  movimiento?: {
+    referencia: string | null;
+    concepto: string;
+    cuenta: { id: number; nombre: string; tipoCuenta: string };
+    moneda: { codigo: string; nombre: string; simbolo: string };
+    usuario: { id: number; nombre: string };
+  } | null;
 }
 
 // ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
@@ -455,18 +499,24 @@ export interface CuentaDinero {
 export interface MovimientoCuenta {
   id: number;
   cuentaId: number;
-  tipo: 'INGRESO' | 'EGRESO' | 'TRANSFERENCIA';
+  tipo: 'INGRESO' | 'EGRESO';
   monto: number;
   monedaId: number;
   tipoPagoId?: number;
   concepto: string;
   referencia?: string;
-  cuentaDestinoId?: number;
   fecha: string;
+  anulado: boolean;
   cuenta: { id: number; nombre: string; tipoCuenta: string };
   moneda: { codigo: string; simbolo: string };
   tipoPago?: { nombre: string };
   usuario: { id: number; nombre: string };
+}
+
+/** P7: detalle completo de un movimiento, incluye origen y datos enriquecidos */
+export interface MovimientoCuentaDetalle extends MovimientoCuenta {
+  origen: string;
+  liquidacion?: { id: number; conductor?: { nombre: string } } | null;
 }
 
 export interface ResumenFinanciero {

@@ -51,22 +51,42 @@ export default function CobranzaPage() {
   const [clienteSeleccionado, setClienteSeleccionado] = useState('');
   const [facturaSeleccionada, setFacturaSeleccionada] = useState<any>(null);
 
-  // Filtros y búsqueda — MEJORA 1: por defecto hoy
+  // Filtros y búsqueda — PROBLEMA 8: consistentes en ambas secciones (Desde/Hasta/Cliente/Estado + búsqueda)
   const [searchText, setSearchText] = useState('');
   const [filtroDesde, setFiltroDesde] = useState(() => new Date().toISOString().split('T')[0]);
   const [filtroHasta, setFiltroHasta] = useState(() => new Date().toISOString().split('T')[0]);
-  // MEJORA 4: detalle
+  const [filtroCliente, setFiltroCliente] = useState('');
+  const [filtroEstado, setFiltroEstado] = useState('');
+  // MEJORA 4 / P8: vista de detalle (una por sección, mismos campos)
   const [viewing, setViewing] = useState<any>(null);
+  const [viewingCpc, setViewingCpc] = useState<any>(null);
+
+  const cambiarTab = (t: 'pagos' | 'cpc') => {
+    setTab(t);
+    // El set de estados disponibles difiere entre secciones (CPC solo muestra deudas activas)
+    setFiltroEstado('');
+  };
+
+  const limpiarFiltros = () => {
+    setSearchText('');
+    setFiltroDesde('');
+    setFiltroHasta('');
+    setFiltroCliente('');
+    setFiltroEstado('');
+  };
+  const hayFiltrosActivos = !!(searchText || filtroDesde || filtroHasta || filtroCliente || filtroEstado);
 
   const { data: pagosRaw = [], isLoading: loadPagos } = useQuery({
-    queryKey: ['pagos', filtroDesde, filtroHasta],
+    queryKey: ['pagos', filtroDesde, filtroHasta, filtroCliente, filtroEstado],
     queryFn: () => cobranzaApi.listar({
       desde: filtroDesde || undefined,
       hasta: filtroHasta || undefined,
+      clienteId: filtroCliente ? parseInt(filtroCliente) : undefined,
+      estado: (filtroEstado as any) || undefined,
     }).then((r) => r.data.data),
   });
 
-  // Filtro client-side: cliente, factura, referencia
+  // Búsqueda libre — mismo comportamiento en ambas secciones: cliente, factura (y referencia para pagos)
   const pagos = pagosRaw.filter((p) => {
     if (!searchText) return true;
     const q = searchText.toLowerCase();
@@ -77,10 +97,37 @@ export default function CobranzaPage() {
     );
   });
 
-  const { data: cpc = [], isLoading: loadCpc } = useQuery({
-    queryKey: ['cuentas-por-cobrar'],
-    queryFn: () => cobranzaApi.cuentasPorCobrar().then((r) => r.data.data),
+  const { data: cpcRaw = [], isLoading: loadCpc } = useQuery({
+    queryKey: ['cuentas-por-cobrar', filtroDesde, filtroHasta, filtroCliente, filtroEstado],
+    queryFn: () => cobranzaApi.cuentasPorCobrar({
+      desde: filtroDesde || undefined,
+      hasta: filtroHasta || undefined,
+      clienteId: filtroCliente ? parseInt(filtroCliente) : undefined,
+      estado: (filtroEstado as any) || undefined,
+    }).then((r) => r.data.data),
     enabled: tab === 'cpc',
+  });
+
+  const cpc = cpcRaw.filter((c) => {
+    if (!searchText) return true;
+    const q = searchText.toLowerCase();
+    return (
+      c.cliente?.razonSocial?.toLowerCase().includes(q) ||
+      c.numeroFactura?.toLowerCase().includes(q)
+    );
+  });
+
+  // P8: detalle enriquecido — el listado no incluye cuenta/moneda/movimiento generado
+  const { data: detallePago, isLoading: loadDetallePago } = useQuery({
+    queryKey: ['cobranza-pago-detalle', viewing?.id],
+    queryFn: () => cobranzaApi.obtener(viewing!.id).then((r) => r.data.data),
+    enabled: !!viewing,
+  });
+
+  const { data: detalleCpc, isLoading: loadDetalleCpc } = useQuery({
+    queryKey: ['cobranza-cpc-detalle', viewingCpc?.facturaId],
+    queryFn: () => cobranzaApi.detalleCuentaPorCobrar(viewingCpc!.facturaId).then((r) => r.data.data),
+    enabled: !!viewingCpc,
   });
 
   const { data: clientes = [] } = useQuery({
@@ -212,7 +259,7 @@ export default function CobranzaPage() {
   };
 
   const totalCobrado = pagosRaw.reduce((s, p) => s + Number(p.monto), 0);
-  const totalVencido = cpc.filter((c) => c.vencida).reduce((s, c) => s + c.saldoPendiente, 0);
+  const totalVencido = cpcRaw.filter((c) => c.vencida).reduce((s, c) => s + c.saldoPendiente, 0);
 
   return (
     <div className="page-container">
@@ -234,14 +281,14 @@ export default function CobranzaPage() {
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard label="Total cobrado" value={formatCurrency(totalCobrado)} color="green" />
         <StatCard label="Total vencido" value={formatCurrency(totalVencido)} color="red" />
-        <StatCard label="Pendientes de cobro" value={cpc.length} color="yellow" />
+        <StatCard label="Pendientes de cobro" value={cpcRaw.length} color="yellow" />
       </div>
 
       <div className="flex gap-1 bg-muted p-1 rounded-lg w-fit">
         {[{ id: 'pagos', label: 'Pagos registrados' }, { id: 'cpc', label: 'Cuentas por cobrar' }].map((t) => (
           <button
             key={t.id}
-            onClick={() => setTab(t.id as 'pagos' | 'cpc')}
+            onClick={() => cambiarTab(t.id as 'pagos' | 'cpc')}
             className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${tab === t.id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
           >
             {t.label}
@@ -249,37 +296,51 @@ export default function CobranzaPage() {
         ))}
       </div>
 
+      {/* P8: Filtros y búsqueda — mismo comportamiento en ambas secciones */}
+      <div className="flex gap-3 flex-wrap items-center">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder={tab === 'pagos' ? 'Buscar por cliente, factura o referencia…' : 'Buscar por cliente o factura…'}
+            className="pl-9 w-72"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground">Desde</label>
+          <Input type="date" className="w-36" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)} />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground">Hasta</label>
+          <Input type="date" className="w-36" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground">Cliente</label>
+          <Select className="w-48" value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)}>
+            <option value="">Todos</option>
+            {clientes.map((c) => <option key={c.id} value={c.id}>{c.razonSocial}</option>)}
+          </Select>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground">Estado</label>
+          <Select className="w-44" value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}>
+            <option value="">Todos</option>
+            {(tab === 'pagos'
+              ? (Object.keys(ESTADO_FACTURA_LABEL) as Array<keyof typeof ESTADO_FACTURA_LABEL>)
+              : (['EMITIDA', 'PENDIENTE', 'PARCIAL'] as Array<keyof typeof ESTADO_FACTURA_LABEL>)
+            ).map((v) => <option key={v} value={v}>{ESTADO_FACTURA_LABEL[v]}</option>)}
+          </Select>
+        </div>
+        {hayFiltrosActivos && (
+          <button onClick={limpiarFiltros} className="text-xs text-muted-foreground hover:text-foreground underline">
+            Limpiar filtros
+          </button>
+        )}
+      </div>
+
       {tab === 'pagos' && (
         <>
-          {/* Filtros */}
-          <div className="flex gap-3 flex-wrap items-center">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por cliente, factura o referencia…"
-                className="pl-9 w-72"
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-muted-foreground">Desde</label>
-              <Input type="date" className="w-36" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)} />
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-muted-foreground">Hasta</label>
-              <Input type="date" className="w-36" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} />
-            </div>
-            {(searchText || filtroDesde || filtroHasta) && (
-              <button
-                onClick={() => { setSearchText(''); setFiltroDesde(''); setFiltroHasta(''); }}
-                className="text-xs text-muted-foreground hover:text-foreground underline"
-              >
-                Limpiar filtros
-              </button>
-            )}
-          </div>
-
           {loadPagos ? <TableSkeleton rows={6} cols={7} /> : (
             <Table>
               <thead>
@@ -344,10 +405,13 @@ export default function CobranzaPage() {
       )}
 
       {tab === 'cpc' && (
-        loadCpc ? <TableSkeleton rows={5} cols={7} /> : (
+        loadCpc ? <TableSkeleton rows={5} cols={8} /> : (
           <Table>
             <thead>
-              <tr><Th>Factura</Th><Th>Cliente</Th><Th>Total</Th><Th>Pagado</Th><Th>Saldo</Th><Th>Vencimiento</Th><Th>Estado</Th></tr>
+              <tr>
+                <Th>Factura</Th><Th>Cliente</Th><Th>Total</Th><Th>Pagado</Th><Th>Saldo</Th>
+                <Th>Vencimiento</Th><Th>Estado</Th><Th className="text-right">Acciones</Th>
+              </tr>
             </thead>
             <tbody>
               {cpc.length > 0 ? cpc.map((c) => (
@@ -366,8 +430,19 @@ export default function CobranzaPage() {
                     </div>
                   </Td>
                   <Td><Badge value={c.estado} label={ESTADO_FACTURA_LABEL[c.estado] ?? c.estado} /></Td>
+                  <Td>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={() => setViewingCpc(c)}
+                        className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
+                        title="Ver detalle"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </Td>
                 </Tr>
-              )) : <tr><td colSpan={7}><EmptyState message="No hay cuentas por cobrar" /></td></tr>}
+              )) : <tr><td colSpan={8}><EmptyState message="No hay cuentas por cobrar" /></td></tr>}
             </tbody>
           </Table>
         )
@@ -483,56 +558,130 @@ export default function CobranzaPage() {
         )}
       </Modal>
 
-      {/* MEJORA 4: Modal de detalle de pago */}
+      {/* MEJORA 4 / P8: Modal de detalle de pago — Cliente/Factura/Fecha/Cuenta utilizada/Moneda/Método de pago/Usuario/Observaciones/Movimiento financiero generado */}
       <Modal open={!!viewing} onClose={() => setViewing(null)} title={`Cobro — ${viewing?.factura?.numeroFactura ?? ''}`} maxWidth="max-w-lg">
         {viewing && (
           <div className="flex flex-col gap-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Cliente</p>
-                <p className="font-semibold text-sm">{viewing.cliente?.razonSocial}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Factura</p>
-                <p className="font-mono font-bold text-sm">{viewing.factura?.numeroFactura}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Monto cobrado</p>
-                <p className="font-bold text-lg text-emerald-500">{formatCurrency(Number(viewing.monto))}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Método de pago</p>
-                <p className="font-medium text-sm">{METODO_PAGO_LABEL[viewing.metodoPago as keyof typeof METODO_PAGO_LABEL] ?? viewing.metodoPago}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Fecha de pago</p>
-                <p className="text-sm">{formatDate(viewing.fechaPago)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Estado de factura</p>
-                <p className="text-sm">{ESTADO_FACTURA_LABEL[viewing.factura?.estado as keyof typeof ESTADO_FACTURA_LABEL] ?? viewing.factura?.estado ?? '—'}</p>
-              </div>
-              {viewing.referencia && (
-                <div className="col-span-2">
-                  <p className="text-xs text-muted-foreground mb-1">Referencia</p>
-                  <p className="text-sm font-mono">{viewing.referencia}</p>
+            {loadDetallePago ? <p className="text-sm text-muted-foreground">Cargando detalle…</p> : (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Cliente</p>
+                  <p className="font-semibold text-sm">{viewing.cliente?.razonSocial}</p>
                 </div>
-              )}
-              {viewing.observaciones && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Factura</p>
+                  <p className="font-mono font-bold text-sm">{viewing.factura?.numeroFactura}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Monto cobrado</p>
+                  <p className="font-bold text-lg text-emerald-500">{formatCurrency(Number(viewing.monto))}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Fecha</p>
+                  <p className="text-sm">{formatDate(viewing.fechaPago)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Cuenta utilizada</p>
+                  <p className="text-sm">{detallePago?.movimiento?.cuenta?.nombre ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Moneda</p>
+                  <p className="text-sm">{detallePago?.movimiento?.moneda ? `${detallePago.movimiento.moneda.nombre} (${detallePago.movimiento.moneda.simbolo})` : '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Método de pago</p>
+                  <p className="font-medium text-sm">{METODO_PAGO_LABEL[viewing.metodoPago as keyof typeof METODO_PAGO_LABEL] ?? viewing.metodoPago}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Usuario</p>
+                  <p className="text-sm">{viewing.usuario?.nombre ?? '—'}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-1">Movimiento financiero generado</p>
+                  <p className="text-sm font-mono">{detallePago?.movimiento?.referencia ?? 'No se generó un movimiento financiero'}</p>
+                </div>
+                {viewing.referencia && (
+                  <div className="col-span-2">
+                    <p className="text-xs text-muted-foreground mb-1">Referencia</p>
+                    <p className="text-sm font-mono">{viewing.referencia}</p>
+                  </div>
+                )}
                 <div className="col-span-2">
                   <p className="text-xs text-muted-foreground mb-1">Observaciones</p>
-                  <p className="text-sm bg-muted/30 rounded p-2">{viewing.observaciones}</p>
+                  <p className="text-sm bg-muted/30 rounded p-2">{viewing.observaciones || '—'}</p>
                 </div>
-              )}
-              {viewing.anulado && (
-                <div className="col-span-2 bg-destructive/10 rounded-lg p-3">
-                  <p className="text-xs font-semibold text-destructive uppercase">Pago anulado</p>
-                  {viewing.motivoAnulacion && <p className="text-xs text-muted-foreground mt-1">{viewing.motivoAnulacion}</p>}
-                </div>
-              )}
-            </div>
+                {viewing.anulado && (
+                  <div className="col-span-2 bg-destructive/10 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-destructive uppercase">Pago anulado</p>
+                    {viewing.motivoAnulacion && <p className="text-xs text-muted-foreground mt-1">{viewing.motivoAnulacion}</p>}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex justify-end pt-2 border-t border-border">
               <Button variant="secondary" onClick={() => setViewing(null)}>Cerrar</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* P8: Modal de detalle de cuenta por cobrar — mismos campos que el detalle de pago (experiencia uniforme) */}
+      <Modal open={!!viewingCpc} onClose={() => setViewingCpc(null)} title={`Cuenta por cobrar — ${viewingCpc?.numeroFactura ?? ''}`} maxWidth="max-w-lg">
+        {viewingCpc && (
+          <div className="flex flex-col gap-4">
+            {loadDetalleCpc ? <p className="text-sm text-muted-foreground">Cargando detalle…</p> : (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Cliente</p>
+                  <p className="font-semibold text-sm">{detalleCpc?.cliente?.razonSocial ?? viewingCpc.cliente?.razonSocial}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Factura</p>
+                  <p className="font-mono font-bold text-sm">{detalleCpc?.numeroFactura ?? viewingCpc.numeroFactura}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Fecha</p>
+                  <p className="text-sm">{detalleCpc ? formatDate(detalleCpc.fecha) : '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Saldo pendiente</p>
+                  <p className="font-semibold text-sm text-primary">{formatCurrency(viewingCpc.saldoPendiente)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Cuenta utilizada</p>
+                  <p className="text-sm">{detalleCpc?.cuenta?.nombre ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Moneda</p>
+                  <p className="text-sm">{detalleCpc?.moneda ? `${detalleCpc.moneda.nombre} (${detalleCpc.moneda.simbolo})` : '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Método de pago</p>
+                  <p className="text-sm">{detalleCpc?.ultimoPago ? (METODO_PAGO_LABEL[detalleCpc.ultimoPago.metodoPago as keyof typeof METODO_PAGO_LABEL] ?? detalleCpc.ultimoPago.metodoPago) : '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Usuario</p>
+                  <p className="text-sm">{detalleCpc?.ultimoPago?.usuario?.nombre ?? '—'}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-1">Movimiento financiero generado</p>
+                  <p className="text-sm font-mono">{detalleCpc?.movimiento?.referencia ?? 'No se generó un movimiento financiero'}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-1">Observaciones</p>
+                  <p className="text-sm bg-muted/30 rounded p-2">{detalleCpc?.observaciones || '—'}</p>
+                </div>
+                {detalleCpc && !detalleCpc.ultimoPago && (
+                  <div className="col-span-2 bg-muted/30 rounded-lg p-3">
+                    <p className="text-xs text-muted-foreground">
+                      Esta factura aún no registra cobros. La cuenta, moneda, método de pago y movimiento financiero se completarán cuando se registre el primer pago.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="flex justify-end pt-2 border-t border-border">
+              <Button variant="secondary" onClick={() => setViewingCpc(null)}>Cerrar</Button>
             </div>
           </div>
         )}

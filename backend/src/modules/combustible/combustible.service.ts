@@ -10,6 +10,8 @@ import { cuentasService } from '../configuracion/cuentas.service';
 export interface CreateCombustibleDto {
   vehiculoId: number;
   conductorId?: number;
+  // P4: liquidación del conductor a la que se asocia esta carga (opcional)
+  liquidacionId?: number;
   fecha: string;
   galones: number;
   monto: number;
@@ -41,6 +43,7 @@ export class CombustibleService {
       include: {
         vehiculo: { select: { id: true, placa: true, marca: true, modelo: true } },
         conductor: { select: { id: true, nombre: true } },
+        liquidacion: { select: { id: true, fecha: true, estado: true } },
       },
     });
   }
@@ -90,10 +93,23 @@ export class CombustibleService {
       include: {
         vehiculo: { select: { id: true, placa: true, marca: true } },
         conductor: { select: { id: true, nombre: true } },
+        liquidacion: { select: { id: true, fecha: true, estado: true, montoEntregado: true } },
       },
     });
     if (!c) throw new Error('Registro no encontrado');
-    return c;
+
+    // P9: vista de detalle — Combustible no almacena cuenta/moneda/usuario directamente,
+    // se obtienen del MovimientoCuentaV2 (EGRESO) generado al registrar la carga
+    const movimiento = await prisma.movimientoCuentaV2.findFirst({
+      where: { referencia: `COMBUSTIBLE-${c.id}` },
+      include: {
+        cuenta: { select: { id: true, nombre: true, tipoCuenta: true } },
+        moneda: { select: { codigo: true, nombre: true, simbolo: true } },
+        usuario: { select: { id: true, nombre: true } },
+      },
+    });
+
+    return { ...c, movimiento };
   }
 
   async create(dto: CreateCombustibleDto, usuarioId: number) {
@@ -104,6 +120,15 @@ export class CombustibleService {
 
     const vehiculo = await prisma.vehiculo.findUnique({ where: { id: dto.vehiculoId } });
     if (!vehiculo) throw new Error('Vehículo no encontrado');
+
+    // P4: si se asocia a una liquidación, validar que exista y sea del conductor indicado
+    if (dto.liquidacionId) {
+      const liquidacion = await prisma.liquidacion.findUnique({ where: { id: dto.liquidacionId } });
+      if (!liquidacion) throw new Error('Liquidación no encontrada');
+      if (dto.conductorId && liquidacion.conductorId !== dto.conductorId) {
+        throw new Error('La liquidación seleccionada no pertenece al conductor indicado');
+      }
+    }
 
     // Extraer campos financieros
     const { cuentaId, monedaId, tipoPagoId, ...combustibleData } = dto;
@@ -118,6 +143,7 @@ export class CombustibleService {
         include: {
           vehiculo: { select: { id: true, placa: true, marca: true } },
           conductor: { select: { id: true, nombre: true } },
+          liquidacion: { select: { id: true, fecha: true, estado: true } },
         },
       });
 
@@ -138,14 +164,26 @@ export class CombustibleService {
     });
   }
 
-  async update(id: number, dto: Partial<Omit<CreateCombustibleDto, 'cuentaId' | 'monedaId' | 'tipoPagoId' | 'monto'>>) {
-    await this.findById(id);
+  async update(id: number, dto: Partial<Omit<CreateCombustibleDto, 'cuentaId' | 'monedaId' | 'tipoPagoId' | 'monto' | 'liquidacionId'>> & { liquidacionId?: number | null }) {
+    const actual = await this.findById(id);
+
+    // P4: si se asocia/cambia la liquidación, validar que exista y sea del conductor indicado
+    if (dto.liquidacionId !== undefined && dto.liquidacionId !== null) {
+      const liquidacion = await prisma.liquidacion.findUnique({ where: { id: dto.liquidacionId } });
+      if (!liquidacion) throw new Error('Liquidación no encontrada');
+      const conductorId = dto.conductorId !== undefined ? dto.conductorId : actual.conductorId;
+      if (conductorId && liquidacion.conductorId !== conductorId) {
+        throw new Error('La liquidación seleccionada no pertenece al conductor indicado');
+      }
+    }
+
     // Solo actualizar campos no financieros (monto y cuenta no se pueden cambiar)
     return prisma.combustible.update({
       where: { id },
       data: {
         ...(dto.vehiculoId !== undefined && { vehiculoId: dto.vehiculoId }),
         ...(dto.conductorId !== undefined && { conductorId: dto.conductorId }),
+        ...(dto.liquidacionId !== undefined && { liquidacionId: dto.liquidacionId }),
         ...(dto.fecha !== undefined && { fecha: new Date(dto.fecha) }),
         ...(dto.galones !== undefined && { galones: dto.galones }),
         ...(dto.kilometraje !== undefined && { kilometraje: dto.kilometraje }),
@@ -155,6 +193,7 @@ export class CombustibleService {
       include: {
         vehiculo: { select: { id: true, placa: true, marca: true } },
         conductor: { select: { id: true, nombre: true } },
+        liquidacion: { select: { id: true, fecha: true, estado: true } },
       },
     });
   }

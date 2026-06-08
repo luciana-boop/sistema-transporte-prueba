@@ -30,7 +30,6 @@ export class ReportesService {
         include: {
           cliente: { select: { id: true, razonSocial: true } },
           usuario: { select: { id: true, nombre: true } },
-          _count: { select: { gastos: true } },
         },
       }),
       prisma.pedido.groupBy({
@@ -192,7 +191,7 @@ export class ReportesService {
         where,
         orderBy: { fecha: 'desc' },
         include: {
-          pedido: { select: { id: true, origen: true, destino: true } },
+          vehiculo: { select: { id: true, placa: true, marca: true, modelo: true } },
           usuario: { select: { id: true, nombre: true } },
         },
       }),

@@ -10,6 +10,8 @@ router.use(verificarToken, adminOSecretario);
 
 router.get('/',                                  cobranzaController.listar.bind(cobranzaController));
 router.get('/cuentas-por-cobrar',                cobranzaController.cuentasPorCobrar.bind(cobranzaController));
+// P8: detalle uniforme de una cuenta por cobrar (debe ir antes de /:id)
+router.get('/cuentas-por-cobrar/:facturaId/detalle', cobranzaController.detalleCuentaPorCobrar.bind(cobranzaController));
 router.get('/facturas-cliente/:clienteId',       cobranzaController.facturasPorCliente.bind(cobranzaController));
 router.get('/:id',                               cobranzaController.obtener.bind(cobranzaController));
 router.post('/',                                 cobranzaController.registrarPago.bind(cobranzaController));

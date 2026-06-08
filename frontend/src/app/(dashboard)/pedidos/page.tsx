@@ -250,18 +250,31 @@ export default function PedidosPage() {
               </div>
             </div>
 
-            {/* Rentabilidad */}
+            {/* Rentabilidad — P5: por conductor (ganancia = facturado del pedido,
+                gastos = liquidación del conductor + combustible asociado a esa liquidación) */}
             {rentabilidad && (
               <div className="bg-muted/30 rounded-lg p-4">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Rentabilidad</p>
-                <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Rentabilidad</p>
+                  {rentabilidad.conductor && (
+                    <span className="text-xs text-muted-foreground">Conductor: <span className="font-medium text-foreground">{rentabilidad.conductor.nombre}</span></span>
+                  )}
+                </div>
+                {!rentabilidad.conductor && (
+                  <p className="text-xs text-muted-foreground mb-3">Este pedido aún no está incluido en ninguna liquidación, por lo que no se pueden estimar sus gastos asociados.</p>
+                )}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-center">
                   <div>
-                    <p className="text-xs text-muted-foreground">Tarifa</p>
-                    <p className="font-semibold text-sm">{formatCurrency(rentabilidad.tarifa)}</p>
+                    <p className="text-xs text-muted-foreground">Ganancia (facturado)</p>
+                    <p className="font-semibold text-sm">{formatCurrency(rentabilidad.ganancia)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Total gastos</p>
-                    <p className="font-semibold text-sm text-red-500">{formatCurrency(rentabilidad.totalGastos)}</p>
+                    <p className="text-xs text-muted-foreground">Gastos liquidación</p>
+                    <p className="font-semibold text-sm text-red-500">{formatCurrency(rentabilidad.totalGastosLiquidacion)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Combustible</p>
+                    <p className="font-semibold text-sm text-red-500">{formatCurrency(rentabilidad.totalCombustible)}</p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Utilidad neta</p>

@@ -1,9 +1,6 @@
 // FILE: src/app/(dashboard)/caja/page.tsx
-// CHAT 9:
-//   - Nueva sección "Liquidaciones Pendientes" con tab dedicado
-//   - Modal para pagar liquidación: seleccionar cuenta, valida saldo, crea movimientos
-//   - Botón "Anular pago" en movimientos de tipo LIQUIDACION (solo ADMIN)
-//   - Todo lo demás se mantiene igual que en el chat anterior
+// La gestión de liquidaciones (pago, reintegro, devolución, anulación) se realiza
+// íntegramente desde el módulo de Liquidaciones — Caja ya no tiene esa sección.
 
 'use client';
 
@@ -14,7 +11,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import {
-  Plus, Lock, FileDown, Eye, Filter, X, Wallet, AlertCircle,
+  Plus, Lock, FileDown, Eye, Filter, X,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cajaApi, cuentasApi } from '@/services/api';
@@ -49,12 +46,6 @@ const editMovSchema = z.object({
   concepto: z.string().min(2, 'Concepto requerido'),
   fecha: z.string().min(1, 'Fecha requerida'),
   referencia: z.string().optional(),
-});
-// CHAT 9: schema para pago de liquidación
-const pagoLiqSchema = z.object({
-  cuentaId: z.string().min(1, 'Debe seleccionar una cuenta'),
-  monedaId: z.string().optional(),
-  observaciones: z.string().optional(),
 });
 
 // ─── Helper: nombre de caja ──────────────────────────────────────────────────
@@ -156,7 +147,7 @@ export default function CajaPage() {
   const { usuario } = useAuthStore();
 
   // Tabs
-  const [tab, setTab] = useState<'cajas' | 'cuentas' | 'liquidaciones'>('cajas');
+  const [tab, setTab] = useState<'cajas' | 'cuentas'>('cajas');
 
   // Modales existentes
   const [showAbrir, setShowAbrir] = useState(false);
@@ -173,11 +164,6 @@ export default function CajaPage() {
   const [cuentaSelId, setCuentaSelId] = useState<string>('');
   const [cuentaMovDesde, setCuentaMovDesde] = useState('');
   const [cuentaMovHasta, setCuentaMovHasta] = useState('');
-
-  // CHAT 9: modal pago de liquidación
-  const [pagarLiq, setPagarLiq] = useState<any | null>(null);
-  const [anularLiqId, setAnularLiqId] = useState<number | null>(null);
-  const [cuentaLiqSel, setCuentaLiqSel] = useState<any | null>(null);
 
   // ── Queries ──────────────────────────────────────────────────────────────
   const { data: movData, isLoading: isLoadingMov, error: errorMov } = useQuery({
@@ -209,19 +195,6 @@ export default function CajaPage() {
     enabled: !!cuentaSelId,
   });
 
-  // CHAT 9: liquidaciones pendientes
-  const { data: liquidacionesPendientes = [], isLoading: isLoadingLiq, refetch: refetchLiq } = useQuery({
-    queryKey: ['liquidaciones-pendientes'],
-    queryFn: () => cajaApi.liquidacionesPendientes().then((r) => r.data.data),
-    enabled: tab === 'liquidaciones',
-  });
-
-  // Cuentas para el selector del modal de pago
-  const { data: cuentas = [] } = useQuery({
-    queryKey: ['cuentas', 'activas'],
-    queryFn: () => cuentasApi.getCuentas({ activo: true }).then((r) => r.data.data).catch(() => []),
-  });
-
   // ── Forms ────────────────────────────────────────────────────────────────
   const abrirForm = useForm<z.infer<typeof abrirSchema>>({ resolver: zodResolver(abrirSchema) });
   const cerrarForm = useForm<z.infer<typeof cerrarSchema>>({ resolver: zodResolver(cerrarSchema) });
@@ -230,7 +203,6 @@ export default function CajaPage() {
     defaultValues: { tipo: 'INGRESO', fecha: new Date().toISOString().split('T')[0] },
   });
   const editMovForm = useForm<z.infer<typeof editMovSchema>>({ resolver: zodResolver(editMovSchema) });
-  const pagoLiqForm = useForm<z.infer<typeof pagoLiqSchema>>({ resolver: zodResolver(pagoLiqSchema) });
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['cajas'] });
@@ -284,50 +256,6 @@ export default function CajaPage() {
       qc.invalidateQueries({ queryKey: ['cajas'] });
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Error al anular'),
-  });
-
-  // CHAT 9: pagar liquidación
-  const pagarLiqMutation = useMutation({
-    mutationFn: (d: z.infer<typeof pagoLiqSchema>) => {
-      const cuenta = (cuentas as any[]).find((c) => String(c.id) === d.cuentaId);
-      const monto = Number(pagarLiq?.montoEntregado ?? 0);
-      if (cuenta && Number(cuenta.saldoActual) < monto) {
-        throw new Error(
-          `Saldo insuficiente en la cuenta seleccionada. Saldo: ${cuenta.moneda?.simbolo} ${Number(cuenta.saldoActual).toFixed(2)}`
-        );
-      }
-      return cajaApi.pagarLiquidacion({
-        liquidacionId: pagarLiq!.id,
-        cuentaId: parseInt(d.cuentaId),
-        monedaId: d.monedaId ? parseInt(d.monedaId) : 1,
-        observaciones: d.observaciones,
-      });
-    },
-    onSuccess: () => {
-      toast.success('Liquidación pagada');
-      setPagarLiq(null);
-      pagoLiqForm.reset();
-      setCuentaLiqSel(null);
-      refetchLiq();
-      qc.invalidateQueries({ queryKey: ['cuentas'] });
-      qc.invalidateQueries({ queryKey: ['caja-actual'] });
-      qc.invalidateQueries({ queryKey: ['cajas'] });
-    },
-    onError: (e) => toast.error(getErrorMessage(e)),
-  });
-
-  // CHAT 9: anular pago de liquidación
-  const anularPagoLiqMutation = useMutation({
-    mutationFn: (liquidacionId: number) => cajaApi.anularPagoLiquidacion(liquidacionId),
-    onSuccess: () => {
-      toast.success('Pago revertido — liquidación vuelve a PENDIENTE');
-      setAnularLiqId(null);
-      refetchLiq();
-      qc.invalidateQueries({ queryKey: ['cuentas'] });
-      qc.invalidateQueries({ queryKey: ['caja-movimientos'] });
-      qc.invalidateQueries({ queryKey: ['cajas'] });
-    },
-    onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   function handleVerMovimientos(caja: Caja) {
@@ -409,7 +337,6 @@ export default function CajaPage() {
         {[
           { key: 'cajas', label: 'Historial de cajas' },
           { key: 'cuentas', label: 'Movimientos por cuenta' },
-          { key: 'liquidaciones', label: 'Liquidaciones pendientes' },
         ].map((t) => (
           <button
             key={t.key}
@@ -424,67 +351,6 @@ export default function CajaPage() {
           </button>
         ))}
       </div>
-
-      {/* ── TAB: LIQUIDACIONES PENDIENTES (CHAT 9) ──────────────────────────── */}
-      {tab === 'liquidaciones' && (
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold">Liquidaciones pendientes de pago</p>
-              <p className="text-xs text-muted-foreground">Selecciona una liquidación y una cuenta para registrar el egreso</p>
-            </div>
-          </div>
-
-          {isLoadingLiq ? <TableSkeleton rows={4} cols={6} /> : liquidacionesPendientes.length === 0 ? (
-            <EmptyState message="No hay liquidaciones pendientes de pago" />
-          ) : (
-            <Table>
-              <thead>
-                <tr>
-                  <Th>#</Th>
-                  <Th>Conductor</Th>
-                  <Th>Fecha</Th>
-                  <Th>Pedidos</Th>
-                  <Th className="text-right">Monto a pagar</Th>
-                  <Th>Estado</Th>
-                  <Th>Acción</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {liquidacionesPendientes.map((liq: any) => (
-                  <Tr key={liq.id}>
-                    <Td><span className="font-mono text-xs text-muted-foreground">#{liq.id}</span></Td>
-                    <Td>
-                      <div>
-                        <p className="text-sm font-medium">{liq.conductor?.nombre}</p>
-                        <p className="text-xs text-muted-foreground">{liq.conductor?.dni}</p>
-                      </div>
-                    </Td>
-                    <Td><span className="text-xs text-muted-foreground">{formatDate(liq.fecha)}</span></Td>
-                    <Td><span className="text-xs text-muted-foreground">{liq.pedidos?.length ?? 0} pedido(s)</span></Td>
-                    <Td className="text-right">
-                      <span className="font-bold text-destructive">{formatCurrency(Number(liq.montoEntregado))}</span>
-                    </Td>
-                    <Td>
-                      <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-                        <AlertCircle className="w-3 h-3" /> PENDIENTE
-                      </span>
-                    </Td>
-                    <Td>
-                      <Button
-                        size="sm"
-                        onClick={() => { setPagarLiq(liq); pagoLiqForm.reset(); setCuentaLiqSel(null); }}
-                      >
-                        <Wallet className="w-3.5 h-3.5" /> Pagar
-                      </Button>
-                    </Td>
-                  </Tr>
-                ))}
-              </tbody>
-            </Table>
-          )}
-        </div>
-      )}
 
       {/* ── TAB: MOVIMIENTOS POR CUENTA ─────────────────────────────────────── */}
       {tab === 'cuentas' && (
@@ -646,103 +512,6 @@ export default function CajaPage() {
 
       {/* ── MODALES ──────────────────────────────────────────────────────────── */}
 
-      {/* Modal: Pagar liquidación (CHAT 9) */}
-      <Modal
-        open={!!pagarLiq}
-        onClose={() => { setPagarLiq(null); pagoLiqForm.reset(); setCuentaLiqSel(null); }}
-        title="Registrar pago de liquidación"
-        maxWidth="max-w-md"
-      >
-        {pagarLiq && (
-          <div className="flex flex-col gap-4">
-            {/* Resumen de la liquidación */}
-            <div className="rounded-lg border border-border bg-muted/30 p-4">
-              <p className="text-sm font-semibold">{pagarLiq.conductor?.nombre}</p>
-              <p className="text-xs text-muted-foreground">DNI: {pagarLiq.conductor?.dni}</p>
-              <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
-                <span className="text-sm text-muted-foreground">Monto a pagar</span>
-                <span className="text-lg font-bold text-destructive">{formatCurrency(Number(pagarLiq.montoEntregado))}</span>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">{pagarLiq.pedidos?.length ?? 0} pedido(s) incluidos</p>
-            </div>
-
-            <form onSubmit={pagoLiqForm.handleSubmit((d) => pagarLiqMutation.mutate(d))} className="flex flex-col gap-4">
-              <FormField label="Cuenta de egreso" required error={pagoLiqForm.formState.errors.cuentaId?.message}>
-                <Select
-                  {...pagoLiqForm.register('cuentaId')}
-                  onChange={(e) => {
-                    pagoLiqForm.setValue('cuentaId', e.target.value);
-                    const c = (cuentas as any[]).find((c) => String(c.id) === e.target.value);
-                    setCuentaLiqSel(c ?? null);
-                    if (c) pagoLiqForm.setValue('monedaId', String(c.monedaId));
-                  }}
-                >
-                  <option value="">Seleccionar cuenta...</option>
-                  {(cuentas as any[]).map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.nombre} ({c.moneda?.simbolo} {c.moneda?.codigo}) — Saldo: {c.moneda?.simbolo} {Number(c.saldoActual).toFixed(2)}
-                    </option>
-                  ))}
-                </Select>
-              </FormField>
-
-              {cuentaLiqSel && (
-                <div className={`flex items-center justify-between rounded-lg border px-3 py-2 ${
-                  Number(cuentaLiqSel.saldoActual) < Number(pagarLiq.montoEntregado)
-                    ? 'border-destructive/30 bg-destructive/5'
-                    : 'border-emerald-500/20 bg-emerald-500/5'
-                }`}>
-                  <span className="text-xs text-muted-foreground">Saldo disponible</span>
-                  <span className={`text-sm font-semibold ${
-                    Number(cuentaLiqSel.saldoActual) < Number(pagarLiq.montoEntregado)
-                      ? 'text-destructive'
-                      : 'text-emerald-600 dark:text-emerald-400'
-                  }`}>
-                    {cuentaLiqSel.moneda?.simbolo} {Number(cuentaLiqSel.saldoActual).toFixed(2)}
-                  </span>
-                </div>
-              )}
-
-              {cuentaLiqSel && Number(cuentaLiqSel.saldoActual) < Number(pagarLiq.montoEntregado) && (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                  Saldo insuficiente en la cuenta seleccionada para cubrir este pago.
-                </div>
-              )}
-
-              <FormField label="Observaciones">
-                <Textarea placeholder="Notas del pago..." {...pagoLiqForm.register('observaciones')} />
-              </FormField>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-border">
-                <Button variant="secondary" type="button" onClick={() => { setPagarLiq(null); pagoLiqForm.reset(); setCuentaLiqSel(null); }}>Cancelar</Button>
-                <Button
-                  type="submit"
-                  loading={pagarLiqMutation.isPending}
-                  disabled={!cuentaLiqSel || Number(cuentaLiqSel.saldoActual) < Number(pagarLiq.montoEntregado)}
-                >
-                  Confirmar pago
-                </Button>
-              </div>
-            </form>
-          </div>
-        )}
-      </Modal>
-
-      {/* Modal: Confirmar anulación de pago de liquidación (CHAT 9) */}
-      <Modal open={!!anularLiqId} onClose={() => setAnularLiqId(null)} title="Anular pago de liquidación">
-        <div className="flex flex-col gap-4">
-          <p className="text-sm text-muted-foreground">
-            ¿Confirmas la anulación del pago? La liquidación volverá a estado <span className="font-semibold text-amber-600">PENDIENTE</span> y el saldo de la cuenta será restaurado.
-          </p>
-          <div className="flex justify-end gap-2 pt-2 border-t border-border">
-            <Button variant="secondary" onClick={() => setAnularLiqId(null)}>Cancelar</Button>
-            <Button variant="destructive" loading={anularPagoLiqMutation.isPending} onClick={() => anularPagoLiqMutation.mutate(anularLiqId!)}>
-              Confirmar anulación
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
       {/* Modal: Movimientos de caja */}
       <Modal open={!!showMovimientos} onClose={() => setShowMovimientos(null)} title={showMovimientos ? cajaNombre(showMovimientos) : 'Movimientos'} maxWidth="max-w-5xl">
         <div className="flex flex-col gap-4">
@@ -830,12 +599,6 @@ export default function CajaPage() {
                               <Button size="xs" variant="ghost" onClick={() => { setEditandoMov(m); editMovForm.reset({ monto: String(m.monto), concepto: m.concepto, fecha: m.fecha.split('T')[0], referencia: m.referencia ?? '' }); }}>Editar</Button>
                               <Button size="xs" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setAnulandoMov(m)}>Anular</Button>
                             </>
-                          )}
-                          {/* Movimientos de liquidación: solo ADMIN puede anular el pago */}
-                          {m.esLiquidacion && !m.anulado && usuario?.rol === 'ADMIN' && m.liquidacionId && (
-                            <Button size="xs" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setAnularLiqId(m.liquidacionId!)}>
-                              Anular pago
-                            </Button>
                           )}
                         </div>
                       </Td>

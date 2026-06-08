@@ -1,5 +1,4 @@
 // FILE: src/modules/caja/caja.routes.ts
-// CHAT 9: Agrega rutas para liquidaciones pendientes.
 // IMPORTANTE: Las rutas estáticas van siempre ANTES de las dinámicas (/:id).
 
 import { Router } from 'express';
@@ -14,11 +13,6 @@ router.use(verificarToken, adminOSecretario);
 router.get('/', cajaController.listar.bind(cajaController));
 router.get('/actual', cajaController.cajaActual.bind(cajaController));
 router.get('/movimientos', cajaController.getMovimientosGlobal.bind(cajaController));
-
-// CHAT 9: Liquidaciones pendientes
-router.get('/liquidaciones-pendientes', cajaController.liquidacionesPendientes.bind(cajaController));
-router.post('/pagar-liquidacion', cajaController.pagarLiquidacion.bind(cajaController));
-router.post('/liquidaciones/:liquidacionId/anular-pago', cajaController.anularPagoLiquidacion.bind(cajaController));
 
 // Editar / anular movimientos manuales
 router.put('/movimientos/:movimientoId', cajaController.editarMovimiento.bind(cajaController));

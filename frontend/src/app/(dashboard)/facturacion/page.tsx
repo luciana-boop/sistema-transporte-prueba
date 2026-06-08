@@ -353,19 +353,19 @@ export default function FacturacionPage() {
   });
 
   // P1: cargar info PDF al abrir detalle
+  // (el backend genera el PDF localmente bajo demanda si la factura aún no
+  // tiene uno, así que siempre se consulta /pdf-info, no solo cuando ya hay pdfPath)
   const handleVerDetalle = async (factura: any) => {
     setViewing(factura);
     setPdfInfo(null);
-    if (factura.pdfPath) {
-      setLoadingPdf(true);
-      try {
-        const res = await facturacionApi.pdfInfo(factura.id);
-        setPdfInfo(res.data.data);
-      } catch {
-        setPdfInfo({ tienePdf: false, archivoExiste: false, esUrl: false });
-      } finally {
-        setLoadingPdf(false);
-      }
+    setLoadingPdf(true);
+    try {
+      const res = await facturacionApi.pdfInfo(factura.id);
+      setPdfInfo(res.data.data);
+    } catch {
+      setPdfInfo({ tienePdf: false, archivoExiste: false, esUrl: false });
+    } finally {
+      setLoadingPdf(false);
     }
   };
 
@@ -1218,8 +1218,8 @@ export default function FacturacionPage() {
                   <span>El archivo PDF no está disponible en el servidor ({viewing.pdfPath})</span>
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground italic">
-                  Sin PDF generado. El PDF se crea al emitir la factura electrónica a través de su OSE/PSE.
+                <p className="text-xs text-amber-500 italic">
+                  No se pudo generar el PDF de esta factura. Intenta nuevamente o revisa los registros del servidor.
                 </p>
               )}
             </div>

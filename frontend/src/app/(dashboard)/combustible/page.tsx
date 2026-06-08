@@ -13,8 +13,8 @@ import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Search, Trash2, Fuel } from 'lucide-react';
-import { combustibleApi, vehiculosApi, conductoresApi, cuentasApi } from '@/services/api';
+import { Plus, Search, Trash2, Fuel, Eye } from 'lucide-react';
+import { combustibleApi, vehiculosApi, conductoresApi, cuentasApi, liquidacionesApi } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, TableSkeleton,
@@ -29,6 +29,8 @@ import {
 const schema = z.object({
   vehiculoId: z.string().min(1, 'Vehículo requerido'),
   conductorId: z.string().optional(),
+  // P4: asociación opcional a la liquidación del conductor seleccionado
+  liquidacionId: z.string().optional(),
   fecha: z.string().min(1, 'Fecha requerida'),
   galones: z.string().min(1, 'Galones/litros requerido'),
   monto: z.string().min(1, 'Monto requerido'),
@@ -50,6 +52,7 @@ export default function CombustiblePage() {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [filtroVehiculo, setFiltroVehiculo] = useState('');
+  const [viewing, setViewing] = useState<{ id: number } | null>(null);
 
   const { data: registros = [], isLoading } = useQuery({
     queryKey: ['combustible', filtroVehiculo],
@@ -79,6 +82,13 @@ export default function CombustiblePage() {
     queryFn: () => cuentasApi.getCuentas({ activo: true }).then((r) => r.data.data).catch(() => []),
   });
 
+  // P9: detalle de solo lectura de una carga de combustible
+  const { data: detalle, isLoading: detalleLoading } = useQuery({
+    queryKey: ['combustible', 'detalle', viewing?.id],
+    queryFn: () => combustibleApi.obtener(viewing!.id).then((r) => r.data.data),
+    enabled: !!viewing,
+  });
+
   const {
     register, handleSubmit, reset, setValue, control,
     formState: { errors, isSubmitting },
@@ -99,6 +109,19 @@ export default function CombustiblePage() {
     }
   }, [watchedCuentaId, cuentas, setValue]);
 
+  // P4: liquidaciones del conductor seleccionado, para asociar la carga
+  const watchedConductorId = useWatch({ control, name: 'conductorId' });
+  const { data: liquidacionesConductor = [] } = useQuery({
+    queryKey: ['liquidaciones', 'por-conductor', watchedConductorId],
+    queryFn: () => liquidacionesApi.listar({ conductorId: parseInt(watchedConductorId!) }).then((r) => r.data.data),
+    enabled: !!watchedConductorId,
+  });
+
+  // Si cambia el conductor, limpiar la liquidación seleccionada (pertenecía al conductor anterior)
+  useEffect(() => {
+    setValue('liquidacionId', '', { shouldValidate: false });
+  }, [watchedConductorId, setValue]);
+
   const invalidate = () => qc.invalidateQueries({ queryKey: ['combustible'] });
 
   const createMutation = useMutation({
@@ -114,6 +137,7 @@ export default function CombustiblePage() {
       return combustibleApi.crear({
         vehiculoId: parseInt(d.vehiculoId),
         conductorId: d.conductorId ? parseInt(d.conductorId) : undefined,
+        liquidacionId: d.liquidacionId ? parseInt(d.liquidacionId) : undefined,
         fecha: d.fecha,
         galones: parseFloat(d.galones),
         monto,
@@ -206,13 +230,13 @@ export default function CombustiblePage() {
         </Select>
       </div>
 
-      {isLoading ? <TableSkeleton rows={6} cols={8} /> : (
+      {isLoading ? <TableSkeleton rows={6} cols={9} /> : (
         <Table>
           <thead>
             <tr>
               <Th>#</Th><Th>Fecha</Th><Th>Vehículo</Th><Th>Conductor</Th>
               <Th>Galones/L</Th><Th>Monto</Th><Th>Grifo</Th><Th>Km</Th>
-              {usuario?.rol === 'ADMIN' && <Th>Acc.</Th>}
+              <Th>Acc.</Th>
             </tr>
           </thead>
           <tbody>
@@ -231,16 +255,26 @@ export default function CombustiblePage() {
                 <Td><span className="font-semibold text-red-500">{formatCurrency(Number(r.monto))}</span></Td>
                 <Td><span className="text-sm">{r.grifo ?? '—'}</span></Td>
                 <Td><span className="text-xs text-muted-foreground">{r.kilometraje ? `${r.kilometraje.toLocaleString()} km` : '—'}</span></Td>
-                {usuario?.rol === 'ADMIN' && (
-                  <Td>
+                <Td>
+                  <div className="flex items-center gap-1">
                     <button
-                      onClick={() => { if (confirm('¿Eliminar registro?')) deleteMutation.mutate(r.id); }}
-                      className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                      onClick={() => setViewing({ id: r.id })}
+                      className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all"
+                      title="Ver detalle"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Eye className="w-3.5 h-3.5" />
                     </button>
-                  </Td>
-                )}
+                    {usuario?.rol === 'ADMIN' && (
+                      <button
+                        onClick={() => { if (confirm('¿Eliminar registro?')) deleteMutation.mutate(r.id); }}
+                        className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                        title="Eliminar"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </Td>
               </Tr>
             )) : (
               <tr><td colSpan={9}><EmptyState message="No se encontraron registros de combustible" /></td></tr>
@@ -270,6 +304,25 @@ export default function CombustiblePage() {
                 {conductores.map((c) => (<option key={c.id} value={c.id}>{c.nombre}</option>))}
               </Select>
             </FormField>
+
+            {/* P4: asociar la carga a una liquidación del conductor seleccionado */}
+            <div className="col-span-2">
+              <FormField label="Liquidación asociada" error={errors.liquidacionId?.message}>
+                <Select {...register('liquidacionId')} disabled={!watchedConductorId}>
+                  <option value="">
+                    {watchedConductorId ? 'Sin liquidación asociada' : 'Selecciona un conductor primero'}
+                  </option>
+                  {(liquidacionesConductor as any[]).map((l) => (
+                    <option key={l.id} value={l.id}>
+                      Liquidación #{l.id} — {formatDate(l.fecha)} ({l.estado})
+                    </option>
+                  ))}
+                </Select>
+              </FormField>
+              {watchedConductorId && liquidacionesConductor.length === 0 && (
+                <p className="text-xs text-muted-foreground mt-1.5">Este conductor no tiene liquidaciones registradas.</p>
+              )}
+            </div>
 
             <FormField label="Fecha" required error={errors.fecha?.message}>
               <Input type="date" {...register('fecha')} />
@@ -325,6 +378,68 @@ export default function CombustiblePage() {
             <Button type="submit" loading={isSubmitting || createMutation.isPending}>Registrar carga</Button>
           </div>
         </form>
+      </Modal>
+
+      {/* P9: vista de detalle de solo lectura — sin acciones de edición */}
+      <Modal open={!!viewing} onClose={() => setViewing(null)} title={`Carga de combustible #${viewing?.id ?? ''}`} maxWidth="max-w-lg">
+        {viewing && (
+          <div className="flex flex-col gap-4">
+            {detalleLoading ? <p className="text-sm text-muted-foreground">Cargando detalle…</p> : (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Vehículo</p>
+                  <p className="font-mono font-bold text-sm">{detalle?.vehiculo?.placa ?? '—'}</p>
+                  <p className="text-xs text-muted-foreground">{detalle?.vehiculo?.marca}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Conductor</p>
+                  <p className="text-sm">{detalle?.conductor?.nombre ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Liquidación asociada</p>
+                  <p className="text-sm">
+                    {detalle?.liquidacion ? `Liquidación #${detalle.liquidacion.id} — ${formatDate(detalle.liquidacion.fecha)} (${detalle.liquidacion.estado})` : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Proveedor</p>
+                  <p className="text-sm">{detalle?.grifo || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Cuenta utilizada</p>
+                  <p className="text-sm">{detalle?.movimiento?.cuenta?.nombre ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Moneda</p>
+                  <p className="text-sm">{detalle?.movimiento?.moneda ? `${detalle.movimiento.moneda.nombre} (${detalle.movimiento.moneda.simbolo})` : '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Monto</p>
+                  <p className="font-bold text-lg text-red-500">{detalle ? formatCurrency(Number(detalle.monto)) : '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Fecha</p>
+                  <p className="text-sm">{detalle ? formatDate(detalle.fecha) : '—'}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-1">Movimiento financiero generado</p>
+                  <p className="text-sm font-mono">{detalle?.movimiento?.referencia ?? 'No se generó un movimiento financiero'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Usuario</p>
+                  <p className="text-sm">{detalle?.movimiento?.usuario?.nombre ?? '—'}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-1">Observaciones</p>
+                  <p className="text-sm bg-muted/30 rounded p-2">{detalle?.observaciones || '—'}</p>
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end pt-2 border-t border-border">
+              <Button variant="secondary" type="button" onClick={() => setViewing(null)}>Cerrar</Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

@@ -27,13 +27,16 @@ export interface UpdatePagoDto {
 
 export class CobranzaService {
   async findAll(query: {
-    clienteId?: string; metodoPago?: string;
+    clienteId?: string; metodoPago?: string; estado?: string;
     desde?: string; hasta?: string; facturaId?: string;
   }) {
     const where: any = { anulado: false };
     if (query.clienteId) where.clienteId = parseInt(query.clienteId);
     if (query.metodoPago) where.metodoPago = query.metodoPago;
     if (query.facturaId) where.facturaId = parseInt(query.facturaId);
+    // P8: filtro "Estado" — el pago no tiene estado propio relevante para el usuario,
+    // se filtra por el estado de la factura asociada (mismo criterio que en "Cuentas por cobrar")
+    if (query.estado) where.factura = { estado: query.estado as any };
     if (query.desde || query.hasta) {
       where.fechaPago = {};
       if (query.desde) where.fechaPago.gte = new Date(query.desde);
@@ -56,7 +59,18 @@ export class CobranzaService {
       include: { factura: true, cliente: true, usuario: { select: { id: true, nombre: true } } },
     });
     if (!pago) throw new Error('Pago no encontrado');
-    return pago;
+
+    // P8: enriquecer con el movimiento financiero generado — el Pago no almacena
+    // cuentaId/monedaId directamente, se obtienen del MovimientoCuentaV2 vinculado por referencia
+    const movimiento = await prisma.movimientoCuentaV2.findFirst({
+      where: { referencia: `PAGO-${pago.id}`, tipo: 'INGRESO' },
+      include: {
+        cuenta: { select: { id: true, nombre: true, tipoCuenta: true } },
+        moneda: { select: { codigo: true, nombre: true, simbolo: true } },
+      },
+    });
+
+    return { ...pago, movimiento };
   }
 
   async facturasPendientesPorCliente(clienteId: number) {
@@ -292,9 +306,25 @@ export class CobranzaService {
     return { message: 'Pago eliminado' };
   }
 
-  async cuentasPorCobrar() {
+  async cuentasPorCobrar(query: {
+    clienteId?: string; estado?: string; desde?: string; hasta?: string;
+  } = {}) {
+    // P8: filtros consistentes con "Pagos registrados" — Desde/Hasta/Cliente/Estado
+    const where: any = {
+      estado: query.estado
+        ? (query.estado as any)
+        : { in: [EstadoFactura.EMITIDA, EstadoFactura.PENDIENTE, EstadoFactura.PARCIAL] },
+    };
+    if (query.clienteId) where.clienteId = parseInt(query.clienteId);
+    // Convención del módulo de facturación: el rango Desde/Hasta filtra por fecha de emisión
+    if (query.desde || query.hasta) {
+      where.fechaEmision = {};
+      if (query.desde) where.fechaEmision.gte = new Date(query.desde);
+      if (query.hasta) where.fechaEmision.lte = new Date(query.hasta + 'T23:59:59');
+    }
+
     const facturas = await prisma.factura.findMany({
-      where: { estado: { in: [EstadoFactura.EMITIDA, EstadoFactura.PENDIENTE, EstadoFactura.PARCIAL] } },
+      where,
       include: {
         cliente: { select: { id: true, razonSocial: true, ruc: true } },
       },
@@ -322,6 +352,56 @@ export class CobranzaService {
         estado: f.estado,
       };
     }).filter((f: any) => f.saldoPendiente > 0.01);
+  }
+
+  /**
+   * P8: vista de detalle uniforme para "Cuentas por cobrar".
+   * La factura no almacena cuenta/moneda/método de pago — esos datos surgen del
+   * último pago activo asociado (si existe) y de su MovimientoCuentaV2 vinculado,
+   * igual que en el detalle de "Pagos registrados".
+   */
+  async detalleCuentaPorCobrar(facturaId: number) {
+    const factura = await prisma.factura.findUnique({
+      where: { id: facturaId },
+      include: { cliente: { select: { id: true, razonSocial: true, ruc: true } } },
+    });
+    if (!factura) throw new Error('Factura no encontrada');
+
+    const ultimoPago = await prisma.pago.findFirst({
+      where: { facturaId, anulado: false },
+      orderBy: { fechaPago: 'desc' },
+      include: { usuario: { select: { id: true, nombre: true } } },
+    });
+
+    let movimiento: any = null;
+    if (ultimoPago) {
+      movimiento = await prisma.movimientoCuentaV2.findFirst({
+        where: { referencia: `PAGO-${ultimoPago.id}`, tipo: 'INGRESO' },
+        include: {
+          cuenta: { select: { id: true, nombre: true, tipoCuenta: true } },
+          moneda: { select: { codigo: true, nombre: true, simbolo: true } },
+        },
+      });
+    }
+
+    return {
+      facturaId: factura.id,
+      numeroFactura: factura.numeroFactura,
+      cliente: factura.cliente,
+      fecha: factura.fechaEmision,
+      estado: factura.estado,
+      observaciones: factura.observaciones,
+      ultimoPago: ultimoPago ? {
+        id: ultimoPago.id,
+        monto: Number(ultimoPago.monto),
+        metodoPago: ultimoPago.metodoPago,
+        fechaPago: ultimoPago.fechaPago,
+        usuario: ultimoPago.usuario,
+      } : null,
+      cuenta: movimiento?.cuenta ?? null,
+      moneda: movimiento?.moneda ?? null,
+      movimiento: movimiento ? { referencia: movimiento.referencia, concepto: movimiento.concepto } : null,
+    };
   }
 }
 

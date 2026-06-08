@@ -34,7 +34,7 @@ export class CombustibleController {
 
   async crear(req: Request, res: Response): Promise<void> {
     try {
-      const { vehiculoId, fecha, galones, monto, conductorId, kilometraje, grifo, observaciones, cuentaId, monedaId, tipoPagoId } = req.body;
+      const { vehiculoId, fecha, galones, monto, conductorId, liquidacionId, kilometraje, grifo, observaciones, cuentaId, monedaId, tipoPagoId } = req.body;
 
       if (!vehiculoId || !fecha || galones === undefined || monto === undefined) {
         R.badRequest(res, 'vehiculoId, fecha, galones y monto son requeridos'); return;
@@ -46,6 +46,8 @@ export class CombustibleController {
       R.created(res, await combustibleService.create({
         vehiculoId: parseInt(vehiculoId),
         conductorId: conductorId ? parseInt(conductorId) : undefined,
+        // P4: asociación opcional a la liquidación del conductor
+        liquidacionId: liquidacionId ? parseInt(liquidacionId) : undefined,
         fecha,
         galones: parseFloat(galones),
         monto: parseFloat(monto),
@@ -75,11 +77,22 @@ export class CombustibleController {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
       // Solo campos no financieros
-      const { vehiculoId, conductorId, fecha, galones, kilometraje, grifo, observaciones } = req.body;
-      R.ok(res, await combustibleService.update(id, { vehiculoId, conductorId, fecha, galones, kilometraje, grifo, observaciones }), 'Registro actualizado');
+      const { vehiculoId, conductorId, liquidacionId, fecha, galones, kilometraje, grifo, observaciones } = req.body;
+      R.ok(res, await combustibleService.update(id, {
+        vehiculoId,
+        conductorId,
+        // P4: permite asociar/desasociar la liquidación (null = quitar asociación)
+        liquidacionId: liquidacionId === null ? null : (liquidacionId !== undefined ? parseInt(liquidacionId) : undefined),
+        fecha,
+        galones,
+        kilometraje,
+        grifo,
+        observaciones,
+      }), 'Registro actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Registro no encontrado') R.notFound(res, msg);
+      else if (msg.includes('no encontrada') || msg.includes('no pertenece')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }

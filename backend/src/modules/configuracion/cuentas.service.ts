@@ -29,13 +29,12 @@ const DEFAULTS_TIPOS_PAGO = [
 
 export interface MovimientoInternoDto {
   cuentaId: number;
-  tipo: 'INGRESO' | 'EGRESO' | 'TRANSFERENCIA';
+  tipo: 'INGRESO' | 'EGRESO';
   monto: number;
   monedaId: number;
   tipoPagoId?: number;
   concepto: string;
   referencia?: string;
-  cuentaDestinoId?: number;
   usuarioId: number;
   fecha?: string;
   liquidacionId?: number;
@@ -231,6 +230,79 @@ export class CuentasService {
     });
   }
 
+  // ── P7: origen del movimiento (a partir de la referencia / vínculos) ────────
+  private _inferirOrigen(mov: any): string {
+    const ref: string = mov.referencia || '';
+    if (mov.liquidacion) {
+      return `Liquidación #${mov.liquidacion.id}${mov.liquidacion.conductor ? ' — ' + mov.liquidacion.conductor.nombre : ''}`;
+    }
+    if (ref.startsWith('GASTO-')) return `Gasto #${ref.replace('GASTO-', '')}`;
+    if (ref.startsWith('COMBUSTIBLE-')) return `Combustible #${ref.replace('COMBUSTIBLE-', '')}`;
+    if (ref.startsWith('PAGO-')) return `Cobranza — Pago #${ref.replace('PAGO-', '')}`;
+    if (ref.startsWith('LIQUIDACION-')) return `Liquidación #${ref.replace('LIQUIDACION-', '')}`;
+    if (ref.startsWith('REINTEGRO-LIQ-')) return `Reintegro liquidación #${ref.replace('REINTEGRO-LIQ-', '')}`;
+    if (ref.startsWith('DEVOLUCION-LIQ-')) return `Devolución liquidación #${ref.replace('DEVOLUCION-LIQ-', '')}`;
+    if (ref.startsWith('CAJA-')) return `Caja #${ref.replace('CAJA-', '')}`;
+    if (ref.startsWith('REV-MOV-')) return `Reverso del movimiento #${ref.replace('REV-MOV-', '')}`;
+    return 'Movimiento manual';
+  }
+
+  // ── P7: ver detalle ──────────────────────────────────────────────────────────
+  async obtenerMovimiento(id: number) {
+    const mov = await prisma.movimientoCuentaV2.findUnique({
+      where: { id },
+      include: {
+        cuenta: { select: { id: true, nombre: true, tipoCuenta: true } },
+        moneda: { select: { codigo: true, nombre: true, simbolo: true } },
+        tipoPago: { select: { id: true, nombre: true } },
+        usuario: { select: { id: true, nombre: true } },
+        liquidacion: { select: { id: true, conductor: { select: { nombre: true } } } },
+      },
+    });
+    if (!mov) throw new Error('Movimiento no encontrado');
+    return { ...mov, origen: this._inferirOrigen(mov) };
+  }
+
+  // ── P7: edición controlada (no afecta saldo: monto/tipo/cuenta no editables) ─
+  async actualizarMovimiento(id: number, dto: {
+    concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null;
+  }) {
+    const mov = await prisma.movimientoCuentaV2.findUnique({ where: { id } });
+    if (!mov) throw new Error('Movimiento no encontrado');
+    if (mov.anulado) throw new Error('No se puede editar un movimiento anulado');
+    if (mov.referencia?.startsWith('REV-MOV-')) throw new Error('No se puede editar un movimiento de reverso');
+
+    return prisma.movimientoCuentaV2.update({
+      where: { id },
+      data: {
+        ...(dto.concepto !== undefined && { concepto: dto.concepto }),
+        ...(dto.referencia !== undefined && { referencia: dto.referencia || null }),
+        ...(dto.fecha !== undefined && { fecha: new Date(dto.fecha) }),
+        ...(dto.tipoPagoId !== undefined && { tipoPagoId: dto.tipoPagoId || null }),
+      },
+      include: {
+        cuenta: { select: { id: true, nombre: true, tipoCuenta: true } },
+        moneda: { select: { codigo: true, simbolo: true } },
+        tipoPago: { select: { nombre: true } },
+        usuario: { select: { id: true, nombre: true } },
+      },
+    });
+  }
+
+  // ── P7: anular — revierte el saldo y mantiene trazabilidad (movimiento REVERSO)
+  async anularMovimiento(id: number, usuarioId: number) {
+    const mov = await prisma.movimientoCuentaV2.findUnique({ where: { id } });
+    if (!mov) throw new Error('Movimiento no encontrado');
+    if (mov.anulado) throw new Error('El movimiento ya está anulado');
+    if (mov.referencia?.startsWith('REV-MOV-')) throw new Error('No se puede anular un movimiento de reverso');
+
+    return prisma.$transaction(async (tx: any) => {
+      const reverso = await this._revertirMovimientoEnTx(tx, id, usuarioId);
+      await tx.movimientoCuentaV2.update({ where: { id }, data: { anulado: true } });
+      return reverso;
+    });
+  }
+
   // ── HELPER INTERNO: registrar movimiento dentro de una tx externa ────────────
   // Uso: llamar desde otros services dentro de su propio prisma.$transaction(tx => ...)
   // NO abre transacción propia. Valida saldo antes de escribir.
@@ -261,7 +333,6 @@ export class CuentasService {
         tipoPagoId: dto.tipoPagoId ?? null,
         concepto: dto.concepto,
         referencia: dto.referencia ?? null,
-        cuentaDestinoId: dto.cuentaDestinoId ?? null,
         usuarioId: dto.usuarioId,
         liquidacionId: dto.liquidacionId ?? null,
         fecha: dto.fecha ? new Date(dto.fecha) : new Date(),
@@ -274,14 +345,6 @@ export class CuentasService {
       where: { id: dto.cuentaId },
       data: { saldoActual: { increment: delta } },
     });
-
-    // Transferencia: acreditar cuenta destino
-    if (dto.tipo === 'TRANSFERENCIA' && dto.cuentaDestinoId) {
-      await tx.cuentaDinero.update({
-        where: { id: dto.cuentaDestinoId },
-        data: { saldoActual: { increment: dto.monto } },
-      });
-    }
 
     return mov;
   }
@@ -338,10 +401,10 @@ export class CuentasService {
 
   // ── MÉTODO PÚBLICO (sin cambios) ────────────────────────────────────────────
   async registrarMovimiento(dto: {
-    cuentaId: number; tipo: 'INGRESO' | 'EGRESO' | 'TRANSFERENCIA';
+    cuentaId: number; tipo: 'INGRESO' | 'EGRESO';
     monto: number; monedaId: number; tipoPagoId?: number;
     concepto: string; referencia?: string;
-    cuentaDestinoId?: number; usuarioId: number; fecha?: string;
+    usuarioId: number; fecha?: string;
   }) {
     const cuenta = await prisma.cuentaDinero.findUnique({ where: { id: dto.cuentaId } });
     if (!cuenta) throw new Error('Cuenta no encontrada');

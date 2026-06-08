@@ -45,7 +45,6 @@ export class PedidosService {
       include: {
         cliente: { select: { id: true, razonSocial: true, ruc: true } },
         usuario: { select: { id: true, nombre: true } },
-        _count: { select: { gastos: true } },
       },
     });
   }
@@ -81,7 +80,6 @@ export class PedidosService {
         cliente: true,
         usuario: { select: { id: true, nombre: true, email: true } },
         facturas: { select: { id: true, numeroFactura: true, total: true, estado: true } },
-        gastos: { orderBy: { fecha: 'desc' } },
       },
     });
     if (!pedido) throw new Error('Pedido no encontrado');
@@ -171,17 +169,61 @@ export class PedidosService {
     });
   }
 
+  // ── P5: rentabilidad por conductor ───────────────────────────────────────────
+  // Gasto.pedidoId fue eliminado (los gastos ahora se asocian a un vehículo, no a
+  // un pedido), así que la rentabilidad ya no se calcula por gastos directos.
+  // Nuevo cálculo, definido por el usuario:
+  //   ganancia = total facturado del pedido (facturas no anuladas)
+  //   gastos   = total de gastos de la liquidación del conductor que hizo el
+  //              pedido (liquidacion.totalGastos) + combustible asociado a esa
+  //              misma liquidación (Combustible.liquidacionId)
+  //   rentabilidad = ganancia − gastos
   async rentabilidad(id: number) {
-    const pedido = await this.findById(id);
-    const totalGastos = await prisma.gasto.aggregate({
+    await this.findById(id);
+
+    // Liquidación del conductor que incluye este pedido (la más reciente, si hay varias)
+    const liqPedido = await prisma.liquidacionPedido.findFirst({
       where: { pedidoId: id },
-      _sum: { monto: true },
+      orderBy: { creadoEn: 'desc' },
+      include: {
+        liquidacion: {
+          include: { conductor: { select: { id: true, nombre: true } } },
+        },
+      },
     });
-    const gastos = Number(totalGastos._sum.monto || 0);
-    const tarifa = Number(pedido.tarifa);
-    const utilidad = tarifa - gastos;
-    const margen = tarifa > 0 ? (utilidad / tarifa) * 100 : 0;
-    return { pedidoId: id, tarifa, totalGastos: gastos, utilidadNeta: utilidad, margenPorcentaje: Math.round(margen * 100) / 100 };
+    const liquidacion = liqPedido?.liquidacion ?? null;
+
+    let totalCombustible = 0;
+    if (liquidacion) {
+      const agregadoCombustible = await prisma.combustible.aggregate({
+        where: { liquidacionId: liquidacion.id },
+        _sum: { monto: true },
+      });
+      totalCombustible = Number(agregadoCombustible._sum.monto || 0);
+    }
+    const totalGastosLiquidacion = liquidacion ? Number(liquidacion.totalGastos) : 0;
+    const totalGastos = totalGastosLiquidacion + totalCombustible;
+
+    // Ganancia = total facturado de este pedido (facturas no anuladas)
+    const agregadoFacturas = await prisma.factura.aggregate({
+      where: { pedidoId: id, estado: { not: 'ANULADA' } },
+      _sum: { total: true },
+    });
+    const ganancia = Number(agregadoFacturas._sum.total || 0);
+
+    const utilidad = ganancia - totalGastos;
+    const margen = ganancia > 0 ? (utilidad / ganancia) * 100 : 0;
+
+    return {
+      pedidoId: id,
+      conductor: liquidacion?.conductor ?? null,
+      ganancia,
+      totalGastosLiquidacion,
+      totalCombustible,
+      totalGastos,
+      utilidadNeta: utilidad,
+      margenPorcentaje: Math.round(margen * 100) / 100,
+    };
   }
 }
 

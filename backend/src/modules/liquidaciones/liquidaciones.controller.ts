@@ -2,8 +2,8 @@
 // CAMBIOS v2 (P3):
 //   - cajasAbiertas(): devuelve cajas abiertas disponibles para pago
 //   - pagar(): pago total de liquidación desde caja abierta
-//   - reintegro(): registra ingreso en caja cuando conductor devuelve exceso
-//   - devolucion(): registra egreso en caja cuando empresa paga deuda al conductor
+//   - reintegro(): registra egreso en caja cuando la empresa entrega dinero adicional al conductor
+//   - devolucion(): registra ingreso en caja cuando el conductor devuelve dinero sobrante
 //   - historialFinanciero(): movimientos financieros de la liquidación
 
 import { Request, Response } from 'express';

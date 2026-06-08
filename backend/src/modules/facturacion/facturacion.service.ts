@@ -144,14 +144,24 @@ export class FacturacionService {
     return { ...factura, totalPagado, saldoPendiente: Number(factura.total) - totalPagado };
   }
 
-  // ── P1: devuelve el pdfPath guardado en BD ──────────────────────────────────
+  // ── P1: devuelve el pdfPath guardado en BD; si no existe, lo genera localmente ──
+  // (no hay integración con OSE/PSE: el PDF se construye con los datos de la
+  // factura y los parámetros de empresa/PDF de Configuración, y se cachea en BD)
   async getPdfPath(id: number): Promise<string | null> {
     const factura = await prisma.factura.findUnique({
       where: { id },
-      select: { pdfPath: true },
+      include: {
+        cliente: true,
+        lineas: { orderBy: { orden: 'asc' } },
+      },
     });
     if (!factura) throw new Error('Factura no encontrada');
-    return factura.pdfPath ?? null;
+    if (factura.pdfPath) return factura.pdfPath;
+
+    const { generarPdfFactura } = await import('./factura-pdf.generator');
+    const pdfPath = await generarPdfFactura(factura);
+    await prisma.factura.update({ where: { id }, data: { pdfPath } });
+    return pdfPath;
   }
 
   async getSeries() {

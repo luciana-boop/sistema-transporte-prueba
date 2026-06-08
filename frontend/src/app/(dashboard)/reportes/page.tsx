@@ -277,13 +277,13 @@ export default function ReportesPage() {
           )}
           {lGastos ? <TableSkeleton rows={6} cols={5} /> : (
             <Table>
-              <thead><tr><Th>Tipo</Th><Th>Descripción</Th><Th>Pedido</Th><Th>Monto</Th><Th>Fecha</Th></tr></thead>
+              <thead><tr><Th>Tipo</Th><Th>Descripción</Th><Th>Vehículo</Th><Th>Monto</Th><Th>Fecha</Th></tr></thead>
               <tbody>
                 {gastosData?.gastos.length ? gastosData.gastos.map((g) => (
                   <Tr key={g.id}>
                     <Td><Badge value={g.tipoGasto} label={TIPO_GASTO_LABEL[g.tipoGasto]} /></Td>
                     <Td><span className="text-sm">{g.descripcion}</span></Td>
-                    <Td><span className="text-xs text-muted-foreground">{g.pedido ? `#${g.pedido.id}` : '—'}</span></Td>
+                    <Td><span className="text-xs text-muted-foreground">{g.vehiculo ? g.vehiculo.placa : '—'}</span></Td>
                     <Td><span className="font-semibold text-red-500">{formatCurrency(Number(g.monto))}</span></Td>
                     <Td><span className="text-xs text-muted-foreground">{formatDate(g.fecha)}</span></Td>
                   </Tr>

@@ -9,8 +9,8 @@ import * as R from '../../utils/response';
 export class GastosController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
-      const { tipoGasto, pedidoId, usuarioId, desde, hasta, search } = req.query as Record<string, string>;
-      const data = await gastosService.findAll({ tipoGasto, pedidoId, usuarioId, desde, hasta, search });
+      const { tipoGasto, vehiculoId, usuarioId, desde, hasta, search } = req.query as Record<string, string>;
+      const data = await gastosService.findAll({ tipoGasto, vehiculoId, usuarioId, desde, hasta, search });
       R.ok(res, data);
     } catch (e) { R.serverError(res, e); }
   }
@@ -30,7 +30,7 @@ export class GastosController {
 
   async crear(req: Request, res: Response): Promise<void> {
     try {
-      const { pedidoId, tipoGasto, monto, descripcion, comprobante, fecha, cuentaId, monedaId, tipoPagoId } = req.body;
+      const { vehiculoId, tipoGasto, monto, descripcion, comprobante, fecha, cuentaId, monedaId, tipoPagoId } = req.body;
 
       if (!tipoGasto || !monto || !descripcion) {
         R.badRequest(res, 'tipoGasto, monto y descripcion son requeridos'); return;
@@ -48,7 +48,7 @@ export class GastosController {
 
       const data = await gastosService.create(
         {
-          pedidoId: pedidoId ? parseInt(pedidoId) : undefined,
+          vehiculoId: vehiculoId ? parseInt(vehiculoId) : undefined,
           tipoGasto,
           monto: parseFloat(monto),
           descripcion,
@@ -80,8 +80,8 @@ export class GastosController {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
       // Solo pasar campos no-financieros al update
-      const { pedidoId, tipoGasto, descripcion, comprobante, fecha } = req.body;
-      const data = await gastosService.update(id, { pedidoId, tipoGasto, descripcion, comprobante, fecha });
+      const { vehiculoId, tipoGasto, descripcion, comprobante, fecha } = req.body;
+      const data = await gastosService.update(id, { vehiculoId, tipoGasto, descripcion, comprobante, fecha });
       R.ok(res, data, 'Gasto actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
@@ -107,8 +107,8 @@ export class GastosController {
 
   async resumen(req: Request, res: Response): Promise<void> {
     try {
-      const { desde, hasta, pedidoId } = req.query as Record<string, string>;
-      const data = await gastosService.resumenPorTipo({ desde, hasta, pedidoId });
+      const { desde, hasta, vehiculoId } = req.query as Record<string, string>;
+      const data = await gastosService.resumenPorTipo({ desde, hasta, vehiculoId });
       R.ok(res, data);
     } catch (e) { R.serverError(res, e); }
   }

@@ -14,7 +14,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, Trash2, Download, X, Eye } from 'lucide-react';
-import { gastosApi, pedidosApi, cuentasApi } from '@/services/api';
+import { gastosApi, vehiculosApi, cuentasApi } from '@/services/api';
 import { formatDate, formatCurrency, getErrorMessage, TIPO_GASTO_LABEL } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -30,7 +30,7 @@ import {
 } from 'recharts';
 
 const schema = z.object({
-  pedidoId: z.string().optional(),
+  vehiculoId: z.string().optional(),
   tipoGasto: z.enum(['COMBUSTIBLE', 'VIATICOS', 'PEAJE', 'MANTENIMIENTO', 'OTROS']),
   monto: z.string().min(1, 'Monto requerido'),
   descripcion: z.string().min(2, 'Descripción requerida'),
@@ -86,9 +86,9 @@ export default function GastosPage() {
     queryFn: () => gastosApi.resumen().then((r) => r.data.data),
   });
 
-  const { data: pedidos = [] } = useQuery({
-    queryKey: ['pedidos'],
-    queryFn: () => pedidosApi.listar().then((r) => r.data.data),
+  const { data: vehiculos = [] } = useQuery({
+    queryKey: ['vehiculos'],
+    queryFn: () => vehiculosApi.listar().then((r) => r.data.data),
   });
 
   // Cuentas con su moneda incluida — para la lógica cuenta→moneda
@@ -155,7 +155,7 @@ export default function GastosPage() {
       Tipo: TIPO_GASTO_LABEL[g.tipoGasto],
       Concepto: g.descripcion,
       Comprobante: g.comprobante ?? '',
-      Pedido: g.pedido ? `#${g.pedido.id}` : '',
+      Vehículo: g.vehiculo ? `${g.vehiculo.placa}` : '',
       [`Monto ${defaultSimbolo}`]: Number(g.monto),
       Fecha: formatDate(g.fecha),
       Usuario: g.usuario?.nombre,
@@ -179,7 +179,7 @@ export default function GastosPage() {
         );
       }
       return gastosApi.crear({
-        pedidoId: d.pedidoId ? parseInt(d.pedidoId) : undefined,
+        vehiculoId: d.vehiculoId ? parseInt(d.vehiculoId) : undefined,
         tipoGasto: d.tipoGasto as TipoGasto,
         monto,
         descripcion: d.descripcion,
@@ -297,7 +297,7 @@ export default function GastosPage() {
         <Table>
           <thead>
             <tr>
-              <Th>#</Th><Th>Tipo</Th><Th>Concepto</Th><Th>Comprobante</Th><Th>Pedido</Th>
+              <Th>#</Th><Th>Tipo</Th><Th>Concepto</Th><Th>Comprobante</Th><Th>Vehículo</Th>
               <Th>Monto</Th><Th>Fecha</Th>
               {usuario?.rol === 'ADMIN' && <Th>Acc.</Th>}
             </tr>
@@ -314,8 +314,8 @@ export default function GastosPage() {
                     : <span className="text-xs text-muted-foreground">—</span>}
                 </Td>
                 <Td>
-                  {g.pedido
-                    ? <span className="text-xs text-muted-foreground">#{g.pedido.id} {g.pedido.origen} → {g.pedido.destino}</span>
+                  {g.vehiculo
+                    ? <span className="text-xs text-muted-foreground">{g.vehiculo.placa} — {g.vehiculo.marca} {g.vehiculo.modelo}</span>
                     : <span className="text-xs text-muted-foreground">—</span>}
                 </Td>
                 <Td><span className="font-semibold text-red-500">{defaultSimbolo} {Number(g.monto).toFixed(2)}</span></Td>
@@ -428,11 +428,11 @@ export default function GastosPage() {
             </FormField>
 
             <div className="col-span-2">
-              <FormField label="Pedido asociado (opcional)">
-                <Select {...register('pedidoId')}>
-                  <option value="">Sin pedido</option>
-                  {pedidos.map((p) => (
-                    <option key={p.id} value={p.id}>#{p.id} — {p.origen} → {p.destino}</option>
+              <FormField label="Vehículo asociado (opcional)">
+                <Select {...register('vehiculoId')}>
+                  <option value="">Sin vehículo</option>
+                  {vehiculos.map((v) => (
+                    <option key={v.id} value={v.id}>{v.placa} — {v.marca} {v.modelo}</option>
                   ))}
                 </Select>
               </FormField>
@@ -493,10 +493,10 @@ export default function GastosPage() {
                   <p className="text-sm font-mono">{viewing.comprobante}</p>
                 </div>
               )}
-              {viewing.pedido && (
+              {viewing.vehiculo && (
                 <div className="col-span-2">
-                  <p className="text-xs text-muted-foreground mb-1">Pedido asociado</p>
-                  <p className="text-sm">#{viewing.pedido.id} — {viewing.pedido.origen} → {viewing.pedido.destino}</p>
+                  <p className="text-xs text-muted-foreground mb-1">Vehículo asociado</p>
+                  <p className="text-sm">{viewing.vehiculo.placa} — {viewing.vehiculo.marca} {viewing.vehiculo.modelo}</p>
                 </div>
               )}
               {viewing.cuenta && (

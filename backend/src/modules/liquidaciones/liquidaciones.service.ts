@@ -1,8 +1,8 @@
 // FILE: src/modules/liquidaciones/liquidaciones.service.ts
 // CAMBIOS v2 (P3):
 //   - pagarLiquidacion(): pago total desde caja abierta (NO cuentas bancarias)
-//   - registrarReintegro(): el conductor devuelve dinero a caja
-//   - registrarDevolucion(): la empresa devuelve dinero sobrante al conductor
+//   - registrarReintegro(): la empresa entrega dinero adicional al conductor (egreso en caja)
+//   - registrarDevolucion(): el conductor devuelve dinero sobrante a la empresa (ingreso en caja)
 //   - getHistorialFinanciero(): movimientos financieros de una liquidación
 //   - getEstados(): devuelve cajas abiertas disponibles para pago
 //
@@ -12,8 +12,10 @@
 // FLUJO:
 //   1. Liquidación creada → estado PENDIENTE
 //   2. Se paga completamente → estado PAGADA (egreso en caja)
-//   3. Opcionalmente: reintegro (conductor devuelve exceso → ingreso en caja)
-//                    devolución (empresa paga deuda al conductor → egreso en caja)
+//   3. Opcionalmente: reintegro (el conductor gastó más de lo entregado → la empresa
+//                                le entrega el faltante → EGRESO en caja)
+//                    devolución (al conductor le sobró dinero → lo devuelve a la
+//                                empresa → INGRESO en caja)
 
 import prisma from '../../prisma/client';
 
@@ -224,7 +226,9 @@ export class LiquidacionesService {
     });
   }
 
-  // ── P3: reintegro — conductor devuelve dinero sobrante a la empresa ──────────
+  // ── P3: reintegro — la empresa entrega dinero adicional al conductor ─────────
+  // (el conductor gastó más de lo que se le entregó; la empresa cubre el
+  // faltante → sale dinero de caja → EGRESO)
   async registrarReintegro(dto: RegistrarMovimientoLiquidacionDto, usuarioId: number) {
     const liquidacion = await prisma.liquidacion.findUnique({
       where: { id: dto.liquidacionId },
@@ -249,7 +253,7 @@ export class LiquidacionesService {
     return prisma.movimientoCaja.create({
       data: {
         cajaId: dto.cajaId,
-        tipo: 'INGRESO',
+        tipo: 'EGRESO',
         monto: dto.monto,
         concepto,
         referencia,
@@ -258,7 +262,9 @@ export class LiquidacionesService {
     });
   }
 
-  // ── P3: devolución — empresa paga deuda adicional al conductor ───────────────
+  // ── P3: devolución — el conductor devuelve dinero sobrante a la empresa ──────
+  // (al conductor le sobró dinero del anticipo; lo regresa a la empresa →
+  // entra dinero a caja → INGRESO)
   async registrarDevolucion(dto: RegistrarMovimientoLiquidacionDto, usuarioId: number) {
     const liquidacion = await prisma.liquidacion.findUnique({
       where: { id: dto.liquidacionId },
@@ -283,7 +289,7 @@ export class LiquidacionesService {
     return prisma.movimientoCaja.create({
       data: {
         cajaId: dto.cajaId,
-        tipo: 'EGRESO',
+        tipo: 'INGRESO',
         monto: dto.monto,
         concepto,
         referencia,

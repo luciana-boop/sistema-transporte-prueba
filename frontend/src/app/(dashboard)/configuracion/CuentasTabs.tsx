@@ -4,15 +4,15 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, ArrowUpCircle, ArrowDownCircle, ArrowLeftRight } from 'lucide-react';
+import { Plus, Edit2, Trash2, ArrowUpCircle, ArrowDownCircle, ArrowLeftRight, Eye, Ban } from 'lucide-react';
 import { cuentasApi } from '@/services/api';
-import { formatDate, getErrorMessage } from '@/lib/utils';
+import { formatDate, formatDatetime, getErrorMessage } from '@/lib/utils';
 import {
   Button, Table, Th, Td, Tr, TableSkeleton, EmptyState,
   Modal, FormField, Input, Select, Textarea,
 } from '@/components/shared';
 import { MonedaBadge, TipoCuentaBadge } from '@/components/shared/FinancialSelectors';
-import type { Moneda, TipoPago, CuentaDinero } from '@/types';
+import type { Moneda, TipoPago, CuentaDinero, MovimientoCuenta } from '@/types';
 
 // ─── Switch ───────────────────────────────────────────────────────────────────
 function Switch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
@@ -202,7 +202,16 @@ export function CuentasTab() {
   const [showMovs, setShowMovs] = useState<CuentaDinero | null>(null);
   const [showNuevoMov, setShowNuevoMov] = useState<CuentaDinero | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
+  // P7: filtros de movimientos — predeterminado Desde/Hasta = hoy, configurable
+  const [movDesde, setMovDesde] = useState(() => new Date().toISOString().split('T')[0]);
+  const [movHasta, setMovHasta] = useState(() => new Date().toISOString().split('T')[0]);
+  // P7: ver detalle / editar / anular
+  const [viewingMov, setViewingMov] = useState<MovimientoCuenta | null>(null);
+  const [editingMov, setEditingMov] = useState<MovimientoCuenta | null>(null);
+  const [anulandoMov, setAnulandoMov] = useState<MovimientoCuenta | null>(null);
+  const [movEditForm, setMovEditForm] = useState<Record<string, string>>({});
   const inv = () => qc.invalidateQueries({ queryKey: ['cuentas'] });
+  const invMovs = () => qc.invalidateQueries({ queryKey: ['movimientos'] });
 
   const { data: cuentas = [], isLoading } = useQuery({
     queryKey: ['cuentas', false],
@@ -217,9 +226,15 @@ export function CuentasTab() {
     queryFn: () => cuentasApi.getTiposPagoActivos().then(r => r.data.data),
   });
   const { data: movimientos = [] } = useQuery({
-    queryKey: ['movimientos', showMovs?.id],
-    queryFn: () => cuentasApi.getMovimientos({ cuentaId: showMovs!.id }).then(r => r.data.data),
+    queryKey: ['movimientos', showMovs?.id, movDesde, movHasta],
+    queryFn: () => cuentasApi.getMovimientos({ cuentaId: showMovs!.id, desde: movDesde || undefined, hasta: movHasta || undefined }).then(r => r.data.data),
     enabled: !!showMovs,
+  });
+  // P7: detalle del movimiento seleccionado (incluye "origen del movimiento")
+  const { data: detalleMov, isLoading: loadingDetalleMov } = useQuery({
+    queryKey: ['movimiento-detalle', viewingMov?.id],
+    queryFn: () => cuentasApi.obtenerMovimiento(viewingMov!.id).then(r => r.data.data),
+    enabled: !!viewingMov,
   });
 
   const createC = useMutation({
@@ -240,14 +255,31 @@ export function CuentasTab() {
   const movMutation = useMutation({
     mutationFn: () => cuentasApi.registrarMovimiento({
       cuentaId: showNuevoMov!.id,
-      tipo: form.tipo as 'INGRESO' | 'EGRESO' | 'TRANSFERENCIA',
+      tipo: form.tipo as 'INGRESO' | 'EGRESO',
       monto: parseFloat(form.monto),
       monedaId: showNuevoMov!.monedaId,
       tipoPagoId: form.tipoPagoId ? parseInt(form.tipoPagoId) : undefined,
       concepto: form.concepto,
       referencia: form.referencia,
     }),
-    onSuccess: () => { toast.success('Movimiento registrado'); setShowNuevoMov(null); setForm({}); inv(); qc.invalidateQueries({ queryKey: ['movimientos'] }); },
+    onSuccess: () => { toast.success('Movimiento registrado'); setShowNuevoMov(null); setForm({}); inv(); invMovs(); },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+  // P7: edición controlada (concepto, referencia, fecha, método de pago — no afecta saldo)
+  const editarMovMutation = useMutation({
+    mutationFn: () => cuentasApi.actualizarMovimiento(editingMov!.id, {
+      concepto: movEditForm.concepto,
+      referencia: movEditForm.referencia,
+      fecha: movEditForm.fecha,
+      tipoPagoId: movEditForm.tipoPagoId ? parseInt(movEditForm.tipoPagoId) : null,
+    }),
+    onSuccess: () => { toast.success('Movimiento actualizado'); setEditingMov(null); setMovEditForm({}); invMovs(); },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+  // P7: anular — revierte el saldo (movimiento REVERSO) y mantiene trazabilidad
+  const anularMovMutation = useMutation({
+    mutationFn: (id: number) => cuentasApi.anularMovimiento(id),
+    onSuccess: () => { toast.success('Movimiento anulado'); setAnulandoMov(null); inv(); invMovs(); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
@@ -329,35 +361,56 @@ export function CuentasTab() {
       </Modal>
 
       {/* Movimientos de la cuenta */}
-      <Modal open={!!showMovs} onClose={() => setShowMovs(null)} title={`Movimientos — ${showMovs?.nombre}`} maxWidth="max-w-2xl">
+      <Modal open={!!showMovs} onClose={() => setShowMovs(null)} title={`Movimientos — ${showMovs?.nombre}`} maxWidth="max-w-3xl">
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-3 gap-3 bg-muted/30 rounded-lg p-3 text-center">
             <div><p className="text-xs text-muted-foreground">Saldo inicial</p><p className="font-semibold">{showMovs?.moneda?.simbolo} {Number(showMovs?.saldoInicial ?? 0).toFixed(2)}</p></div>
             <div><p className="text-xs text-muted-foreground">Saldo actual</p><p className={`font-bold ${Number(showMovs?.saldoActual ?? 0) >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>{showMovs?.moneda?.simbolo} {Number(showMovs?.saldoActual ?? 0).toFixed(2)}</p></div>
             <div><p className="text-xs text-muted-foreground">Movimientos</p><p className="font-semibold">{movimientos.length}</p></div>
           </div>
+          {/* P7: filtros de fecha — predeterminado hoy, configurable */}
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Desde"><Input type="date" value={movDesde} onChange={e => setMovDesde(e.target.value)} /></FormField>
+            <FormField label="Hasta"><Input type="date" value={movHasta} onChange={e => setMovHasta(e.target.value)} /></FormField>
+          </div>
           <div className="max-h-80 overflow-y-auto">
             <Table>
-              <thead><tr><Th>Fecha</Th><Th>Tipo</Th><Th>Concepto</Th><Th>Método</Th><Th className="text-right">Monto</Th></tr></thead>
+              <thead><tr><Th>Fecha</Th><Th>Tipo</Th><Th>Concepto</Th><Th>Método</Th><Th className="text-right">Monto</Th><Th className="text-right">Acciones</Th></tr></thead>
               <tbody>
                 {movimientos.length > 0 ? movimientos.map(m => (
                   <Tr key={m.id}>
                     <Td><span className="text-xs text-muted-foreground">{formatDate(m.fecha)}</span></Td>
                     <Td>
-                      <span className={`inline-flex items-center gap-1 text-xs font-medium ${m.tipo === 'INGRESO' ? 'text-emerald-500' : m.tipo === 'EGRESO' ? 'text-red-500' : 'text-blue-500'}`}>
-                        {m.tipo === 'INGRESO' ? <ArrowUpCircle className="w-3 h-3" /> : m.tipo === 'EGRESO' ? <ArrowDownCircle className="w-3 h-3" /> : <ArrowLeftRight className="w-3 h-3" />}
+                      <span className={`inline-flex items-center gap-1 text-xs font-medium ${m.tipo === 'INGRESO' ? 'text-emerald-500' : 'text-red-500'}`}>
+                        {m.tipo === 'INGRESO' ? <ArrowUpCircle className="w-3 h-3" /> : <ArrowDownCircle className="w-3 h-3" />}
                         {m.tipo}
                       </span>
                     </Td>
-                    <Td><span className="text-sm">{m.concepto}</span></Td>
+                    <Td>
+                      <span className={`text-sm ${m.anulado ? 'line-through text-muted-foreground' : ''}`}>{m.concepto}</span>
+                      {m.anulado && (
+                        <span className="ml-2 text-[10px] font-medium text-red-600 bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/20">ANULADO</span>
+                      )}
+                    </Td>
                     <Td><span className="text-xs text-muted-foreground">{m.tipoPago?.nombre ?? '—'}</span></Td>
                     <Td className="text-right">
-                      <span className={`font-semibold text-sm ${m.tipo === 'INGRESO' ? 'text-emerald-500' : m.tipo === 'EGRESO' ? 'text-red-500' : 'text-foreground'}`}>
-                        {m.tipo === 'INGRESO' ? '+' : m.tipo === 'EGRESO' ? '-' : ''}{m.moneda?.simbolo} {Number(m.monto).toFixed(2)}
+                      <span className={`font-semibold text-sm ${m.anulado ? 'line-through text-muted-foreground' : (m.tipo === 'INGRESO' ? 'text-emerald-500' : 'text-red-500')}`}>
+                        {m.tipo === 'INGRESO' ? '+' : '-'}{m.moneda?.simbolo} {Number(m.monto).toFixed(2)}
                       </span>
                     </Td>
+                    <Td>
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => setViewingMov(m)} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Ver detalle"><Eye className="w-3.5 h-3.5" /></button>
+                        {!m.anulado && !(m.referencia ?? '').startsWith('REV-MOV-') && (
+                          <>
+                            <button onClick={() => { setEditingMov(m); setMovEditForm({ concepto: m.concepto, referencia: m.referencia ?? '', fecha: m.fecha.split('T')[0], tipoPagoId: m.tipoPagoId ? String(m.tipoPagoId) : '' }); }} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => setAnulandoMov(m)} className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all" title="Anular"><Ban className="w-3.5 h-3.5" /></button>
+                          </>
+                        )}
+                      </div>
+                    </Td>
                   </Tr>
-                )) : <tr><td colSpan={5}><EmptyState message="Sin movimientos" /></td></tr>}
+                )) : <tr><td colSpan={6}><EmptyState message="Sin movimientos en el rango seleccionado" /></td></tr>}
               </tbody>
             </Table>
           </div>
@@ -370,6 +423,80 @@ export function CuentasTab() {
         </div>
       </Modal>
 
+      {/* P7: Ver detalle del movimiento */}
+      <Modal open={!!viewingMov} onClose={() => setViewingMov(null)} title="Detalle del movimiento">
+        {loadingDetalleMov || !detalleMov ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">Cargando...</p>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {detalleMov.anulado && (
+              <div className="text-xs font-medium text-red-600 bg-red-500/10 px-3 py-2 rounded border border-red-500/20">
+                Este movimiento está ANULADO. Se generó un movimiento de reverso (REV-MOV-{detalleMov.id}) que revirtió su efecto en el saldo.
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div><p className="text-xs text-muted-foreground">Tipo</p>
+                <span className={`inline-flex items-center gap-1 text-sm font-medium ${detalleMov.tipo === 'INGRESO' ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {detalleMov.tipo === 'INGRESO' ? <ArrowUpCircle className="w-3.5 h-3.5" /> : <ArrowDownCircle className="w-3.5 h-3.5" />}
+                  {detalleMov.tipo}
+                </span>
+              </div>
+              <div><p className="text-xs text-muted-foreground">Cuenta</p><p className="text-sm font-semibold">{detalleMov.cuenta?.nombre}</p></div>
+              <div><p className="text-xs text-muted-foreground">Moneda</p><p className="text-sm font-semibold">{detalleMov.moneda?.simbolo} {detalleMov.moneda?.codigo}</p></div>
+              <div><p className="text-xs text-muted-foreground">Usuario</p><p className="text-sm font-semibold">{detalleMov.usuario?.nombre}</p></div>
+              <div><p className="text-xs text-muted-foreground">Fecha</p><p className="text-sm font-semibold">{formatDatetime(detalleMov.fecha)}</p></div>
+              <div><p className="text-xs text-muted-foreground">Monto</p>
+                <p className={`text-sm font-bold ${detalleMov.tipo === 'INGRESO' ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {detalleMov.tipo === 'INGRESO' ? '+' : '-'}{detalleMov.moneda?.simbolo} {Number(detalleMov.monto).toFixed(2)}
+                </p>
+              </div>
+            </div>
+            <div><p className="text-xs text-muted-foreground">Concepto</p><p className="text-sm">{detalleMov.concepto}</p></div>
+            <div><p className="text-xs text-muted-foreground">Referencia</p><p className="text-sm">{detalleMov.referencia || '—'}</p></div>
+            <div><p className="text-xs text-muted-foreground">Origen del movimiento</p><p className="text-sm font-medium">{detalleMov.origen}</p></div>
+            <div className="flex justify-end pt-2 border-t border-border">
+              <Button variant="secondary" onClick={() => setViewingMov(null)}>Cerrar</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* P7: Editar movimiento (edición controlada — no afecta saldo) */}
+      <Modal open={!!editingMov} onClose={() => { setEditingMov(null); setMovEditForm({}); }} title="Editar movimiento">
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-muted-foreground">El monto, tipo y cuenta no son editables porque afectan el saldo. Para corregirlos, anula el movimiento y registra uno nuevo.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Fecha"><Input type="date" value={movEditForm.fecha ?? ''} onChange={e => setMovEditForm(p => ({ ...p, fecha: e.target.value }))} /></FormField>
+            <FormField label="Método de pago">
+              <Select value={movEditForm.tipoPagoId ?? ''} onChange={e => setMovEditForm(p => ({ ...p, tipoPagoId: e.target.value }))}>
+                <option value="">Sin especificar</option>
+                {tiposPago.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+              </Select>
+            </FormField>
+          </div>
+          <FormField label="Concepto" required><Input placeholder="Descripción del movimiento" value={movEditForm.concepto ?? ''} onChange={e => setMovEditForm(p => ({ ...p, concepto: e.target.value }))} /></FormField>
+          <FormField label="Referencia"><Input placeholder="N° voucher, transferencia..." value={movEditForm.referencia ?? ''} onChange={e => setMovEditForm(p => ({ ...p, referencia: e.target.value }))} /></FormField>
+          <div className="flex justify-end gap-2 pt-2 border-t border-border">
+            <Button variant="secondary" onClick={() => { setEditingMov(null); setMovEditForm({}); }}>Cancelar</Button>
+            <Button loading={editarMovMutation.isPending} onClick={() => editarMovMutation.mutate()}>Guardar cambios</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* P7: Confirmar anulación — revierte el saldo y mantiene trazabilidad */}
+      <Modal open={!!anulandoMov} onClose={() => setAnulandoMov(null)} title="Anular movimiento">
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-muted-foreground">
+            ¿Confirmas la anulación del movimiento <span className="font-semibold text-foreground">{anulandoMov?.concepto}</span> por <span className="font-semibold text-foreground">{anulandoMov?.moneda?.simbolo} {Number(anulandoMov?.monto ?? 0).toFixed(2)}</span>?
+          </p>
+          <p className="text-xs text-muted-foreground">Se generará un movimiento de reverso que revertirá el efecto en el saldo de la cuenta, manteniendo la trazabilidad. El movimiento original quedará marcado como anulado.</p>
+          <div className="flex justify-end gap-2 pt-2 border-t border-border">
+            <Button variant="secondary" onClick={() => setAnulandoMov(null)}>Cancelar</Button>
+            <Button variant="destructive" loading={anularMovMutation.isPending} onClick={() => anularMovMutation.mutate(anulandoMov!.id)}>Confirmar anulación</Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Nuevo movimiento */}
       <Modal open={!!showNuevoMov} onClose={() => { setShowNuevoMov(null); setForm({}); }} title={`Nuevo movimiento — ${showNuevoMov?.nombre}`}>
         <div className="flex flex-col gap-4">
@@ -377,7 +504,6 @@ export function CuentasTab() {
             <Select value={form.tipo ?? 'INGRESO'} onChange={e => setForm(p => ({ ...p, tipo: e.target.value }))}>
               <option value="INGRESO">Ingreso</option>
               <option value="EGRESO">Egreso</option>
-              <option value="TRANSFERENCIA">Transferencia entre cuentas</option>
             </Select>
           </FormField>
           <div className="grid grid-cols-2 gap-3">
