@@ -25,6 +25,10 @@ const badgeVariants: Record<string, string> = {
   ACTIVO:     'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
   INACTIVO:   'bg-slate-500/10 text-slate-500',
   PARCIAL:    'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+  BUEN_MES:    'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  MES_REGULAR: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
+  MAL_MES:     'bg-red-500/10 text-red-500',
+  SIN_DATOS:   'bg-slate-500/10 text-slate-500',
   default:    'bg-muted text-muted-foreground',
 };
 

@@ -114,7 +114,7 @@ export class LiquidacionesService {
     }
   }
 
-  async findAll(query: { conductorId?: string; desde?: string; hasta?: string }) {
+  async findAll(query: { conductorId?: string; desde?: string; hasta?: string; sinCombustible?: string }) {
     const where: any = {};
     if (query.conductorId) where.conductorId = parseInt(query.conductorId);
     if (query.desde || query.hasta) {
@@ -122,6 +122,11 @@ export class LiquidacionesService {
       if (query.desde) where.fecha.gte = new Date(query.desde);
       if (query.hasta) where.fecha.lte = new Date(query.hasta + 'T23:59:59');
     }
+    // P4: una liquidación ya asociada a una carga de combustible no debe volver
+    // a aparecer como disponible para nuevas cargas (evita doble asociación);
+    // solo vuelve a estar disponible si esa asociación se anula/revierte
+    // (Combustible.liquidacionId pasa a null o el registro se elimina).
+    if (query.sinCombustible === 'true') where.combustibles = { none: {} };
     return prisma.liquidacion.findMany({
       where,
       orderBy: { fecha: 'desc' },
@@ -243,12 +248,29 @@ export class LiquidacionesService {
     }
     if (dto.monto <= 0) throw new Error('El monto debe ser mayor a 0');
 
+    const referencia = `REINTEGRO-LIQ-${dto.liquidacionId}`;
+
+    // Bloquear registros duplicados: una vez que el saldo pendiente de reintegro
+    // de esta liquidación ya fue cubierto por movimientos activos previos, no se
+    // permite registrar nuevos reintegros sobre la misma liquidación.
+    const { _sum } = await prisma.movimientoCaja.aggregate({
+      where: { referencia, anulado: false },
+      _sum: { monto: true },
+    });
+    const yaRegistrado = Number(_sum.monto || 0);
+    const pendiente = Math.round((Number(liquidacion.reintegro) - yaRegistrado) * 100) / 100;
+    if (pendiente <= 0) {
+      throw new Error('El reintegro de esta liquidación ya fue registrado en su totalidad. No se pueden registrar reintegros adicionales.');
+    }
+    if (dto.monto > pendiente + 0.01) {
+      throw new Error(`El monto excede el saldo pendiente de reintegro de esta liquidación (S/ ${pendiente.toFixed(2)})`);
+    }
+
     const caja = await prisma.caja.findUnique({ where: { id: dto.cajaId } });
     if (!caja) throw new Error('Caja no encontrada');
     if (caja.estado !== 'ABIERTA') throw new Error('La caja seleccionada está cerrada');
 
     const concepto = dto.concepto || `Reintegro liquidación — ${liquidacion.conductor.nombre}`;
-    const referencia = `REINTEGRO-LIQ-${dto.liquidacionId}`;
 
     return prisma.movimientoCaja.create({
       data: {
@@ -279,12 +301,29 @@ export class LiquidacionesService {
     }
     if (dto.monto <= 0) throw new Error('El monto debe ser mayor a 0');
 
+    const referencia = `DEVOLUCION-LIQ-${dto.liquidacionId}`;
+
+    // Bloquear registros duplicados: una vez que el saldo pendiente de devolución
+    // de esta liquidación ya fue cubierto por movimientos activos previos, no se
+    // permite registrar nuevas devoluciones sobre la misma liquidación.
+    const { _sum } = await prisma.movimientoCaja.aggregate({
+      where: { referencia, anulado: false },
+      _sum: { monto: true },
+    });
+    const yaRegistrado = Number(_sum.monto || 0);
+    const pendiente = Math.round((Number(liquidacion.devolucion) - yaRegistrado) * 100) / 100;
+    if (pendiente <= 0) {
+      throw new Error('La devolución de esta liquidación ya fue registrada en su totalidad. No se pueden registrar devoluciones adicionales.');
+    }
+    if (dto.monto > pendiente + 0.01) {
+      throw new Error(`El monto excede el saldo pendiente de devolución de esta liquidación (S/ ${pendiente.toFixed(2)})`);
+    }
+
     const caja = await prisma.caja.findUnique({ where: { id: dto.cajaId } });
     if (!caja) throw new Error('Caja no encontrada');
     if (caja.estado !== 'ABIERTA') throw new Error('La caja seleccionada está cerrada');
 
     const concepto = dto.concepto || `Devolución liquidación — ${liquidacion.conductor.nombre}`;
-    const referencia = `DEVOLUCION-LIQ-${dto.liquidacionId}`;
 
     return prisma.movimientoCaja.create({
       data: {

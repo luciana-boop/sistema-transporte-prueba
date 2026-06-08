@@ -11,6 +11,15 @@ router.use(verificarToken, adminOSecretario);
 // GET /api/reportes/dashboard
 router.get('/dashboard', reportesController.dashboard.bind(reportesController));
 
+// GET /api/reportes/anual?anio=2026
+router.get('/anual', reportesController.anual.bind(reportesController));
+
+// GET /api/reportes/conductor-del-mes
+router.get('/conductor-del-mes', reportesController.conductorDelMes.bind(reportesController));
+
+// GET /api/reportes/tabla-semanal?desde=2026-06-01&hasta=2026-06-07
+router.get('/tabla-semanal', reportesController.tablaSemanal.bind(reportesController));
+
 // GET /api/reportes/pedidos?desde=2024-01-01&hasta=2024-12-31&clienteId=1
 router.get('/pedidos', reportesController.pedidos.bind(reportesController));
 

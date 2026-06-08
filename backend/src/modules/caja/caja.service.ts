@@ -2,9 +2,11 @@
 
 import prisma from '../../prisma/client';
 import { EstadoCaja, TipoMovimientoCaja } from '../../utils/enums';
+import { cuentasService } from '../configuracion/cuentas.service';
 
 export interface AbrirCajaDto {
   saldoApertura: number;
+  cuentaOrigenId: number;
   nombre?: string;
   observaciones?: string;
 }
@@ -150,16 +152,43 @@ export class CajaService {
     if (cajaExistente) {
       throw new Error('Ya existe una caja abierta o registrada para hoy');
     }
+    if (!dto.cuentaOrigenId) {
+      throw new Error('Debe seleccionar la cuenta de origen de los fondos de apertura');
+    }
 
-    return prisma.caja.create({
-      data: {
-        usuarioId,
-        fecha: new Date(),
-        nombre: dto.nombre ?? null,
-        saldoApertura: dto.saldoApertura,
-        estado: EstadoCaja.ABIERTA,
-        observaciones: dto.observaciones,
-      },
+    const cuentaOrigen = await prisma.cuentaDinero.findUnique({ where: { id: dto.cuentaOrigenId } });
+    if (!cuentaOrigen) throw new Error('Cuenta de origen no encontrada');
+    if (!cuentaOrigen.activo) throw new Error('La cuenta de origen está inactiva');
+
+    return prisma.$transaction(async (tx: any) => {
+      // 1. Crear la caja
+      const caja = await tx.caja.create({
+        data: {
+          usuarioId,
+          fecha: new Date(),
+          nombre: dto.nombre ?? null,
+          saldoApertura: dto.saldoApertura,
+          cuentaOrigenId: dto.cuentaOrigenId,
+          estado: EstadoCaja.ABIERTA,
+          observaciones: dto.observaciones,
+        },
+      });
+
+      // 2. Movimiento de salida automático en la cuenta de origen: el efectivo
+      // de apertura sale de esa cuenta hacia la caja chica (valida saldo dentro de la tx)
+      if (dto.saldoApertura > 0) {
+        await cuentasService._registrarMovimientoEnTx(tx, {
+          cuentaId: dto.cuentaOrigenId,
+          tipo: 'EGRESO',
+          monto: dto.saldoApertura,
+          monedaId: cuentaOrigen.monedaId,
+          concepto: `Apertura de caja${dto.nombre ? ` — ${dto.nombre}` : ''}`,
+          referencia: `APERTURA-CAJA-${caja.id}`,
+          usuarioId,
+        });
+      }
+
+      return caja;
     });
   }
 

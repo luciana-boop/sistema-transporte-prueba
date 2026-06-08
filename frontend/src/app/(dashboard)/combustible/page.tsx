@@ -112,8 +112,11 @@ export default function CombustiblePage() {
   // P4: liquidaciones del conductor seleccionado, para asociar la carga
   const watchedConductorId = useWatch({ control, name: 'conductorId' });
   const { data: liquidacionesConductor = [] } = useQuery({
-    queryKey: ['liquidaciones', 'por-conductor', watchedConductorId],
-    queryFn: () => liquidacionesApi.listar({ conductorId: parseInt(watchedConductorId!) }).then((r) => r.data.data),
+    queryKey: ['liquidaciones', 'por-conductor', watchedConductorId, 'sin-combustible'],
+    // Solo se ofrecen liquidaciones que aún no están asociadas a otra carga de
+    // combustible: una vez asociada, deja de estar disponible para nuevas cargas
+    // a menos que esa asociación se anule/revierta (ver liquidaciones.service.ts → findAll).
+    queryFn: () => liquidacionesApi.listar({ conductorId: parseInt(watchedConductorId!), sinCombustible: true }).then((r) => r.data.data),
     enabled: !!watchedConductorId,
   });
 
@@ -320,7 +323,7 @@ export default function CombustiblePage() {
                 </Select>
               </FormField>
               {watchedConductorId && liquidacionesConductor.length === 0 && (
-                <p className="text-xs text-muted-foreground mt-1.5">Este conductor no tiene liquidaciones registradas.</p>
+                <p className="text-xs text-muted-foreground mt-1.5">Este conductor no tiene liquidaciones disponibles para asociar (no tiene registradas o todas ya están asociadas a otra carga de combustible).</p>
               )}
             </div>
 

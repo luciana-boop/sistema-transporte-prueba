@@ -90,6 +90,7 @@ export interface Factura {
   tipoCredito?: string;
   diasCredito?: number;
   guiaReferencia?: string;
+  peso?: number;
   detalle?: string;
   estado: EstadoFactura;
   estadoSunat?: string;
@@ -174,6 +175,9 @@ export interface Caja {
   saldoCierre?: number;
   estado: EstadoCaja;
   observaciones?: string;
+  /** Cuenta de la que se retiraron los fondos de apertura (genera egreso automático) */
+  cuentaOrigenId?: number;
+  cuentaOrigen?: { id: number; nombre: string };
   aperturaEn: string;
   cierreEn?: string;
   usuario: { id: number; nombre: string };

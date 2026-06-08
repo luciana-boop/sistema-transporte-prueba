@@ -86,6 +86,9 @@ export async function generarPdfFactura(factura: any): Promise<string> {
     doc.text(`RUC: ${factura.cliente?.ruc ?? ''}`);
     doc.text(`Dirección: ${factura.cliente?.direccion ?? ''}`);
     doc.text(`Vencimiento: ${formatearFecha(factura.fechaVencimiento)}`);
+    if (factura.peso != null) {
+      doc.text(`Peso: ${Number(factura.peso).toFixed(2)} kg`);
+    }
 
     doc.moveDown(1);
 

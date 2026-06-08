@@ -551,39 +551,37 @@ export default function LiquidacionesPage() {
 
             {/* Lista de pedidos seleccionados */}
             {pedidosSeleccionados.length > 0 ? (
-              <div className="rounded-lg border border-border overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-muted/50">
-                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">#</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Cliente</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Origen</th>
-                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Destino</th>
-                      <th className="px-3 py-2 w-8"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pedidosSeleccionados.map((p) => (
-                      <tr key={p.id} className="border-t border-border">
-                        <td className="px-3 py-2 font-mono text-muted-foreground">#{p.id}</td>
-                        <td className="px-3 py-2 font-medium">{p.cliente.razonSocial}</td>
-                        <td className="px-3 py-2">{p.origen}</td>
-                        <td className="px-3 py-2">{p.destino}</td>
-                        <td className="px-3 py-2">
-                          <button
-                            type="button"
-                            onClick={() => quitarPedido(p.id)}
-                            className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
-                            title="Quitar pedido"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>#</Th>
+                    <Th>Cliente</Th>
+                    <Th>Origen</Th>
+                    <Th>Destino</Th>
+                    <Th className="w-8"></Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pedidosSeleccionados.map((p) => (
+                    <Tr key={p.id}>
+                      <Td><span className="font-mono text-xs text-muted-foreground">#{p.id}</span></Td>
+                      <Td><span className="text-sm font-medium">{p.cliente.razonSocial}</span></Td>
+                      <Td><span className="text-sm">{p.origen}</span></Td>
+                      <Td><span className="text-sm">{p.destino}</span></Td>
+                      <Td>
+                        <button
+                          type="button"
+                          onClick={() => quitarPedido(p.id)}
+                          className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                          title="Quitar pedido"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Table>
             ) : (
               <p className="text-xs text-muted-foreground italic py-1">
                 Sin pedidos asociados. Puedes agregar uno o más arriba.

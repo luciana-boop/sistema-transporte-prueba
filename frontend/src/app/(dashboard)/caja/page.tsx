@@ -28,6 +28,7 @@ import type { Caja, MovimientoEnriquecido, MovimientosCajaResponse, TipoMov } fr
 const abrirSchema = z.object({
   nombre: z.string().optional(),
   saldoApertura: z.string().min(1, 'Saldo de apertura requerido'),
+  cuentaOrigenId: z.string().min(1, 'Debe seleccionar la cuenta de origen'),
   observaciones: z.string().optional(),
 });
 const cerrarSchema = z.object({
@@ -212,7 +213,7 @@ export default function CajaPage() {
   // ── Mutations ────────────────────────────────────────────────────────────
   const abrirMutation = useMutation({
     mutationFn: (d: z.infer<typeof abrirSchema>) =>
-      cajaApi.abrir({ nombre: d.nombre || undefined, saldoApertura: parseFloat(d.saldoApertura), observaciones: d.observaciones } as any),
+      cajaApi.abrir({ nombre: d.nombre || undefined, saldoApertura: parseFloat(d.saldoApertura), cuentaOrigenId: parseInt(d.cuentaOrigenId), observaciones: d.observaciones }),
     onSuccess: () => { toast.success('Caja abierta'); setShowAbrir(false); abrirForm.reset(); invalidate(); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
@@ -646,6 +647,17 @@ export default function CajaPage() {
         <form onSubmit={abrirForm.handleSubmit((d) => abrirMutation.mutate(d))} className="flex flex-col gap-4">
           <FormField label="Nombre de caja (opcional)"><Input placeholder="Ej: Caja principal..." {...abrirForm.register('nombre')} /></FormField>
           <FormField label="Saldo de apertura (S/)" required error={abrirForm.formState.errors.saldoApertura?.message}><Input type="number" step="0.01" placeholder="0.00" {...abrirForm.register('saldoApertura')} /></FormField>
+          <FormField label="Cuenta origen" required error={abrirForm.formState.errors.cuentaOrigenId?.message}>
+            <Select {...abrirForm.register('cuentaOrigenId')}>
+              <option value="">Seleccionar cuenta...</option>
+              {(resumenCuentas?.cuentas ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nombre} ({c.moneda?.simbolo} {c.moneda?.codigo}) — Saldo: {c.moneda?.simbolo} {Number(c.saldoActual).toFixed(2)}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <p className="text-xs text-muted-foreground -mt-2">Se generará un movimiento de salida automático en esta cuenta por el monto del saldo de apertura.</p>
           <FormField label="Observaciones"><Textarea {...abrirForm.register('observaciones')} /></FormField>
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="secondary" type="button" onClick={() => { setShowAbrir(false); abrirForm.reset(); }}>Cancelar</Button>

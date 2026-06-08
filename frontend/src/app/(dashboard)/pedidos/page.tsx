@@ -263,6 +263,11 @@ export default function PedidosPage() {
                 {!rentabilidad.conductor && (
                   <p className="text-xs text-muted-foreground mb-3">Este pedido aún no está incluido en ninguna liquidación, por lo que no se pueden estimar sus gastos asociados.</p>
                 )}
+                {rentabilidad.conductor && rentabilidad.cantidadPedidosLiquidacion > 1 && (
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Esta liquidación agrupa {rentabilidad.cantidadPedidosLiquidacion} pedidos: los gastos y el combustible mostrados corresponden solo a la parte proporcional (1/{rentabilidad.cantidadPedidosLiquidacion}) que le toca a este pedido.
+                  </p>
+                )}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-center">
                   <div>
                     <p className="text-xs text-muted-foreground">Ganancia (facturado)</p>

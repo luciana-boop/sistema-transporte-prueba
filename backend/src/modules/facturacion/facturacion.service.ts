@@ -29,6 +29,7 @@ export interface CreateFacturaDto {
   tipoCredito?: string;
   diasCredito?: number;
   guiaReferencia?: string;
+  peso?: number;
   detalle?: string;
   fechaEmision?: string;
   fechaVencimiento?: string;
@@ -215,9 +216,20 @@ export class FacturacionService {
     const existe = await prisma.factura.findUnique({ where: { numeroFactura } });
     if (existe) throw new Error(`El número de factura ${numeroFactura} ya existe`);
 
+    const lineas = dto.lineas ?? [];
     const porcentaje = dto.porcentajeIgv ?? 18;
-    const igv = Math.round((dto.subtotal * porcentaje) / 100 * 100) / 100;
-    const total = Math.round((dto.subtotal + igv) * 100) / 100;
+
+    // El precio ingresado (importe de cada línea) es el PRECIO FINAL: el total
+    // general es la suma de los importes de línea (o dto.subtotal si no hay
+    // líneas), y NO se le vuelve a sumar el IGV. Subtotal e IGV se derivan
+    // del total únicamente para fines tributarios — misma descomposición que
+    // el frontend (calcularDesdeTotal), para que lo mostrado y lo guardado coincidan.
+    const total = lineas.length > 0
+      ? Math.round(lineas.reduce((s, l) => s + l.importe, 0) * 100) / 100
+      : Math.round(dto.subtotal * 100) / 100;
+    const divisorIgv = 1 + porcentaje / 100;
+    const subtotal = Math.round((total / divisorIgv) * 100) / 100;
+    const igv = Math.round((total - subtotal) * 100) / 100;
 
     let montoDetraccion: number | undefined;
     if (dto.porcentajeDetraccion && total > 0) {
@@ -226,7 +238,6 @@ export class FacturacionService {
 
     const fechaEmision = dto.fechaEmision ? new Date(dto.fechaEmision) : new Date();
     const fechaVenc = calcularFechaVencimiento(fechaEmision, dto.tipoCredito, dto.diasCredito);
-    const lineas = dto.lineas ?? [];
 
     return prisma.$transaction(async (tx: any) => {
       const factura = await tx.factura.create({
@@ -237,7 +248,7 @@ export class FacturacionService {
           serie,
           correlativo,
           numeroFactura,
-          subtotal: dto.subtotal,
+          subtotal,
           porcentajeIgv: porcentaje,
           igv,
           total,
@@ -247,6 +258,7 @@ export class FacturacionService {
           tipoCredito: dto.tipoCredito,
           diasCredito: dto.diasCredito,
           guiaReferencia: dto.guiaReferencia,
+          peso: dto.peso,
           detalle: dto.detalle,
           estado: EstadoFactura.EMITIDA,
           fechaEmision,

@@ -27,7 +27,7 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, XCircle, Upload, FileText, Download, Trash2, Eye, ExternalLink, AlertCircle } from 'lucide-react';
 import { useRef } from 'react';
-import { facturacionApi, clientesApi, pedidosApi, configuracionApi } from '@/services/api';
+import api, { facturacionApi, clientesApi, pedidosApi, configuracionApi } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage, ESTADO_FACTURA_LABEL } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -70,6 +70,16 @@ const DIAS_POR_TIPO_CREDITO: Record<string, number> = {
   '60':  60,
 };
 
+// El cliente guarda su condición de pago como enum (no como número de días);
+// se traduce a la opción de "Tipo crédito" del formulario de factura para
+// autocompletar el campo al seleccionar el cliente.
+const CONDICION_PAGO_A_TIPO_CREDITO: Record<string, string> = {
+  CONTADO:    '',
+  CREDITO_15: '15',
+  CREDITO_30: '30',
+  CREDITO_60: '60',
+};
+
 function calcularFechaVencimiento(fechaEmision: string, tipoCredito: string, diasCustom?: number): string {
   if (!fechaEmision) return '';
   const dias =
@@ -79,6 +89,19 @@ function calcularFechaVencimiento(fechaEmision: string, tipoCredito: string, dia
   const d = new Date(fechaEmision + 'T12:00:00'); // evita desfase TZ
   d.setDate(d.getDate() + dias);
   return d.toISOString().split('T')[0];
+}
+
+// ─── Switch (mismo patrón visual que configuracion/page.tsx) ─────────────────
+function Switch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${checked ? 'bg-primary' : 'bg-muted'}`}
+    >
+      <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0'}`} />
+    </button>
+  );
 }
 
 // ─── PARSER XML SUNAT (sin cambios) ──────────────────────────────────────────
@@ -127,11 +150,14 @@ const schema = z.object({
   serie:                z.string().min(2, 'Serie requerida').default('F001'),
   // PARTE 1: fecha de emisión obligatoria
   fechaEmision:         z.string().min(1, 'Fecha de emisión requerida'),
-  porcentajeIgv:        z.string().default('18'),
-  porcentajeDetraccion: z.string().optional(),
+  // El % de IGV ya no es editable: siempre se toma de Configuración.
+  // La detracción ya no se ingresa como porcentaje manual: es un switch
+  // Sí/No, y cuando está activa el porcentaje también viene de Configuración.
+  aplicarDetraccion:    z.boolean().optional(),
   tipoCredito:          z.string().optional(),
   diasCredito:          z.string().optional(),
   guiaReferencia:       z.string().optional(),
+  peso:                 z.string().optional(),
   observaciones:        z.string().optional(),
   // PARTE 3: líneas de detalle (al menos 1)
   lineas: z.array(lineaSchema).min(1, 'Debe agregar al menos una línea'),
@@ -155,6 +181,7 @@ export default function FacturacionPage() {
   // P1: estado de PDF para el modal de detalle
   const [pdfInfo, setPdfInfo] = useState<{ tienePdf: boolean; archivoExiste: boolean; esUrl: boolean } | null>(null);
   const [loadingPdf, setLoadingPdf] = useState(false);
+  const [pdfActionLoading, setPdfActionLoading] = useState<'ver' | 'descargar' | null>(null);
   const [xmlMasivoResult, setXmlMasivoResult] = useState<{
     creadas: number; duplicadas: number; errores: string[];
   } | null>(null);
@@ -219,7 +246,7 @@ export default function FacturacionPage() {
     resolver: zodResolver(schema),
     defaultValues: {
       serie: 'F001',
-      porcentajeIgv: String(config.igvPorcentaje || 18),
+      aplicarDetraccion: false,
       fechaEmision: new Date().toISOString().split('T')[0],
       lineas: [{ cantidad: '1', unidadMedida: 'NIU', codigo: '', descripcion: '', valorUnitario: '', importe: '0' }],
     },
@@ -228,8 +255,14 @@ export default function FacturacionPage() {
   // useFieldArray para el detalle dinámico
   const { fields, append, remove } = useFieldArray({ control, name: 'lineas' });
 
-  const [serieVal, igvVal, pctDetraccionVal, tipoCredito, diasCredito, fechaEmisionVal] =
-    watch(['serie', 'porcentajeIgv', 'porcentajeDetraccion', 'tipoCredito', 'diasCredito', 'fechaEmision']);
+  const [serieVal, aplicarDetraccionVal, tipoCredito, diasCredito, fechaEmisionVal] =
+    watch(['serie', 'aplicarDetraccion', 'tipoCredito', 'diasCredito', 'fechaEmision']);
+
+  // IGV y detracción ya no se ingresan manualmente: el % de IGV viene siempre
+  // de Configuración, y el % de detracción solo se aplica (también desde
+  // Configuración) cuando el switch "Aplicar detracción" está activo.
+  const pctIgvConfig = config.igvPorcentaje || 18;
+  const pctDetraccionConfig = config.detraccionDefault || 0;
 
   const clienteIdVal = watch('clienteId');
   const clienteIdNum = parseInt(clienteIdVal || '0');
@@ -245,13 +278,17 @@ export default function FacturacionPage() {
     enabled: clienteIdNum > 0,
   });
 
-  // Limpiar pedido al cambiar cliente + MEJORA 3: heredar diasCredito del cliente
+  // Limpiar pedido al cambiar cliente + heredar días de crédito del cliente
+  // (el cliente guarda su condición de pago como enum condicionPago, que se
+  // traduce a la opción "Tipo crédito" — de ahí se derivan los días).
   useEffect(() => {
     setValue('pedidoId', '', { shouldValidate: false });
     if (clienteIdVal) {
       const cliente = (clientes as any[]).find((c: any) => String(c.id) === clienteIdVal);
-      if (cliente?.diasCredito != null) {
-        setValue('diasCredito', String(cliente.diasCredito), { shouldValidate: false });
+      if (cliente?.condicionPago != null) {
+        const tipo = CONDICION_PAGO_A_TIPO_CREDITO[cliente.condicionPago] ?? '';
+        setValue('tipoCredito', tipo, { shouldValidate: false });
+        setValue('diasCredito', '', { shouldValidate: false });
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -265,18 +302,15 @@ export default function FacturacionPage() {
     return isFinite(cant) && isFinite(vu) ? Math.round(cant * vu * 100) / 100 : 0;
   });
 
-  // El subtotal es la suma de los importes de líneas (base para IGV)
-  const subtotalLineas = importesLineas.reduce((s, v) => s + v, 0);
+  // El precio ingresado por línea es el PRECIO FINAL (ya incluye IGV): el
+  // Total General es la suma de los importes de las líneas, sin sumarle IGV
+  // de nuevo. Subtotal e IGV se derivan del total solo para fines tributarios
+  // (vía calcularDesdeTotal, que hace la descomposición total → base + IGV).
+  const totalLineas = importesLineas.reduce((s, v) => s + v, 0);
 
-  // IGV y total generales calculados desde el subtotal de líneas
-  const pctIgv = parseFloat(igvVal || '18');
-  const pctDet = parseFloat(pctDetraccionVal || '0');
-  const igvCalc        = Math.round(subtotalLineas * (pctIgv / 100) * 100) / 100;
-  const totalCalc      = Math.round((subtotalLineas + igvCalc) * 100) / 100;
-  const detraccionCalc =
-    isFinite(pctDet) && pctDet > 0
-      ? Math.round(totalCalc * (pctDet / 100) * 100) / 100
-      : undefined;
+  const pctDet = aplicarDetraccionVal ? pctDetraccionConfig : 0;
+  const { subtotal: subtotalLineas, igv: igvCalc, total: totalCalc, detraccion: detraccionCalc } =
+    calcularDesdeTotal(totalLineas, pctIgvConfig, pctDet);
 
   // PARTE 2: fecha de vencimiento calculada automáticamente
   const fechaVencimientoCalc = calcularFechaVencimiento(
@@ -319,11 +353,12 @@ export default function FacturacionPage() {
         pedidoId:             d.pedidoId ? parseInt(d.pedidoId) : undefined,
         serie:                d.serie,
         subtotal:             subtotalLineas,
-        porcentajeIgv:        parseFloat(d.porcentajeIgv || '18'),
-        porcentajeDetraccion: d.porcentajeDetraccion ? parseFloat(d.porcentajeDetraccion) : undefined,
+        porcentajeIgv:        pctIgvConfig,
+        porcentajeDetraccion: d.aplicarDetraccion ? pctDetraccionConfig : undefined,
         tipoCredito:          d.tipoCredito || undefined,
         diasCredito:          d.diasCredito ? parseInt(d.diasCredito) : undefined,
         guiaReferencia:       d.guiaReferencia,
+        peso:                 d.peso ? parseFloat(d.peso) : undefined,
         // El detalle principal se construye desde las líneas (primera línea o todas)
         detalle:              lineasPayload.map((l) => l.descripcion).join(' / ').substring(0, 200),
         fechaEmision:         d.fechaEmision,
@@ -366,6 +401,39 @@ export default function FacturacionPage() {
       setPdfInfo({ tienePdf: false, archivoExiste: false, esUrl: false });
     } finally {
       setLoadingPdf(false);
+    }
+  };
+
+  // El endpoint /pdf exige el header Authorization (igual que el resto de la API),
+  // así que no puede abrirse con un <a href> directo (la navegación del navegador no
+  // envía ese header y el backend responde "Token de acceso requerido"). Se descarga
+  // el PDF como blob a través de la instancia `api` (que sí adjunta el Bearer token)
+  // y se abre/descarga desde una URL de objeto local.
+  const handleAbrirPdf = async (id: number, download: boolean) => {
+    setPdfActionLoading(download ? 'descargar' : 'ver');
+    try {
+      const res = await api.get(`/api/facturacion/${id}/pdf${download ? '?download=1' : ''}`, {
+        responseType: 'blob',
+      });
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      if (download) {
+        const disposition = res.headers?.['content-disposition'] as string | undefined;
+        const filename = disposition?.match(/filename="?([^"]+)"?/)?.[1] || `factura-${id}.pdf`;
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+      setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      toast.error(getErrorMessage(e));
+    } finally {
+      setPdfActionLoading(null);
     }
   };
 
@@ -468,7 +536,7 @@ export default function FacturacionPage() {
             <Button onClick={() => {
               reset({
                 serie: 'F001',
-                porcentajeIgv: String(config.igvPorcentaje || 18),
+                aplicarDetraccion: false,
                 fechaEmision: new Date().toISOString().split('T')[0],
                 lineas: [{ cantidad: '1', unidadMedida: 'NIU', codigo: '', descripcion: '', valorUnitario: '', importe: '0' }],
               });
@@ -693,6 +761,9 @@ export default function FacturacionPage() {
             </FormField>
             <FormField label="Guía de referencia" error={errors.guiaReferencia?.message}>
               <Input placeholder="Número de guía" {...register('guiaReferencia')} />
+            </FormField>
+            <FormField label="Peso (kg)" error={errors.peso?.message}>
+              <Input type="number" step="0.01" min="0" placeholder="Peso del camión/carga" {...register('peso')} />
             </FormField>
           </div>
 
@@ -924,12 +995,12 @@ export default function FacturacionPage() {
                   <p className="text-sm font-medium tabular-nums">{formatCurrency(subtotalLineas)}</p>
                 </div>
                 <div className="px-4 py-2.5 text-right min-w-[140px]">
-                  <p className="text-xs text-muted-foreground">IGV ({igvVal || 18}%)</p>
+                  <p className="text-xs text-muted-foreground">IGV ({pctIgvConfig}%)</p>
                   <p className="text-sm font-medium tabular-nums">{formatCurrency(igvCalc)}</p>
                 </div>
                 {detraccionCalc !== undefined && (
                   <div className="px-4 py-2.5 text-right min-w-[140px]">
-                    <p className="text-xs text-muted-foreground">Detracción ({pctDetraccionVal}%)</p>
+                    <p className="text-xs text-muted-foreground">Detracción ({pctDetraccionConfig}%)</p>
                     <p className="text-sm font-medium text-yellow-600 tabular-nums">{formatCurrency(detraccionCalc)}</p>
                   </div>
                 )}
@@ -942,22 +1013,28 @@ export default function FacturacionPage() {
           </div>
 
           {/* ── SECCIÓN 4: Impuestos y retenciones ── */}
+          {/* IGV y detracción ya no se editan manualmente: ambos provienen de
+              Configuración (igv_porcentaje / detraccion_porcentaje). La detracción
+              solo se aplica si el switch está activo. */}
           <div className="grid grid-cols-2 gap-3">
-            <FormField label="% IGV" error={errors.porcentajeIgv?.message}>
-              <Input
-                type="number"
-                step="0.01"
-                placeholder="18"
-                {...register('porcentajeIgv')}
-              />
+            <FormField label="% IGV (automático)">
+              <div className="h-9 px-3 flex items-center rounded-md border border-border bg-muted text-sm text-muted-foreground">
+                {pctIgvConfig}% — definido en Configuración
+              </div>
             </FormField>
-            <FormField label="% Detracción" error={errors.porcentajeDetraccion?.message}>
-              <Input
-                type="number"
-                step="0.01"
-                placeholder="0"
-                {...register('porcentajeDetraccion')}
-              />
+            <FormField label="Detracción">
+              <div className="h-9 px-3 flex items-center justify-between gap-2 rounded-md border border-border">
+                <span className="text-sm">
+                  Aplicar detracción
+                  {aplicarDetraccionVal && (
+                    <span className="text-muted-foreground"> ({pctDetraccionConfig}% — desde Configuración)</span>
+                  )}
+                </span>
+                <Switch
+                  checked={!!aplicarDetraccionVal}
+                  onChange={(v) => setValue('aplicarDetraccion', v, { shouldValidate: false })}
+                />
+              </div>
             </FormField>
           </div>
 
@@ -1099,6 +1176,12 @@ export default function FacturacionPage() {
                   <p className="text-sm font-mono">{viewing.guiaReferencia}</p>
                 </div>
               )}
+              {viewing.peso != null && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Peso</p>
+                  <p className="text-sm">{Number(viewing.peso).toLocaleString('es-PE')} kg</p>
+                </div>
+              )}
             </div>
 
             {/* Líneas de detalle */}
@@ -1197,20 +1280,22 @@ export default function FacturacionPage() {
               ) : pdfInfo?.tienePdf && pdfInfo?.archivoExiste ? (
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="text-xs text-muted-foreground flex-1">PDF disponible</p>
-                  <a
-                    href={facturacionApi.pdfUrl(viewing.id, false)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                  <button
+                    type="button"
+                    disabled={pdfActionLoading !== null}
+                    onClick={() => handleAbrirPdf(viewing.id, false)}
+                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
                   >
-                    <ExternalLink className="w-3.5 h-3.5" /> Ver PDF
-                  </a>
-                  <a
-                    href={facturacionApi.pdfUrl(viewing.id, true)}
-                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-border hover:bg-accent transition-colors"
+                    <ExternalLink className="w-3.5 h-3.5" /> {pdfActionLoading === 'ver' ? 'Abriendo...' : 'Ver PDF'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pdfActionLoading !== null}
+                    onClick={() => handleAbrirPdf(viewing.id, true)}
+                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-50"
                   >
-                    <Download className="w-3.5 h-3.5" /> Descargar
-                  </a>
+                    <Download className="w-3.5 h-3.5" /> {pdfActionLoading === 'descargar' ? 'Descargando...' : 'Descargar'}
+                  </button>
                 </div>
               ) : viewing.pdfPath ? (
                 <div className="flex items-center gap-2 text-xs text-amber-500">

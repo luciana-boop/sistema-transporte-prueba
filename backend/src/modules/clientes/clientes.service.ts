@@ -1,7 +1,7 @@
 // FILE: src/modules/clientes/clientes.service.ts
 
 import prisma from '../../prisma/client';
-import { CondicionPago } from '../../utils/enums';
+import { CondicionPago, EstadoPedido } from '../../utils/enums';
 
 export interface CreateClienteDto {
   razonSocial: string;
@@ -118,15 +118,19 @@ export class ClientesService {
     const [totalPedidos, totalFacturado, totalPagado, pedidosPendientes] = await Promise.all([
       prisma.pedido.count({ where: { clienteId: id } }),
       prisma.factura.aggregate({
-        where: { clienteId: id },
+        where: { clienteId: id, estado: { not: 'ANULADA' } },
         _sum: { total: true },
       }),
       prisma.pago.aggregate({
-        where: { clienteId: id },
+        where: { clienteId: id, anulado: false },
         _sum: { monto: true },
       }),
       prisma.pedido.count({
-        where: { clienteId: id, estado: { in: ['PENDIENTE', 'EN_RUTA'] } },
+        // El enum EstadoPedido solo admite ACTIVO | FACTURADO | ANULADO; los
+        // valores 'PENDIENTE'/'EN_RUTA' no existen y hacían fallar la consulta
+        // (Promise.all rechazaba y la sección de estadísticas quedaba vacía).
+        // "Pendiente" para un cliente equivale a un pedido aún ACTIVO (no facturado ni anulado).
+        where: { clienteId: id, estado: EstadoPedido.ACTIVO },
       }),
     ]);
 

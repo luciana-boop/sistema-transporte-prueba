@@ -30,11 +30,13 @@ export type ModuloKey = typeof MODULOS[keyof typeof MODULOS];
 // Acciones especiales que requieren permiso explícito
 // El 'key' debe coincidir con accionKey en la tabla permisos_acciones
 export const ACCIONES = {
-  ANULAR_FACTURA:     'anular_factura',
-  ANULAR_BOLETA:      'anular_boleta',
-  ANULAR_SERVICIO:    'anular_servicio',
-  ANULAR_COBRANZA:    'anular_cobranza',
-  ANULAR_COMPROBANTE: 'anular_comprobante',
+  ANULAR_FACTURA:           'anular_factura',
+  ANULAR_BOLETA:            'anular_boleta',
+  ANULAR_SERVICIO:          'anular_servicio',
+  ANULAR_COBRANZA:          'anular_cobranza',
+  ANULAR_COMPROBANTE:       'anular_comprobante',
+  ANULAR_MOVIMIENTO_CAJA:   'anular_movimiento_caja',
+  ANULAR_MOVIMIENTO_CUENTA: 'anular_movimiento_cuenta',
 } as const;
 
 export type AccionKey = typeof ACCIONES[keyof typeof ACCIONES];
@@ -60,11 +62,13 @@ export const MODULOS_META: Record<ModuloKey, { label: string; descripcion: strin
 };
 
 export const ACCIONES_META: Record<AccionKey, { label: string; descripcion: string; modulo: ModuloKey }> = {
-  anular_factura:     { label: 'Anular factura',     descripcion: 'Permite anular facturas emitidas',       modulo: 'facturacion' },
-  anular_boleta:      { label: 'Anular boleta',      descripcion: 'Permite anular boletas emitidas',        modulo: 'facturacion' },
-  anular_servicio:    { label: 'Anular servicio',    descripcion: 'Permite anular servicios/pedidos',       modulo: 'pedidos' },
-  anular_cobranza:    { label: 'Anular cobranza',    descripcion: 'Permite anular registros de cobranza',   modulo: 'cobranza' },
-  anular_comprobante: { label: 'Anular comprobante', descripcion: 'Permite anular comprobantes de pago',    modulo: 'cobranza' },
+  anular_factura:           { label: 'Anular factura',           descripcion: 'Permite anular facturas emitidas',                              modulo: 'facturacion' },
+  anular_boleta:            { label: 'Anular boleta',            descripcion: 'Permite anular boletas emitidas',                               modulo: 'facturacion' },
+  anular_servicio:          { label: 'Anular servicio',          descripcion: 'Permite anular servicios/pedidos',                              modulo: 'pedidos' },
+  anular_cobranza:          { label: 'Anular cobranza',          descripcion: 'Permite anular registros de cobranza',                          modulo: 'cobranza' },
+  anular_comprobante:       { label: 'Anular comprobante',       descripcion: 'Permite anular comprobantes de pago',                           modulo: 'cobranza' },
+  anular_movimiento_caja:   { label: 'Anular movimiento de caja',  descripcion: 'Permite anular movimientos manuales de una caja diaria',       modulo: 'caja' },
+  anular_movimiento_cuenta: { label: 'Anular movimiento de cuenta', descripcion: 'Permite anular movimientos de cuentas (revierte el saldo)',   modulo: 'configuracion' },
 };
 
 // Arrays para iterar (útil en seeds y en la UI)

@@ -7,28 +7,50 @@ export class BackupService {
     const [
       usuarios, clientes, pedidos, facturas, pagos,
       cajas, gastos, conductores, vehiculos,
-      liquidaciones, combustible,
+      liquidaciones, combustible, logsActividad,
+      configuraciones, seriesFacturacion, categoriasGasto, tablasMaestras,
+      configuracionAlertas, tiposVehiculo,
+      permisosModulos, permisosAcciones,
+      monedas, tiposPago, cuentasDinero, movimientosCuenta, pagosV2,
     ] = await Promise.all([
       prisma.usuario.findMany({ select: { id: true, nombre: true, email: true, rol: true, activo: true, creadoEn: true } }),
       prisma.cliente.findMany(),
       prisma.pedido.findMany(),
-      prisma.factura.findMany(),
+      prisma.factura.findMany({ include: { lineas: true } }),
       prisma.pago.findMany(),
       prisma.caja.findMany({ include: { movimientos: true } }),
       prisma.gasto.findMany(),
       prisma.conductor.findMany(),
       prisma.vehiculo.findMany(),
-      prisma.liquidacion.findMany({ include: { detalles: true } }),
+      prisma.liquidacion.findMany({ include: { detalles: true, pedidos: true } }),
       prisma.combustible.findMany(),
+      prisma.logActividad.findMany(),
+      prisma.configuracion.findMany(),
+      prisma.serieFacturacion.findMany(),
+      prisma.categoriaGasto.findMany(),
+      prisma.tablaMaestra.findMany(),
+      prisma.configuracionAlerta.findMany(),
+      prisma.tipoVehiculoConfig.findMany(),
+      prisma.permisoModulo.findMany(),
+      prisma.permisoAccion.findMany(),
+      prisma.moneda.findMany(),
+      prisma.tipoPago.findMany(),
+      prisma.cuentaDinero.findMany(),
+      prisma.movimientoCuentaV2.findMany(),
+      prisma.pagoV2.findMany(),
     ]);
 
     return {
-      version: '2.0',
+      version: '3.0',
       exportadoEn: new Date().toISOString(),
       data: {
         usuarios, clientes, pedidos, facturas, pagos,
         cajas, gastos, conductores, vehiculos,
-        liquidaciones, combustible,
+        liquidaciones, combustible, logsActividad,
+        configuraciones, seriesFacturacion, categoriasGasto, tablasMaestras,
+        configuracionAlertas, tiposVehiculo,
+        permisosModulos, permisosAcciones,
+        monedas, tiposPago, cuentasDinero, movimientosCuenta, pagosV2,
       },
     };
   }
@@ -105,6 +127,115 @@ export class BackupService {
         } catch { /* skip */ }
       }
       resultados.clientes = data.clientes.length;
+    }
+
+    // Datos maestros / de configuración: se restauran por upsert sobre su clave
+    // de negocio única, igual que conductores/vehículos/clientes arriba. No se
+    // tocan datos transaccionales (pedidos, facturas, pagos, cajas, liquidaciones,
+    // movimientos, etc.): restaurarlos requeriría reordenar por dependencias FK
+    // y podría duplicar saldos y movimientos ya existentes en el sistema destino.
+    if (Array.isArray(data.categoriasGasto)) {
+      for (const c of data.categoriasGasto) {
+        try {
+          await prisma.categoriaGasto.upsert({
+            where: { codigo: c.codigo },
+            update: { nombre: c.nombre, descripcion: c.descripcion, activo: c.activo, esDefault: c.esDefault },
+            create: { codigo: c.codigo, nombre: c.nombre, descripcion: c.descripcion, activo: c.activo ?? true, esDefault: c.esDefault ?? false },
+          });
+        } catch { /* skip */ }
+      }
+      resultados.categoriasGasto = data.categoriasGasto.length;
+    }
+
+    if (Array.isArray(data.tablasMaestras)) {
+      for (const t of data.tablasMaestras) {
+        try {
+          await prisma.tablaMaestra.upsert({
+            where: { tipo_codigo: { tipo: t.tipo, codigo: t.codigo } },
+            update: { nombre: t.nombre, descripcion: t.descripcion, extra: t.extra, activo: t.activo, orden: t.orden },
+            create: { tipo: t.tipo, codigo: t.codigo, nombre: t.nombre, descripcion: t.descripcion, extra: t.extra, activo: t.activo ?? true, orden: t.orden ?? 0 },
+          });
+        } catch { /* skip */ }
+      }
+      resultados.tablasMaestras = data.tablasMaestras.length;
+    }
+
+    if (Array.isArray(data.monedas)) {
+      for (const m of data.monedas) {
+        try {
+          await prisma.moneda.upsert({
+            where: { codigo: m.codigo },
+            update: { nombre: m.nombre, simbolo: m.simbolo, esPorDefecto: m.esPorDefecto, activo: m.activo },
+            create: { codigo: m.codigo, nombre: m.nombre, simbolo: m.simbolo, esPorDefecto: m.esPorDefecto ?? false, activo: m.activo ?? true },
+          });
+        } catch { /* skip */ }
+      }
+      resultados.monedas = data.monedas.length;
+    }
+
+    if (Array.isArray(data.tiposPago)) {
+      for (const t of data.tiposPago) {
+        try {
+          await prisma.tipoPago.upsert({
+            where: { codigo: t.codigo },
+            update: { nombre: t.nombre, descripcion: t.descripcion, orden: t.orden, activo: t.activo },
+            create: { codigo: t.codigo, nombre: t.nombre, descripcion: t.descripcion, orden: t.orden ?? 0, activo: t.activo ?? true },
+          });
+        } catch { /* skip */ }
+      }
+      resultados.tiposPago = data.tiposPago.length;
+    }
+
+    if (Array.isArray(data.seriesFacturacion)) {
+      for (const s of data.seriesFacturacion) {
+        try {
+          await prisma.serieFacturacion.upsert({
+            where: { serie: s.serie },
+            update: { tipoDocumento: s.tipoDocumento, correlativoActual: s.correlativoActual, correlativoInicial: s.correlativoInicial, activo: s.activo, descripcion: s.descripcion },
+            create: { serie: s.serie, tipoDocumento: s.tipoDocumento ?? 'FACTURA', correlativoActual: s.correlativoActual ?? 1, correlativoInicial: s.correlativoInicial ?? 1, activo: s.activo ?? true, descripcion: s.descripcion },
+          });
+        } catch { /* skip */ }
+      }
+      resultados.seriesFacturacion = data.seriesFacturacion.length;
+    }
+
+    if (Array.isArray(data.configuraciones)) {
+      for (const c of data.configuraciones) {
+        try {
+          await prisma.configuracion.upsert({
+            where: { clave: c.clave },
+            update: { valor: c.valor, tipo: c.tipo, categoria: c.categoria, etiqueta: c.etiqueta, descripcion: c.descripcion },
+            create: { clave: c.clave, valor: c.valor, tipo: c.tipo ?? 'texto', categoria: c.categoria ?? 'general', etiqueta: c.etiqueta, descripcion: c.descripcion },
+          });
+        } catch { /* skip */ }
+      }
+      resultados.configuraciones = data.configuraciones.length;
+    }
+
+    if (Array.isArray(data.configuracionAlertas)) {
+      for (const c of data.configuracionAlertas) {
+        try {
+          await prisma.configuracionAlerta.upsert({
+            where: { clave: c.clave },
+            update: { etiqueta: c.etiqueta, diasAnticipacion: c.diasAnticipacion, activo: c.activo, color: c.color, nivel: c.nivel },
+            create: { clave: c.clave, etiqueta: c.etiqueta, diasAnticipacion: c.diasAnticipacion ?? 30, activo: c.activo ?? true, color: c.color ?? 'yellow', nivel: c.nivel ?? 'warning' },
+          });
+        } catch { /* skip */ }
+      }
+      resultados.configuracionAlertas = data.configuracionAlertas.length;
+    }
+
+    if (Array.isArray(data.tiposVehiculo)) {
+      for (const t of data.tiposVehiculo) {
+        try {
+          await prisma.tipoVehiculoConfig.upsert({
+            where: { codigo: t.codigo },
+            update: { nombre: t.nombre, descripcion: t.descripcion, activo: t.activo },
+            create: { codigo: t.codigo, nombre: t.nombre, descripcion: t.descripcion, activo: t.activo ?? true },
+          });
+        } catch { /* skip */ }
+      }
+      resultados.tiposVehiculo = data.tiposVehiculo.length;
     }
 
     return { message: 'Backup restaurado correctamente', resultados };

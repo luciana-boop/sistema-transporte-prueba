@@ -152,6 +152,7 @@ model Factura {
   tipoCredito      String?       @map("tipo_credito")
   diasCredito      Int?          @map("dias_credito")
   guiaReferencia   String?       @map("guia_referencia")
+  peso             Decimal?      @db.Decimal(10, 2)
   detalle          String?
   estado           EstadoFactura @default(EMITIDA)
   estadoSunat      String?       @map("estado_sunat")
@@ -225,12 +226,17 @@ model Caja {
   saldoCierre     Decimal?   @map("saldo_cierre") @db.Decimal(10, 2)
   estado          EstadoCaja @default(ABIERTA)
   observaciones   String?
+  // Cuenta de dinero de la que se retira el efectivo de apertura (genera un
+  // movimiento de salida automático en esa cuenta). Nullable solo por
+  // compatibilidad con cajas históricas; el flujo de apertura la exige.
+  cuentaOrigenId  Int?       @map("cuenta_origen_id")
   aperturaEn      DateTime   @default(now()) @map("apertura_en")
   cierreEn        DateTime?  @map("cierre_en")
   creadoEn        DateTime   @default(now()) @map("creado_en")
   actualizadoEn   DateTime   @updatedAt @map("actualizado_en")
 
-  usuario         Usuario    @relation(fields: [usuarioId], references: [id])
+  usuario         Usuario       @relation(fields: [usuarioId], references: [id])
+  cuentaOrigen    CuentaDinero? @relation(fields: [cuentaOrigenId], references: [id])
   movimientos     MovimientoCaja[]
 
   @@map("cajas")
@@ -610,6 +616,8 @@ model CuentaDinero {
   moneda        Moneda   @relation(fields: [monedaId], references: [id])
   movimientos   MovimientoCuentaV2[] @relation("CuentaOrigen")
   movimientosDestino MovimientoCuentaV2[] @relation("CuentaDestino")
+  // Cajas abiertas tomando esta cuenta como origen de los fondos de apertura
+  cajasOrigen   Caja[]
 
   @@map("cuentas_dinero")
 }

@@ -172,12 +172,22 @@ export class PedidosService {
   // ── P5: rentabilidad por conductor ───────────────────────────────────────────
   // Gasto.pedidoId fue eliminado (los gastos ahora se asocian a un vehículo, no a
   // un pedido), así que la rentabilidad ya no se calcula por gastos directos.
-  // Nuevo cálculo, definido por el usuario:
+  // Cálculo, definido por el usuario:
   //   ganancia = total facturado del pedido (facturas no anuladas)
-  //   gastos   = total de gastos de la liquidación del conductor que hizo el
-  //              pedido (liquidacion.totalGastos) + combustible asociado a esa
-  //              misma liquidación (Combustible.liquidacionId)
+  //   gastos   = parte proporcional que le corresponde a este pedido del total de
+  //              gastos de la liquidación del conductor (liquidacion.totalGastos)
+  //              y del combustible asociado a esa misma liquidación
+  //              (Combustible.liquidacionId)
   //   rentabilidad = ganancia − gastos
+  //
+  // Una liquidación puede agrupar varios pedidos (LiquidacionPedido es una tabla
+  // de unión N:N sin un campo de "parte correspondiente"). Antes se imputaba el
+  // gasto TOTAL de la liquidación y del combustible a CADA pedido asociado, lo
+  // que multiplicaba el costo real por la cantidad de pedidos compartidos y
+  // arrojaba una rentabilidad falsa (muy negativa) para todos ellos. Como no
+  // existe ningún criterio de reparto guardado (tarifa, peso, distancia, etc.),
+  // se distribuye el costo en partes iguales entre los pedidos que comparten la
+  // liquidación, de modo que cada uno asuma solo la fracción que le corresponde.
   async rentabilidad(id: number) {
     await this.findById(id);
 
@@ -187,22 +197,30 @@ export class PedidosService {
       orderBy: { creadoEn: 'desc' },
       include: {
         liquidacion: {
-          include: { conductor: { select: { id: true, nombre: true } } },
+          include: {
+            conductor: { select: { id: true, nombre: true } },
+            pedidos: { select: { pedidoId: true } },
+          },
         },
       },
     });
     const liquidacion = liqPedido?.liquidacion ?? null;
+    const cantidadPedidosLiquidacion = liquidacion ? liquidacion.pedidos.length || 1 : 1;
 
-    let totalCombustible = 0;
+    let totalCombustibleLiquidacion = 0;
     if (liquidacion) {
       const agregadoCombustible = await prisma.combustible.aggregate({
         where: { liquidacionId: liquidacion.id },
         _sum: { monto: true },
       });
-      totalCombustible = Number(agregadoCombustible._sum.monto || 0);
+      totalCombustibleLiquidacion = Number(agregadoCombustible._sum.monto || 0);
     }
     const totalGastosLiquidacion = liquidacion ? Number(liquidacion.totalGastos) : 0;
-    const totalGastos = totalGastosLiquidacion + totalCombustible;
+
+    // Parte proporcional (en partes iguales) que le corresponde a este pedido
+    const gastosLiquidacion = Math.round((totalGastosLiquidacion / cantidadPedidosLiquidacion) * 100) / 100;
+    const totalCombustible = Math.round((totalCombustibleLiquidacion / cantidadPedidosLiquidacion) * 100) / 100;
+    const totalGastos = gastosLiquidacion + totalCombustible;
 
     // Ganancia = total facturado de este pedido (facturas no anuladas)
     const agregadoFacturas = await prisma.factura.aggregate({
@@ -218,11 +236,12 @@ export class PedidosService {
       pedidoId: id,
       conductor: liquidacion?.conductor ?? null,
       ganancia,
-      totalGastosLiquidacion,
+      totalGastosLiquidacion: gastosLiquidacion,
       totalCombustible,
       totalGastos,
       utilidadNeta: utilidad,
       margenPorcentaje: Math.round(margen * 100) / 100,
+      cantidadPedidosLiquidacion,
     };
   }
 }

@@ -1,17 +1,17 @@
 // FILE: src/app/(dashboard)/reportes/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportesApi } from '@/services/api';
-import { formatCurrency, formatDate, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL, METODO_PAGO_LABEL, TIPO_GASTO_LABEL } from '@/lib/utils';
+import { formatCurrency, formatDate, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL, METODO_PAGO_LABEL, TIPO_GASTO_LABEL, CLASIFICACION_MES_LABEL } from '@/lib/utils';
 import {
   PageHeader, Table, Th, Td, Tr, Badge, TableSkeleton,
   EmptyState, StatCard, Input, Select,
 } from '@/components/shared';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+  PieChart, Pie, Cell, Legend, LineChart, Line,
 } from 'recharts';
 
 const TABS = [
@@ -20,6 +20,7 @@ const TABS = [
   { id: 'cobranza',    label: 'Cobranza' },
   { id: 'caja',        label: 'Caja' },
   { id: 'gastos',      label: 'Gastos' },
+  { id: 'anual',       label: 'Reporte Anual' },
 ];
 
 const COLORS = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4'];
@@ -31,6 +32,7 @@ export default function ReportesPage() {
     const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().split('T')[0];
   });
   const [hasta, setHasta] = useState(() => new Date().toISOString().split('T')[0]);
+  const [anioReporte, setAnioReporte] = useState(() => new Date().getFullYear());
 
   const params = { desde: desde || undefined, hasta: hasta || undefined };
 
@@ -64,28 +66,62 @@ export default function ReportesPage() {
     enabled: tab === 'gastos',
   });
 
-  const isLoading = lPedidos || lFac || lCob || lCaja || lGastos;
+  const { data: anualData, isLoading: lAnual } = useQuery({
+    queryKey: ['reporte', 'anual', anioReporte],
+    queryFn: () => reportesApi.anual({ anio: anioReporte }).then((r) => r.data.data),
+    enabled: tab === 'anual',
+  });
+
+  // Distribución de pedidos por cliente (gráfico circular), derivada del listado
+  // ya cargado por el reporte — sin necesidad de un endpoint adicional.
+  const pedidosPorCliente = useMemo(() => {
+    const conteo = new Map<string, number>();
+    for (const p of pedidosData?.pedidos ?? []) {
+      const nombre = p.cliente?.razonSocial ?? 'Sin cliente';
+      conteo.set(nombre, (conteo.get(nombre) ?? 0) + 1);
+    }
+    return Array.from(conteo.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [pedidosData]);
+
+  const isLoading = lPedidos || lFac || lCob || lCaja || lGastos || lAnual;
+
+  // El Reporte Anual opera sobre un año completo, no sobre un rango de fechas
+  const aniosDisponibles = useMemo(() => {
+    const actual = new Date().getFullYear();
+    return Array.from({ length: 6 }, (_, i) => actual - i);
+  }, []);
 
   return (
     <div className="page-container">
       <PageHeader title="Reportes" description="Análisis por módulo y período" />
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-center">
+      {tab === 'anual' ? (
         <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground">Desde</label>
-          <Input type="date" className="w-36" value={desde} onChange={(e) => setDesde(e.target.value)} />
+          <label className="text-xs text-muted-foreground">Año</label>
+          <Select className="w-28" value={anioReporte} onChange={(e) => setAnioReporte(parseInt(e.target.value))}>
+            {aniosDisponibles.map((a) => <option key={a} value={a}>{a}</option>)}
+          </Select>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground">Hasta</label>
-          <Input type="date" className="w-36" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+      ) : (
+        <div className="flex flex-wrap gap-3 items-center">
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground">Desde</label>
+            <Input type="date" className="w-36" value={desde} onChange={(e) => setDesde(e.target.value)} />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground">Hasta</label>
+            <Input type="date" className="w-36" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+          </div>
+          {(desde || hasta) && (
+            <button onClick={() => { setDesde(''); setHasta(''); }} className="text-xs text-muted-foreground hover:text-destructive transition-colors">
+              × Limpiar filtros
+            </button>
+          )}
         </div>
-        {(desde || hasta) && (
-          <button onClick={() => { setDesde(''); setHasta(''); }} className="text-xs text-muted-foreground hover:text-destructive transition-colors">
-            × Limpiar filtros
-          </button>
-        )}
-      </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-muted p-1 rounded-lg w-fit flex-wrap">
@@ -109,7 +145,7 @@ export default function ReportesPage() {
                 <StatCard label="Total pedidos" value={pedidosData.totales.cantidad} color="default" />
                 <StatCard label="Tarifa total" value={formatCurrency(pedidosData.totales.tarifaTotal)} color="blue" />
               </div>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div className="bg-card border border-border rounded-xl p-5">
                   <p className="text-sm font-semibold mb-4">Pedidos por estado</p>
                   <ResponsiveContainer width="100%" height={180}>
@@ -122,6 +158,25 @@ export default function ReportesPage() {
                       <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
                     </PieChart>
                   </ResponsiveContainer>
+                </div>
+                <div className="bg-card border border-border rounded-xl p-5">
+                  <p className="text-sm font-semibold mb-4">Pedidos por cliente</p>
+                  {pedidosPorCliente.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={180}>
+                      <PieChart>
+                        <Pie data={pedidosPorCliente}
+                          cx="50%" cy="50%" outerRadius={70} dataKey="value" paddingAngle={3}>
+                          {pedidosPorCliente.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                        </Pie>
+                        <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} />
+                        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-[180px] flex items-center justify-center text-sm text-muted-foreground">
+                      Sin pedidos en el período seleccionado
+                    </div>
+                  )}
                 </div>
                 <div className="bg-card border border-border rounded-xl p-5">
                   <p className="text-sm font-semibold mb-4">Tarifas por estado</p>
@@ -290,6 +345,82 @@ export default function ReportesPage() {
                 )) : <tr><td colSpan={5}><EmptyState /></td></tr>}
               </tbody>
             </Table>
+          )}
+        </div>
+      )}
+
+      {/* ── REPORTE ANUAL ── */}
+      {tab === 'anual' && (
+        <div className="flex flex-col gap-4">
+          {lAnual ? <TableSkeleton rows={12} cols={7} /> : anualData && (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard label="Pedidos del año" value={anualData.totales.pedidos} color="default" />
+                <StatCard label="Facturado" value={formatCurrency(anualData.totales.facturado)} color="blue" />
+                <StatCard label="Cobrado" value={formatCurrency(anualData.totales.cobrado)} color="green" />
+                <StatCard label="Gastos" value={formatCurrency(anualData.totales.gastos)} color="red" />
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard label="Utilidad anual" value={formatCurrency(anualData.totales.utilidad)} color={anualData.totales.utilidad >= 0 ? 'green' : 'red'} />
+                <StatCard label="Promedio mensual de utilidad" value={formatCurrency(anualData.promedioUtilidadMensual)} color="default" />
+              </div>
+
+              {/* Resumen mensual */}
+              <div className="bg-card border border-border rounded-xl p-5">
+                <p className="text-sm font-semibold mb-1">Resumen mensual {anualData.anio}</p>
+                <p className="text-xs text-muted-foreground mb-4">Cobrado, gastos y utilidad por mes (línea punteada: promedio anual de utilidad)</p>
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={anualData.meses.map((m) => ({ name: m.nombreMes.slice(0, 3), cobrado: m.cobrado, gastos: m.gastos, utilidad: m.utilidad }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v) => `S/${(v/1000).toFixed(0)}k`} />
+                    <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} formatter={(v: number, name: string) => [formatCurrency(v), name]} />
+                    <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                    <Line type="monotone" dataKey="cobrado" name="Cobrado" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                    <Line type="monotone" dataKey="gastos" name="Gastos" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
+                    <Line type="monotone" dataKey="utilidad" name="Utilidad" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Tabla anual con clasificación */}
+              <div>
+                <p className="text-sm font-semibold mb-1">Tabla anual {anualData.anio}</p>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Cada mes se clasifica comparando su utilidad (cobrado − gastos) contra el promedio anual de {formatCurrency(anualData.promedioUtilidadMensual)}:
+                  {' '}<span className="font-medium text-emerald-500">Buen mes</span> (10% o más por encima),
+                  {' '}<span className="font-medium text-yellow-500">Mes regular</span> (cercano al promedio),
+                  {' '}<span className="font-medium text-destructive">Mal mes</span> (10% o más por debajo).
+                </p>
+                <Table>
+                  <thead>
+                    <tr>
+                      <Th>Mes</Th>
+                      <Th>Pedidos</Th>
+                      <Th>Facturado</Th>
+                      <Th>Cobrado</Th>
+                      <Th>Gastos</Th>
+                      <Th>Utilidad</Th>
+                      <Th>Clasificación</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {anualData.meses.map((m) => (
+                      <Tr key={m.mes}>
+                        <Td><span className="text-sm font-medium">{m.nombreMes}</span></Td>
+                        <Td><span className="text-sm">{m.pedidos}</span></Td>
+                        <Td><span className="text-sm">{formatCurrency(m.facturado)}</span></Td>
+                        <Td><span className="text-sm text-emerald-500">{formatCurrency(m.cobrado)}</span></Td>
+                        <Td><span className="text-sm text-red-500">{formatCurrency(m.gastos)}</span></Td>
+                        <Td><span className={`text-sm font-semibold ${m.utilidad >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>{formatCurrency(m.utilidad)}</span></Td>
+                        <Td><Badge value={m.clasificacion} label={CLASIFICACION_MES_LABEL[m.clasificacion]} /></Td>
+                      </Tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
+            </>
           )}
         </div>
       )}

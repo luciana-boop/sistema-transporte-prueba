@@ -1,7 +1,9 @@
 // FILE: src/services/api.ts
 // FIX PROBLEMA 2: cobranzaApi.registrarPago acepta cuentaId obligatorio.
 // MEJORA: gastosApi.obtener agregado para vistas de detalle.
-// v2 P1: facturacionApi añade pdfInfo() y pdfUrl() para visualización/descarga de PDF.
+// v2 P1: facturacionApi añade pdfInfo() para verificar disponibilidad del PDF
+// (la descarga/visualización se hace con la instancia `api` + responseType: 'blob'
+// porque el endpoint /pdf exige el header Authorization, que un <a href> no envía).
 // v2 P3: liquidacionesApi añade cajasAbiertas, pagar, reintegro, devolucion, historialFinanciero.
 
 import axios from 'axios';
@@ -88,6 +90,7 @@ export const pedidosApi = {
       totalGastos: number;
       utilidadNeta: number;
       margenPorcentaje: number;
+      cantidadPedidosLiquidacion: number;
     }>>(`/api/pedidos/${id}/rentabilidad`),
   crear: (data: {
     clienteId: number; origen: string; destino: string;
@@ -112,17 +115,10 @@ export const facturacionApi = {
   pdfInfo: (id: number) =>
     api.get<ApiResponse<{ tienePdf: boolean; pdfPath: string | null; esUrl: boolean; archivoExiste: boolean }>>(`/api/facturacion/${id}/pdf-info`),
 
-  // P1: URL directa al PDF para abrir en nueva pestaña o iframe
-  // download=true → fuerza descarga, download=false → abre inline
-  pdfUrl: (id: number, download = false) => {
-    const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-    return `${base}/api/facturacion/${id}/pdf${download ? '?download=1' : ''}`;
-  },
-
   crear: (data: {
     clienteId: number; pedidoId?: number; serie?: string; subtotal: number;
     porcentajeIgv?: number; detraccion?: number; porcentajeDetraccion?: number;
-    tipoCredito?: string; diasCredito?: number; guiaReferencia?: string; detalle?: string;
+    tipoCredito?: string; diasCredito?: number; guiaReferencia?: string; peso?: number; detalle?: string;
     fechaEmision: string; observaciones?: string;
     lineas?: Array<{
       orden?: number; cantidad: number; unidadMedida?: string; codigo: string;
@@ -172,7 +168,7 @@ export const cajaApi = {
     api.get<ApiResponse<Caja[]>>('/api/caja', { params }),
   obtener: (id: number) => api.get<ApiResponse<Caja>>(`/api/caja/${id}`),
   actual: () => api.get<ApiResponse<Caja | null>>('/api/caja/actual'),
-  abrir: (data: { saldoApertura: number; nombre?: string; observaciones?: string }) =>
+  abrir: (data: { saldoApertura: number; cuentaOrigenId: number; nombre?: string; observaciones?: string }) =>
     api.post<ApiResponse<Caja>>('/api/caja/abrir', data),
   cerrar: (id: number, data: { saldoCierre: number; observaciones?: string }) =>
     api.patch<ApiResponse<Caja>>(`/api/caja/${id}/cerrar`, data),
@@ -211,6 +207,50 @@ export const gastosApi = {
 export const reportesApi = {
   dashboard: (params?: { desde?: string; hasta?: string }) =>
     api.get<ApiResponse<import('@/types').DashboardData>>('/api/reportes/dashboard', { params }),
+  pedidos: (params?: { desde?: string; hasta?: string; clienteId?: number }) =>
+    api.get<ApiResponse<{
+      pedidos: Pedido[];
+      resumenEstados: Array<{ estado: string; cantidad: number; totalTarifas: number }>;
+      totales: { cantidad: number; tarifaTotal: number };
+    }>>('/api/reportes/pedidos', { params }),
+  anual: (params?: { anio?: number }) =>
+    api.get<ApiResponse<{
+      anio: number;
+      promedioUtilidadMensual: number;
+      meses: Array<{
+        mes: number;
+        nombreMes: string;
+        pedidos: number;
+        facturado: number;
+        cobrado: number;
+        gastos: number;
+        utilidad: number;
+        clasificacion: 'BUEN_MES' | 'MES_REGULAR' | 'MAL_MES' | 'SIN_DATOS';
+      }>;
+      totales: { pedidos: number; facturado: number; cobrado: number; gastos: number; utilidad: number };
+    }>>('/api/reportes/anual', { params }),
+  conductorDelMes: () => {
+    type ConductorRanking = {
+      conductorId: number;
+      nombre: string;
+      viajes: number;
+      combustibleTotal: number;
+      combustiblePromedio: number;
+      scoreFinal: number;
+    };
+    return api.get<ApiResponse<{
+      periodo: { anio: number; mes: number; nombreMes: string };
+      ganador: ConductorRanking | null;
+      ranking: ConductorRanking[];
+    }>>('/api/reportes/conductor-del-mes');
+  },
+  tablaSemanal: (params?: { desde?: string; hasta?: string }) => {
+    type ConductorSemana = { conductorId: number; nombre: string; cantidadPedidos: number; rentabilidad: number };
+    return api.get<ApiResponse<{
+      periodo: { desde: string; hasta: string };
+      conductores: ConductorSemana[];
+    }>>('/api/reportes/tabla-semanal', { params });
+  },
   facturacion: (params?: { desde?: string; hasta?: string; clienteId?: number }) =>
     api.get<ApiResponse<{
       facturas: Factura[];
@@ -272,7 +312,7 @@ export const vehiculosApi = {
 
 // ─── LIQUIDACIONES ───────────────────────────────────────────────────────────
 export const liquidacionesApi = {
-  listar: (params?: { conductorId?: number; desde?: string; hasta?: string }) =>
+  listar: (params?: { conductorId?: number; desde?: string; hasta?: string; sinCombustible?: boolean }) =>
     api.get<ApiResponse<Liquidacion[]>>('/api/liquidaciones', { params }),
   obtener: (id: number) => api.get<ApiResponse<Liquidacion>>(`/api/liquidaciones/${id}`),
   pedidosDisponibles: () =>
@@ -440,12 +480,12 @@ export const permisosApi = {
 
 // ─── BACKUPS ──────────────────────────────────────────────────────────────────
 export const backupsApi = {
-  listar: () =>
-    api.get<ApiResponse<Array<{ nombre: string; fecha: string; tamaño: number }>>>('/api/backup/listar'),
-  crear: () =>
-    api.post<ApiResponse<{ nombre: string; mensaje: string }>>('/api/backup/crear'),
-  restaurar: (nombre: string) =>
-    api.post<ApiResponse<null>>('/api/backup/restaurar', { nombre }),
-  eliminar: (nombre: string) =>
-    api.delete<ApiResponse<null>>(`/api/backup/${nombre}`),
+  // Descarga el backup completo como archivo JSON (responseType: 'blob' porque
+  // el backend lo envía con Content-Disposition: attachment, igual que el PDF).
+  exportarJson: () =>
+    api.get<Blob>('/api/backup/json', { responseType: 'blob' }),
+  exportarExcel: (modulo: string) =>
+    api.get<ApiResponse<unknown[]>>(`/api/backup/excel/${modulo}`),
+  restaurarJson: (backup: { version: string; data: Record<string, unknown> }) =>
+    api.post<ApiResponse<{ message: string; resultados: Record<string, number> }>>('/api/backup/restaurar', backup),
 };

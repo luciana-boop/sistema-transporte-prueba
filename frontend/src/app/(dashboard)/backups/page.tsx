@@ -5,7 +5,7 @@ import { useState, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Download, Upload, AlertTriangle, CheckCircle, Database, FileSpreadsheet, FileJson } from 'lucide-react';
-import { backupApi, clientesApi, pedidosApi, conductoresApi, vehiculosApi, gastosApi, liquidacionesApi, combustibleApi, usuariosApi } from '@/services/api';
+import { backupsApi, clientesApi, pedidosApi, conductoresApi, vehiculosApi, gastosApi, liquidacionesApi, combustibleApi, usuariosApi } from '@/services/api';
 import { facturacionApi } from '@/services/api';
 import { PageHeader, Button, StatCard } from '@/components/shared';
 import { formatCurrency, formatDate, getErrorMessage, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL, TIPO_GASTO_LABEL } from '@/lib/utils';
@@ -29,9 +29,8 @@ export default function BackupsPage() {
   const handleJsonBackup = async () => {
     setLoadingJson(true);
     try {
-      const res = await backupApi.exportarJson();
-      const blob = new Blob([res.data as string], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
+      const res = await backupsApi.exportarJson();
+      const url = URL.createObjectURL(res.data);
       const a = document.createElement('a');
       a.href = url;
       a.download = `backup_transportes_${new Date().toISOString().split('T')[0]}.json`;
@@ -140,11 +139,8 @@ export default function BackupsPage() {
         if (!parsed.version || !parsed.data) {
           throw new Error('El formato del backup no es válido. Debe contener "version" y "data"');
         }
-        // Send to backend
-        const formData = new FormData();
-        formData.append('backup', new Blob([text], { type: 'application/json' }), 'backup.json');
-        await backupApi.restaurarJson(formData);
-        setRestoreResult({ success: true, message: 'Backup restaurado correctamente' });
+        const res = await backupsApi.restaurarJson(parsed);
+        setRestoreResult({ success: true, message: res.data.data?.message ?? 'Backup restaurado correctamente' });
         toast.success('Backup restaurado');
       } catch (err) {
         const msg = getErrorMessage(err);
@@ -185,7 +181,13 @@ export default function BackupsPage() {
             </div>
           </div>
           <ul className="text-xs text-muted-foreground space-y-1 pl-1">
-            {['Usuarios', 'Clientes', 'Pedidos', 'Facturas', 'Conductores', 'Vehículos', 'Liquidaciones', 'Combustible'].map(m => (
+            {[
+              'Usuarios', 'Clientes', 'Pedidos', 'Facturas y detalles', 'Pagos',
+              'Cajas y movimientos', 'Gastos', 'Conductores', 'Vehículos',
+              'Liquidaciones y pedidos asociados', 'Combustible',
+              'Cuentas, monedas y movimientos', 'Configuración del sistema',
+              'Permisos de usuarios', 'Registro de actividad',
+            ].map(m => (
               <li key={m} className="flex items-center gap-1.5"><CheckCircle className="w-3 h-3 text-emerald-500" />{m}</li>
             ))}
           </ul>

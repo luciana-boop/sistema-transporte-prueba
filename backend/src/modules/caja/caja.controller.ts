@@ -36,17 +36,25 @@ export class CajaController {
 
   async abrir(req: Request, res: Response): Promise<void> {
     try {
-      const { saldoApertura, nombre, observaciones } = req.body;
+      const { saldoApertura, cuentaOrigenId, nombre, observaciones } = req.body;
       if (saldoApertura === undefined) { R.badRequest(res, 'saldoApertura es requerido'); return; }
+      if (!cuentaOrigenId) { R.badRequest(res, 'Debe seleccionar la cuenta de origen de los fondos de apertura'); return; }
       const data = await cajaService.abrir(
-        { saldoApertura: parseFloat(saldoApertura), nombre, observaciones },
+        { saldoApertura: parseFloat(saldoApertura), cuentaOrigenId: parseInt(cuentaOrigenId), nombre, observaciones },
         req.usuario!.id
       );
       R.created(res, data, 'Caja abierta correctamente');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('Ya existe')) R.badRequest(res, msg);
-      else R.serverError(res, e);
+      if (
+        msg.includes('Ya existe') ||
+        msg.includes('no encontrada') ||
+        msg.includes('inactiva') ||
+        msg.includes('Saldo insuficiente') ||
+        msg.includes('Debe seleccionar')
+      ) {
+        R.badRequest(res, msg);
+      } else R.serverError(res, e);
     }
   }
 
