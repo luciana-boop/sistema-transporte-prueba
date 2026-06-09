@@ -447,7 +447,7 @@ export const configuracionApi = {
   getParametrosPorCategoria: (categoria: string) =>
     api.get<ApiResponse<ConfigParam[]>>(`/api/configuracion/parametros/${categoria}`),
   updateParametro: (clave: string, valor: string) =>
-    api.patch<ApiResponse<ConfigParam>>(`/api/configuracion/parametros/${clave}`, { valor }),
+    api.put<ApiResponse<ConfigParam>>(`/api/configuracion/parametros/${clave}`, { valor }),
   getSeries: () => api.get<ApiResponse<SerieFacturacion[]>>('/api/configuracion/series'),
   createSerie: (data: { serie: string; tipoDocumento?: string; descripcion?: string }) =>
     api.post<ApiResponse<SerieFacturacion>>('/api/configuracion/series', data),
