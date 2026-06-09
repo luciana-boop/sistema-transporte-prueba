@@ -116,7 +116,7 @@ export class UsuariosService {
 
   async cambiarPassword(id: number, nuevaPassword: string) {
     await this.findById(id);
-    if (nuevaPassword.length < 6) throw new Error('La contraseña debe tener al menos 6 caracteres');
+    if (nuevaPassword.length < 8) throw new Error('La contraseña debe tener al menos 8 caracteres');
 
     const rounds = parseInt(process.env.BCRYPT_ROUNDS || '12');
     const passwordHash = await bcrypt.hash(nuevaPassword, rounds);

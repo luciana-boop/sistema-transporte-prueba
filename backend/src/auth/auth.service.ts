@@ -6,22 +6,28 @@ import prisma from '../prisma/client';
 import { LoginDto, AuthResponse, JwtPayload } from './auth.types';
 
 export class AuthService {
+  // Hash ficticio usado para garantizar tiempo constante cuando el usuario no existe.
+  // Evita que un atacante pueda enumerar emails midiendo tiempos de respuesta.
+  private static readonly DUMMY_HASH =
+    '$2a$12$invalidhashusedtoconstanttimeXXXXXXXXXXXXXXXXXXXXXXXX';
+
   async login(dto: LoginDto): Promise<AuthResponse> {
     const usuario = await prisma.usuario.findUnique({
       where: { email: dto.email },
     });
 
-    if (!usuario) {
+    // Siempre ejecutar bcrypt.compare (aunque el usuario no exista) para que
+    // el tiempo de respuesta sea igual en ambos casos y no filtre qué emails
+    // están registrados.
+    const hashAComparar = usuario?.passwordHash ?? AuthService.DUMMY_HASH;
+    const passwordValido = await bcrypt.compare(dto.password, hashAComparar);
+
+    if (!usuario || !passwordValido) {
       throw new Error('Credenciales inválidas');
     }
 
     if (!usuario.activo) {
       throw new Error('Usuario desactivado. Contacte al administrador');
-    }
-
-    const passwordValido = await bcrypt.compare(dto.password, usuario.passwordHash);
-    if (!passwordValido) {
-      throw new Error('Credenciales inválidas');
     }
 
     // Actualizar último acceso

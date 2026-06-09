@@ -35,8 +35,8 @@ export class UsuariosController {
       if (!Object.values(Rol).includes(rol)) {
         R.badRequest(res, `rol inválido. Valores: ${Object.values(Rol).join(', ')}`); return;
       }
-      if (password.length < 6) {
-        R.badRequest(res, 'La contraseña debe tener al menos 6 caracteres'); return;
+      if (password.length < 8) {
+        R.badRequest(res, 'La contraseña debe tener al menos 8 caracteres'); return;
       }
       const data = await usuariosService.create({ nombre, email, password, rol });
       R.created(res, data, 'Usuario creado correctamente');

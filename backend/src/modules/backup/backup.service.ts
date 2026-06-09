@@ -78,6 +78,7 @@ export class BackupService {
 
     const { data } = backupData;
     const resultados: Record<string, number> = {};
+    const errores: string[] = [];
 
     if (Array.isArray(data.conductores)) {
       for (const c of data.conductores) {
@@ -98,7 +99,7 @@ export class BackupService {
               activo: c.activo ?? true,
             },
           });
-        } catch { /* skip */ }
+        } catch (err) { errores.push(err instanceof Error ? err.message : String(err)); }
       }
       resultados.conductores = data.conductores.length;
     }
@@ -111,7 +112,7 @@ export class BackupService {
             update: { marca: v.marca, modelo: v.modelo, anio: v.anio, estado: v.estado, activo: v.activo },
             create: { placa: v.placa, tipo: v.tipo, marca: v.marca, modelo: v.modelo, anio: v.anio, estado: v.estado ?? 'OPERATIVO', activo: v.activo ?? true },
           });
-        } catch { /* skip */ }
+        } catch (err) { errores.push(err instanceof Error ? err.message : String(err)); }
       }
       resultados.vehiculos = data.vehiculos.length;
     }
@@ -124,7 +125,7 @@ export class BackupService {
             update: { razonSocial: c.razonSocial, direccion: c.direccion, telefono: c.telefono, email: c.email, condicionPago: c.condicionPago, activo: c.activo },
             create: { razonSocial: c.razonSocial, ruc: c.ruc, direccion: c.direccion, telefono: c.telefono, email: c.email, condicionPago: c.condicionPago ?? 'CONTADO', activo: c.activo ?? true },
           });
-        } catch { /* skip */ }
+        } catch (err) { errores.push(err instanceof Error ? err.message : String(err)); }
       }
       resultados.clientes = data.clientes.length;
     }
@@ -142,7 +143,7 @@ export class BackupService {
             update: { nombre: c.nombre, descripcion: c.descripcion, activo: c.activo, esDefault: c.esDefault },
             create: { codigo: c.codigo, nombre: c.nombre, descripcion: c.descripcion, activo: c.activo ?? true, esDefault: c.esDefault ?? false },
           });
-        } catch { /* skip */ }
+        } catch (err) { errores.push(err instanceof Error ? err.message : String(err)); }
       }
       resultados.categoriasGasto = data.categoriasGasto.length;
     }
@@ -155,7 +156,7 @@ export class BackupService {
             update: { nombre: t.nombre, descripcion: t.descripcion, extra: t.extra, activo: t.activo, orden: t.orden },
             create: { tipo: t.tipo, codigo: t.codigo, nombre: t.nombre, descripcion: t.descripcion, extra: t.extra, activo: t.activo ?? true, orden: t.orden ?? 0 },
           });
-        } catch { /* skip */ }
+        } catch (err) { errores.push(err instanceof Error ? err.message : String(err)); }
       }
       resultados.tablasMaestras = data.tablasMaestras.length;
     }
@@ -168,7 +169,7 @@ export class BackupService {
             update: { nombre: m.nombre, simbolo: m.simbolo, esPorDefecto: m.esPorDefecto, activo: m.activo },
             create: { codigo: m.codigo, nombre: m.nombre, simbolo: m.simbolo, esPorDefecto: m.esPorDefecto ?? false, activo: m.activo ?? true },
           });
-        } catch { /* skip */ }
+        } catch (err) { errores.push(err instanceof Error ? err.message : String(err)); }
       }
       resultados.monedas = data.monedas.length;
     }
@@ -181,7 +182,7 @@ export class BackupService {
             update: { nombre: t.nombre, descripcion: t.descripcion, orden: t.orden, activo: t.activo },
             create: { codigo: t.codigo, nombre: t.nombre, descripcion: t.descripcion, orden: t.orden ?? 0, activo: t.activo ?? true },
           });
-        } catch { /* skip */ }
+        } catch (err) { errores.push(err instanceof Error ? err.message : String(err)); }
       }
       resultados.tiposPago = data.tiposPago.length;
     }
@@ -194,7 +195,7 @@ export class BackupService {
             update: { tipoDocumento: s.tipoDocumento, correlativoActual: s.correlativoActual, correlativoInicial: s.correlativoInicial, activo: s.activo, descripcion: s.descripcion },
             create: { serie: s.serie, tipoDocumento: s.tipoDocumento ?? 'FACTURA', correlativoActual: s.correlativoActual ?? 1, correlativoInicial: s.correlativoInicial ?? 1, activo: s.activo ?? true, descripcion: s.descripcion },
           });
-        } catch { /* skip */ }
+        } catch (err) { errores.push(err instanceof Error ? err.message : String(err)); }
       }
       resultados.seriesFacturacion = data.seriesFacturacion.length;
     }
@@ -207,7 +208,7 @@ export class BackupService {
             update: { valor: c.valor, tipo: c.tipo, categoria: c.categoria, etiqueta: c.etiqueta, descripcion: c.descripcion },
             create: { clave: c.clave, valor: c.valor, tipo: c.tipo ?? 'texto', categoria: c.categoria ?? 'general', etiqueta: c.etiqueta, descripcion: c.descripcion },
           });
-        } catch { /* skip */ }
+        } catch (err) { errores.push(err instanceof Error ? err.message : String(err)); }
       }
       resultados.configuraciones = data.configuraciones.length;
     }
@@ -220,7 +221,7 @@ export class BackupService {
             update: { etiqueta: c.etiqueta, diasAnticipacion: c.diasAnticipacion, activo: c.activo, color: c.color, nivel: c.nivel },
             create: { clave: c.clave, etiqueta: c.etiqueta, diasAnticipacion: c.diasAnticipacion ?? 30, activo: c.activo ?? true, color: c.color ?? 'yellow', nivel: c.nivel ?? 'warning' },
           });
-        } catch { /* skip */ }
+        } catch (err) { errores.push(err instanceof Error ? err.message : String(err)); }
       }
       resultados.configuracionAlertas = data.configuracionAlertas.length;
     }
@@ -233,12 +234,15 @@ export class BackupService {
             update: { nombre: t.nombre, descripcion: t.descripcion, activo: t.activo },
             create: { codigo: t.codigo, nombre: t.nombre, descripcion: t.descripcion, activo: t.activo ?? true },
           });
-        } catch { /* skip */ }
+        } catch (err) { errores.push(err instanceof Error ? err.message : String(err)); }
       }
       resultados.tiposVehiculo = data.tiposVehiculo.length;
     }
 
-    return { message: 'Backup restaurado correctamente', resultados };
+    if (errores.length > 0) {
+      console.warn('[BACKUP RESTORE] Errores parciales:', errores);
+    }
+    return { message: 'Backup restaurado correctamente', resultados, errores };
   }
 }
 

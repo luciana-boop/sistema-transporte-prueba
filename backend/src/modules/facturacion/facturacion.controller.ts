@@ -79,17 +79,25 @@ export class FacturacionController {
         ? pdfPath
         : path.join(process.cwd(), pdfPath);
 
-      if (!fs.existsSync(absolutePath)) {
+      // Validar que la ruta resuelta esté dentro del directorio de almacenamiento
+      // permitido, para prevenir ataques de path traversal.
+      const storageBase = path.resolve(process.cwd(), 'storage');
+      const resolvedPath = path.resolve(absolutePath);
+      if (!resolvedPath.startsWith(storageBase + path.sep) && !resolvedPath.startsWith(storageBase)) {
+        res.status(403).json({ success: false, error: 'Acceso denegado al archivo solicitado' });
+        return;
+      }
+
+      if (!fs.existsSync(resolvedPath)) {
         res.status(404).json({
           success: false,
-          error: `El archivo PDF no fue encontrado en el servidor (${pdfPath}). Puede que haya sido movido o eliminado.`,
-          pdfPath,
+          error: 'El archivo PDF no fue encontrado en el servidor. Puede que haya sido movido o eliminado.',
         });
         return;
       }
 
       const forceDownload = req.query.download === '1';
-      const filename = path.basename(absolutePath);
+      const filename = path.basename(resolvedPath);
 
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader(
@@ -100,7 +108,7 @@ export class FacturacionController {
       );
       res.setHeader('X-Content-Type-Options', 'nosniff');
 
-      const stream = fs.createReadStream(absolutePath);
+      const stream = fs.createReadStream(resolvedPath);
       stream.on('error', (err) => {
         console.error('[PDF stream error]', err);
         if (!res.headersSent) {
@@ -139,7 +147,11 @@ export class FacturacionController {
         const absolutePath = path.isAbsolute(pdfPath)
           ? pdfPath
           : path.join(process.cwd(), pdfPath);
-        archivoExiste = fs.existsSync(absolutePath);
+        const resolvedInfoPath = path.resolve(absolutePath);
+        const storageBaseInfo = path.resolve(process.cwd(), 'storage');
+        if (resolvedInfoPath.startsWith(storageBaseInfo + path.sep) || resolvedInfoPath.startsWith(storageBaseInfo)) {
+          archivoExiste = fs.existsSync(resolvedInfoPath);
+        }
       }
 
       R.ok(res, {

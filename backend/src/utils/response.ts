@@ -31,7 +31,10 @@ export const notFound = (res: Response, error = 'Recurso no encontrado') => {
 };
 
 export const serverError = (res: Response, error: unknown) => {
-  const message = error instanceof Error ? error.message : 'Error interno del servidor';
   console.error('[SERVER ERROR]', error);
+  const message =
+    process.env.NODE_ENV !== 'production' && error instanceof Error
+      ? error.message
+      : 'Error interno del servidor';
   res.status(500).json({ success: false, error: message });
 };

@@ -28,11 +28,50 @@ import permisosRoutes      from './modules/permisos/permisos.routes'; // ── 
 
 const app = express();
 
+// ── Seguridad: headers HTTP defensivos ──────────────────────────────────────
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=()',
+  );
+  // HSTS: fuerza HTTPS por 1 año (solo relevante si el servidor usa TLS)
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
+
+// ── CORS: solo orígenes explícitamente declarados ────────────────────────────
+// En producción CORS_ORIGIN debe estar definido. En desarrollo se permite
+// localhost para facilitar el trabajo local.
+const corsOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
+  : [];
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: (origin, callback) => {
+    // Peticiones sin origen (curl, Postman) se permiten solo en desarrollo
+    if (!origin) {
+      if (process.env.NODE_ENV === 'production') {
+        return callback(new Error('Origen no permitido por CORS'));
+      }
+      return callback(null, true);
+    }
+    const isLocalhost = /^https?:\/\/localhost(:\d+)?$/.test(origin);
+    const isAllowed = corsOrigins.includes(origin) || (process.env.NODE_ENV !== 'production' && isLocalhost);
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origen no permitido por CORS: ${origin}`));
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
 }));
+
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
