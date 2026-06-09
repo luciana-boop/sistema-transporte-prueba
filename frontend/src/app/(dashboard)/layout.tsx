@@ -7,26 +7,41 @@ import { useAuthStore } from '@/store/auth.store';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Topbar } from '@/components/layout/Topbar';
 import { Loader2 } from 'lucide-react';
+import { authApi } from '@/services/api';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const _hasHydrated = useAuthStore((s) => s._hasHydrated);
+  const router           = useRouter();
+  const isAuthenticated  = useAuthStore((s) => s.isAuthenticated);
+  const _hasHydrated     = useAuthStore((s) => s._hasHydrated);
+  const isTokenVerified  = useAuthStore((s) => s.isTokenVerified);
+  const setTokenVerified = useAuthStore((s) => s.setTokenVerified);
 
   useEffect(() => {
-    // Solo evaluamos auth DESPUÉS de que Zustand confirmó
-    // que terminó de leer localStorage. Antes de ese momento,
-    // isAuthenticated=false no significa "no hay sesión",
-    // significa "todavía no sé".
-    if (_hasHydrated && !isAuthenticated) {
-      router.replace('/login');
-    }
-  }, [_hasHydrated, isAuthenticated, router]);
+    if (!_hasHydrated) return;
 
-  // Zustand todavía no terminó de leer localStorage:
-  // mostramos spinner neutro, no el dashboard ni redirigimos.
-  // Este es el único estado donde no sabemos si hay sesión válida.
-  if (!_hasHydrated) {
+    if (!isAuthenticated) {
+      router.replace('/login');
+      return;
+    }
+
+    if (isTokenVerified) return;
+
+    // Token rehidratado desde localStorage pero nunca validado contra el backend.
+    // Una llamada liviana confirma que el token sigue siendo válido.
+    authApi.me()
+      .then(() => setTokenVerified(true))
+      .catch((err) => {
+        // 401 → el interceptor de api.ts limpia localStorage y redirige a /login.
+        // Cualquier otro error (red caída, 500) → dejamos pasar al usuario;
+        // el próximo request de datos fallará con el error real.
+        if (err.response?.status !== 401) {
+          setTokenVerified(true);
+        }
+      });
+  }, [_hasHydrated, isAuthenticated, isTokenVerified, setTokenVerified, router]);
+
+  // Zustand todavía leyendo localStorage, O token válido aún no confirmado.
+  if (!_hasHydrated || (isAuthenticated && !isTokenVerified)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900">
         <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
@@ -34,12 +49,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
-  // Zustand hidratado + sin sesión: retornamos null mientras
-  // el router.replace del useEffect procesa la redirección.
-  // Nunca se renderiza el dashboard en este estado.
+  // Hidratado sin sesión: null mientras router.replace procesa la redirección.
   if (!isAuthenticated) return null;
 
-  // Zustand hidratado + sesión válida: render normal del dashboard.
+  // Hidratado + sesión válida + token verificado: render normal.
   return (
     <div className="flex h-screen bg-background overflow-hidden">
       <Sidebar />

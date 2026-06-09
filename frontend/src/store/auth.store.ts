@@ -8,7 +8,9 @@ interface AuthStore {
   usuario: Usuario | null;
   isAuthenticated: boolean;
   _hasHydrated: boolean;
+  isTokenVerified: boolean;
   setHasHydrated: (state: boolean) => void;
+  setTokenVerified: (verified: boolean) => void;
   setAuth: (token: string, usuario: Usuario) => void;
   logout: () => void;
 }
@@ -20,7 +22,9 @@ export const useAuthStore = create<AuthStore>()(
       usuario: null,
       isAuthenticated: false,
       _hasHydrated: false,
+      isTokenVerified: false,
       setHasHydrated: (state) => set({ _hasHydrated: state }),
+      setTokenVerified: (verified) => set({ isTokenVerified: verified }),
 
       setAuth: (token, usuario) => {
         if (typeof window !== 'undefined') {
@@ -31,7 +35,7 @@ export const useAuthStore = create<AuthStore>()(
           // ya guarda el usuario en auth-storage.
           localStorage.setItem('auth_token', token);
         }
-        set({ token, usuario, isAuthenticated: true });
+        set({ token, usuario, isAuthenticated: true, isTokenVerified: true });
       },
 
       logout: () => {
@@ -46,7 +50,7 @@ export const useAuthStore = create<AuthStore>()(
           // para garantizar consistencia inmediata.
           localStorage.removeItem('auth-storage');
         }
-        set({ token: null, usuario: null, isAuthenticated: false });
+        set({ token: null, usuario: null, isAuthenticated: false, isTokenVerified: false });
       },
     }),
     {
