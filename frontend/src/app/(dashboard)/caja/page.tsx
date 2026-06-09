@@ -577,7 +577,7 @@ export default function CajaPage() {
                   <tr className="border-b border-border">
                     <Th>Fecha</Th><Th>Tipo</Th><Th>Concepto</Th><Th>Referencia</Th>
                     <Th className="text-right">Ingreso</Th><Th className="text-right">Egreso</Th>
-                    <Th className="text-right">Saldo</Th><Th></Th>
+                    <Th className="text-right">Saldo</Th><Th>&nbsp;</Th>
                   </tr>
                 </thead>
                 <tbody>
