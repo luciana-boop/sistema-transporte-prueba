@@ -7,12 +7,13 @@ import { reportesApi } from '@/services/api';
 import { formatCurrency, formatDate, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL, METODO_PAGO_LABEL, TIPO_GASTO_LABEL, CLASIFICACION_MES_LABEL } from '@/lib/utils';
 import {
   PageHeader, Table, Th, Td, Tr, Badge, TableSkeleton,
-  EmptyState, StatCard, Input, Select,
+  EmptyState, StatCard, Input, Select, Modal,
 } from '@/components/shared';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, LineChart, Line,
+  PieChart, Pie, Cell, LineChart, Line, Legend,
 } from 'recharts';
+import { Eye } from 'lucide-react';
 
 const TABS = [
   { id: 'pedidos',     label: 'Pedidos' },
@@ -27,12 +28,16 @@ const COLORS = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4'];
 
 export default function ReportesPage() {
   const [tab, setTab] = useState('pedidos');
-  // MEJORA 1: últimos 7 días por defecto
   const [desde, setDesde] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().split('T')[0];
   });
   const [hasta, setHasta] = useState(() => new Date().toISOString().split('T')[0]);
   const [anioReporte, setAnioReporte] = useState(() => new Date().getFullYear());
+
+  // Estado para modales de detalle
+  const [detalleRentCliente, setDetalleRentCliente] = useState<{ id: number; nombre: string } | null>(null);
+  const [detalleFacCliente, setDetalleFacCliente] = useState<{ id: number; nombre: string } | null>(null);
+  const [detalleGasVehiculo, setDetalleGasVehiculo] = useState<{ id: number; placa: string } | null>(null);
 
   const params = { desde: desde || undefined, hasta: hasta || undefined };
 
@@ -40,6 +45,18 @@ export default function ReportesPage() {
     queryKey: ['reporte', 'pedidos', desde, hasta],
     queryFn: () => reportesApi.pedidos(params).then((r) => r.data.data),
     enabled: tab === 'pedidos',
+  });
+
+  const { data: rentCliente, isLoading: lRentCliente } = useQuery({
+    queryKey: ['reporte', 'rentabilidad-cliente', desde, hasta],
+    queryFn: () => reportesApi.rentabilidadCliente(params).then((r) => r.data.data),
+    enabled: tab === 'pedidos',
+  });
+
+  const { data: rentClienteDetalle, isLoading: lRentDetalle } = useQuery({
+    queryKey: ['reporte', 'rentabilidad-cliente-detalle', detalleRentCliente?.id, desde, hasta],
+    queryFn: () => reportesApi.rentabilidadClienteDetalle(detalleRentCliente!.id, params).then((r) => r.data.data),
+    enabled: !!detalleRentCliente,
   });
 
   const { data: facData, isLoading: lFac } = useQuery({
@@ -72,8 +89,6 @@ export default function ReportesPage() {
     enabled: tab === 'anual',
   });
 
-  // Distribución de pedidos por cliente (gráfico circular), derivada del listado
-  // ya cargado por el reporte — sin necesidad de un endpoint adicional.
   const pedidosPorCliente = useMemo(() => {
     const conteo = new Map<string, number>();
     for (const p of pedidosData?.pedidos ?? []) {
@@ -85,9 +100,18 @@ export default function ReportesPage() {
       .sort((a, b) => b.value - a.value);
   }, [pedidosData]);
 
-  const isLoading = lPedidos || lFac || lCob || lCaja || lGastos || lAnual;
+  // Facturas del cliente seleccionado para modal de facturación
+  const facturasDelCliente = useMemo(() => {
+    if (!detalleFacCliente || !facData) return [];
+    return (facData.facturas as any[]).filter((f) => f.clienteId === detalleFacCliente.id);
+  }, [detalleFacCliente, facData]);
 
-  // El Reporte Anual opera sobre un año completo, no sobre un rango de fechas
+  // Gastos del vehículo seleccionado para modal de gastos
+  const gastosDelVehiculo = useMemo(() => {
+    if (!detalleGasVehiculo || !gastosData) return [];
+    return (gastosData.gastos as any[]).filter((g) => g.vehiculoId === detalleGasVehiculo.id);
+  }, [detalleGasVehiculo, gastosData]);
+
   const aniosDisponibles = useMemo(() => {
     const actual = new Date().getFullYear();
     return Array.from({ length: 6 }, (_, i) => actual - i);
@@ -140,76 +164,78 @@ export default function ReportesPage() {
       {tab === 'pedidos' && (
         <div className="flex flex-col gap-4">
           {pedidosData && (
-            <>
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                <StatCard label="Total pedidos" value={pedidosData.totales.cantidad} color="default" />
-                <StatCard label="Tarifa total" value={formatCurrency(pedidosData.totales.tarifaTotal)} color="blue" />
-              </div>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div className="bg-card border border-border rounded-xl p-5">
-                  <p className="text-sm font-semibold mb-4">Pedidos por estado</p>
-                  <ResponsiveContainer width="100%" height={180}>
-                    <PieChart>
-                      <Pie data={pedidosData.resumenEstados.map((e) => ({ name: ESTADO_PEDIDO_LABEL[e.estado], value: e.cantidad }))}
-                        cx="50%" cy="50%" outerRadius={70} dataKey="value" paddingAngle={3}>
-                        {pedidosData.resumenEstados.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                      </Pie>
-                      <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} />
-                      <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="bg-card border border-border rounded-xl p-5">
-                  <p className="text-sm font-semibold mb-4">Pedidos por cliente</p>
-                  {pedidosPorCliente.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={180}>
-                      <PieChart>
-                        <Pie data={pedidosPorCliente}
-                          cx="50%" cy="50%" outerRadius={70} dataKey="value" paddingAngle={3}>
-                          {pedidosPorCliente.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                        </Pie>
-                        <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} />
-                        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="h-[180px] flex items-center justify-center text-sm text-muted-foreground">
-                      Sin pedidos en el período seleccionado
-                    </div>
-                  )}
-                </div>
-                <div className="bg-card border border-border rounded-xl p-5">
-                  <p className="text-sm font-semibold mb-4">Tarifas por estado</p>
-                  <ResponsiveContainer width="100%" height={180}>
-                    <BarChart data={pedidosData.resumenEstados.map((e) => ({ name: ESTADO_PEDIDO_LABEL[e.estado], tarifa: e.totalTarifas }))} barSize={28}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v) => `S/${(v/1000).toFixed(0)}k`} />
-                      <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} formatter={(v: number) => [formatCurrency(v), 'Tarifa']} />
-                      <Bar dataKey="tarifa" fill="hsl(221,83%,53%)" radius={[4,4,0,0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </>
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              <StatCard label="Total pedidos" value={pedidosData.totales.cantidad} color="default" />
+              <StatCard label="Tarifa total" value={formatCurrency(pedidosData.totales.tarifaTotal)} color="blue" />
+            </div>
           )}
-          {lPedidos ? <TableSkeleton rows={6} cols={6} /> : (
-            <Table>
-              <thead><tr><Th>#</Th><Th>Cliente</Th><Th>Origen → Destino</Th><Th>Tarifa</Th><Th>Estado</Th><Th>Fecha</Th></tr></thead>
-              <tbody>
-                {pedidosData?.pedidos.length ? pedidosData.pedidos.map((p) => (
-                  <Tr key={p.id}>
-                    <Td><span className="font-mono text-xs text-muted-foreground">#{p.id}</span></Td>
-                    <Td><span className="text-sm font-medium">{p.cliente?.razonSocial}</span></Td>
-                    <Td><span className="text-xs text-muted-foreground">{p.origen} → {p.destino}</span></Td>
-                    <Td><span className="font-semibold">{formatCurrency(Number(p.tarifa))}</span></Td>
-                    <Td><Badge value={p.estado} label={ESTADO_PEDIDO_LABEL[p.estado]} /></Td>
-                    <Td><span className="text-xs text-muted-foreground">{formatDate(p.fechaPedido)}</span></Td>
-                  </Tr>
-                )) : <tr><td colSpan={6}><EmptyState /></td></tr>}
-              </tbody>
-            </Table>
+
+          {/* Gráfico pedidos por cliente */}
+          {pedidosPorCliente.length > 0 && (
+            <div className="bg-card border border-border rounded-xl p-5">
+              <p className="text-sm font-semibold mb-4">Pedidos por cliente</p>
+              <ResponsiveContainer width="100%" height={180}>
+                <PieChart>
+                  <Pie data={pedidosPorCliente} cx="50%" cy="50%" outerRadius={70} dataKey="value" paddingAngle={3}>
+                    {pedidosPorCliente.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
           )}
+
+          {/* Rentabilidad por cliente */}
+          <div>
+            <p className="text-sm font-semibold mb-1">Rentabilidad por cliente</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              Facturación real (sum. facturas activas). Costos distribuidos proporcionalmente entre los pedidos de cada liquidación.
+            </p>
+            {lRentCliente ? <TableSkeleton rows={4} cols={7} /> : (
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Cliente</Th>
+                    <Th>Pedidos</Th>
+                    <Th>Facturación</Th>
+                    <Th>Costos</Th>
+                    <Th>Utilidad</Th>
+                    <Th>Margen</Th>
+                    <Th>Detalle</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rentCliente?.clientes.length ? rentCliente.clientes.map((c) => (
+                    <Tr key={c.clienteId}>
+                      <Td><span className="text-sm font-medium">{c.razonSocial}</span></Td>
+                      <Td><span className="text-sm text-muted-foreground">{c.cantidadPedidos}</span></Td>
+                      <Td><span className="font-medium text-emerald-500">{formatCurrency(c.facturacion)}</span></Td>
+                      <Td><span className="font-medium text-destructive">{formatCurrency(c.costos)}</span></Td>
+                      <Td>
+                        <span className={`font-semibold ${c.utilidad >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
+                          {formatCurrency(c.utilidad)}
+                        </span>
+                      </Td>
+                      <Td>
+                        <span className={`text-sm font-medium ${c.margen >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
+                          {c.margen.toFixed(1)}%
+                        </span>
+                      </Td>
+                      <Td>
+                        <button
+                          onClick={() => setDetalleRentCliente({ id: c.clienteId, nombre: c.razonSocial })}
+                          className="text-xs text-primary hover:underline flex items-center gap-1"
+                        >
+                          <Eye className="w-3 h-3" /> Ver detalle
+                        </button>
+                      </Td>
+                    </Tr>
+                  )) : <tr><td colSpan={7}><EmptyState message="Sin datos en el período" /></td></tr>}
+                </tbody>
+              </Table>
+            )}
+          </div>
         </div>
       )}
 
@@ -224,21 +250,40 @@ export default function ReportesPage() {
               <StatCard label="Total" value={formatCurrency(facData.totales.total)} color="blue" />
             </div>
           )}
-          {lFac ? <TableSkeleton rows={6} cols={6} /> : (
+
+          {/* Tabla agrupada por cliente */}
+          {lFac ? <TableSkeleton rows={5} cols={7} /> : (
             <Table>
-              <thead><tr><Th>N° Factura</Th><Th>Cliente</Th><Th>Subtotal</Th><Th>IGV</Th><Th>Total</Th><Th>Estado</Th><Th>Emisión</Th></tr></thead>
+              <thead>
+                <tr>
+                  <Th>Cliente</Th>
+                  <Th>Total facturas</Th>
+                  <Th>Emitidas</Th>
+                  <Th>Pagadas</Th>
+                  <Th>Parciales</Th>
+                  <Th>Monto total</Th>
+                  <Th>Detalle</Th>
+                </tr>
+              </thead>
               <tbody>
-                {facData?.facturas.length ? facData.facturas.map((f) => (
-                  <Tr key={f.id}>
-                    <Td><span className="font-mono text-xs">{f.numeroFactura}</span></Td>
-                    <Td><span className="text-sm font-medium">{f.cliente?.razonSocial}</span></Td>
-                    <Td><span className="text-sm">{formatCurrency(Number(f.subtotal))}</span></Td>
-                    <Td><span className="text-sm text-muted-foreground">{formatCurrency(Number(f.igv))}</span></Td>
-                    <Td><span className="font-semibold">{formatCurrency(Number(f.total))}</span></Td>
-                    <Td><Badge value={f.estado} label={ESTADO_FACTURA_LABEL[f.estado]} /></Td>
-                    <Td><span className="text-xs text-muted-foreground">{formatDate(f.fechaEmision)}</span></Td>
+                {facData?.resumenPorCliente.length ? facData.resumenPorCliente.map((c) => (
+                  <Tr key={c.clienteId}>
+                    <Td><span className="text-sm font-medium">{c.razonSocial}</span></Td>
+                    <Td><span className="text-sm">{c.totalFacturas}</span></Td>
+                    <Td><span className="text-sm text-blue-500">{c.emitidas}</span></Td>
+                    <Td><span className="text-sm text-emerald-500">{c.pagadas}</span></Td>
+                    <Td><span className="text-sm text-yellow-500">{c.parciales}</span></Td>
+                    <Td><span className="font-semibold">{formatCurrency(c.montoTotal)}</span></Td>
+                    <Td>
+                      <button
+                        onClick={() => setDetalleFacCliente({ id: c.clienteId, nombre: c.razonSocial })}
+                        className="text-xs text-primary hover:underline flex items-center gap-1"
+                      >
+                        <Eye className="w-3 h-3" /> Ver detalle
+                      </button>
+                    </Td>
                   </Tr>
-                )) : <tr><td colSpan={7}><EmptyState /></td></tr>}
+                )) : <tr><td colSpan={7}><EmptyState message="Sin facturas en el período" /></td></tr>}
               </tbody>
             </Table>
           )}
@@ -250,26 +295,47 @@ export default function ReportesPage() {
         <div className="flex flex-col gap-4">
           {cobData && (
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-              <StatCard label="Pagos registrados" value={cobData.totales.cantidad} color="default" />
               <StatCard label="Total cobrado" value={formatCurrency(cobData.totales.totalCobrado)} color="green" />
-              {cobData.resumenPorMetodo.map((m) => (
-                <StatCard key={m.metodoPago} label={METODO_PAGO_LABEL[m.metodoPago]} value={formatCurrency(m.total)} color="default" />
-              ))}
+              <StatCard label="Pagos registrados" value={cobData.totales.cantidad} color="default" />
             </div>
           )}
-          {lCob ? <TableSkeleton rows={6} cols={5} /> : (
+
+          {/* Tabla resumen por cliente */}
+          {lCob ? <TableSkeleton rows={5} cols={5} /> : (
             <Table>
-              <thead><tr><Th>Factura</Th><Th>Cliente</Th><Th>Monto</Th><Th>Método</Th><Th>Fecha</Th></tr></thead>
+              <thead>
+                <tr>
+                  <Th>Cliente</Th>
+                  <Th>Total facturado</Th>
+                  <Th>Total cobrado</Th>
+                  <Th>Saldo pendiente</Th>
+                  <Th>% cobrado</Th>
+                </tr>
+              </thead>
               <tbody>
-                {cobData?.pagos.length ? cobData.pagos.map((p) => (
-                  <Tr key={p.id}>
-                    <Td><span className="font-mono text-xs">{p.factura?.numeroFactura}</span></Td>
-                    <Td><span className="text-sm font-medium">{p.cliente?.razonSocial}</span></Td>
-                    <Td><span className="font-semibold text-emerald-500">{formatCurrency(Number(p.monto))}</span></Td>
-                    <Td><Badge value={p.metodoPago} label={METODO_PAGO_LABEL[p.metodoPago]} /></Td>
-                    <Td><span className="text-xs text-muted-foreground">{formatDate(p.fechaPago)}</span></Td>
+                {cobData?.resumenPorCliente.length ? cobData.resumenPorCliente.map((c) => (
+                  <Tr key={c.clienteId}>
+                    <Td><span className="text-sm font-medium">{c.razonSocial}</span></Td>
+                    <Td><span className="font-medium">{formatCurrency(c.totalFacturado)}</span></Td>
+                    <Td><span className="font-medium text-emerald-500">{formatCurrency(c.totalCobrado)}</span></Td>
+                    <Td>
+                      <span className={`font-medium ${c.saldoPendiente > 0 ? 'text-yellow-500' : 'text-muted-foreground'}`}>
+                        {formatCurrency(c.saldoPendiente)}
+                      </span>
+                    </Td>
+                    <Td>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 bg-muted rounded-full h-1.5 max-w-16">
+                          <div
+                            className="bg-emerald-500 h-1.5 rounded-full"
+                            style={{ width: `${Math.min(c.porcentajeCobrado, 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-xs font-medium">{c.porcentajeCobrado.toFixed(0)}%</span>
+                      </div>
+                    </Td>
                   </Tr>
-                )) : <tr><td colSpan={5}><EmptyState /></td></tr>}
+                )) : <tr><td colSpan={5}><EmptyState message="Sin cobranza en el período" /></td></tr>}
               </tbody>
             </Table>
           )}
@@ -309,43 +375,78 @@ export default function ReportesPage() {
       {tab === 'gastos' && (
         <div className="flex flex-col gap-4">
           {gastosData && (
-            <>
-              <div className="grid grid-cols-2 gap-4">
-                <StatCard label="Total gastos" value={formatCurrency(gastosData.totales.totalGastos)} color="red" />
-                <StatCard label="Registros" value={gastosData.totales.cantidad} color="default" />
-              </div>
-              {gastosData.resumenPorTipo.length > 0 && (
-                <div className="bg-card border border-border rounded-xl p-5">
-                  <p className="text-sm font-semibold mb-4">Distribución de gastos</p>
-                  <ResponsiveContainer width="100%" height={180}>
-                    <BarChart data={gastosData.resumenPorTipo.map((r) => ({ name: TIPO_GASTO_LABEL[r.tipoGasto], total: r.total }))} barSize={36}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v) => `S/${(v/1000).toFixed(0)}k`} />
-                      <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} formatter={(v: number) => [formatCurrency(v), 'Total']} />
-                      <Bar dataKey="total" fill="hsl(0,84%,60%)" radius={[4,4,0,0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </>
+            <div className="grid grid-cols-2 gap-4">
+              <StatCard label="Total gastos" value={formatCurrency(gastosData.totales.totalGastos)} color="red" />
+              <StatCard label="Registros" value={gastosData.totales.cantidad} color="default" />
+            </div>
           )}
-          {lGastos ? <TableSkeleton rows={6} cols={5} /> : (
-            <Table>
-              <thead><tr><Th>Tipo</Th><Th>Descripción</Th><Th>Vehículo</Th><Th>Monto</Th><Th>Fecha</Th></tr></thead>
-              <tbody>
-                {gastosData?.gastos.length ? gastosData.gastos.map((g) => (
-                  <Tr key={g.id}>
-                    <Td><Badge value={g.tipoGasto} label={TIPO_GASTO_LABEL[g.tipoGasto]} /></Td>
-                    <Td><span className="text-sm">{g.descripcion}</span></Td>
-                    <Td><span className="text-xs text-muted-foreground">{g.vehiculo ? g.vehiculo.placa : '—'}</span></Td>
-                    <Td><span className="font-semibold text-red-500">{formatCurrency(Number(g.monto))}</span></Td>
-                    <Td><span className="text-xs text-muted-foreground">{formatDate(g.fecha)}</span></Td>
-                  </Tr>
-                )) : <tr><td colSpan={5}><EmptyState /></td></tr>}
-              </tbody>
-            </Table>
+
+          {/* Gráfico de tipos de gastos */}
+          {gastosData && gastosData.resumenPorTipo.length > 0 && (
+            <div className="bg-card border border-border rounded-xl p-5">
+              <p className="text-sm font-semibold mb-4">Tipos de gastos</p>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart
+                  data={gastosData.resumenPorTipo.map((r) => ({ name: TIPO_GASTO_LABEL[r.tipoGasto] ?? r.tipoGasto, total: r.total }))}
+                  barSize={36}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v) => `S/${(v/1000).toFixed(0)}k`} />
+                  <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} formatter={(v: number) => [formatCurrency(v), 'Total']} />
+                  <Bar dataKey="total" fill="hsl(0,84%,60%)" radius={[4,4,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           )}
+
+          {/* Tabla de gastos por vehículo (solo vehículos reales) */}
+          {lGastos ? <TableSkeleton rows={4} cols={5} /> : gastosData?.resumenPorVehiculo.length ? (
+            <div>
+              <p className="text-sm font-semibold mb-2">Gastos por vehículo</p>
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Vehículo</Th>
+                    <Th>Cant. gastos</Th>
+                    <Th>Total gastado</Th>
+                    <Th>Participación</Th>
+                    <Th>Detalle</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gastosData.resumenPorVehiculo.map((v, i) => (
+                    <Tr key={i}>
+                      <Td><span className="text-sm font-medium">{v.placa}</span></Td>
+                      <Td><span className="text-sm text-muted-foreground">{v.cantidadGastos}</span></Td>
+                      <Td><span className="font-semibold text-destructive">{formatCurrency(v.totalGastado)}</span></Td>
+                      <Td>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-muted rounded-full h-1.5 max-w-20">
+                            <div
+                              className="bg-destructive h-1.5 rounded-full"
+                              style={{ width: `${Math.min(v.participacion, 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-xs font-medium">{v.participacion.toFixed(1)}%</span>
+                        </div>
+                      </Td>
+                      <Td>
+                        {v.vehiculoId != null && (
+                          <button
+                            onClick={() => setDetalleGasVehiculo({ id: v.vehiculoId!, placa: v.placa })}
+                            className="text-xs text-primary hover:underline flex items-center gap-1"
+                          >
+                            <Eye className="w-3 h-3" /> Ver detalle
+                          </button>
+                        )}
+                      </Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -366,29 +467,27 @@ export default function ReportesPage() {
                 <StatCard label="Promedio mensual de utilidad" value={formatCurrency(anualData.promedioUtilidadMensual)} color="default" />
               </div>
 
-              {/* Resumen mensual */}
               <div className="bg-card border border-border rounded-xl p-5">
                 <p className="text-sm font-semibold mb-1">Resumen mensual {anualData.anio}</p>
-                <p className="text-xs text-muted-foreground mb-4">Cobrado, gastos y utilidad por mes (línea punteada: promedio anual de utilidad)</p>
+                <p className="text-xs text-muted-foreground mb-4">Facturado, gastos y utilidad por mes (utilidad = facturado − gastos)</p>
                 <ResponsiveContainer width="100%" height={260}>
-                  <LineChart data={anualData.meses.map((m) => ({ name: m.nombreMes.slice(0, 3), cobrado: m.cobrado, gastos: m.gastos, utilidad: m.utilidad }))}>
+                  <LineChart data={anualData.meses.map((m) => ({ name: m.nombreMes.slice(0, 3), facturado: m.facturado, gastos: m.gastos, utilidad: m.utilidad }))}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                     <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v) => `S/${(v/1000).toFixed(0)}k`} />
                     <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} formatter={(v: number, name: string) => [formatCurrency(v), name]} />
                     <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                    <Line type="monotone" dataKey="cobrado" name="Cobrado" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                    <Line type="monotone" dataKey="facturado" name="Facturado" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
                     <Line type="monotone" dataKey="gastos" name="Gastos" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
-                    <Line type="monotone" dataKey="utilidad" name="Utilidad" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
+                    <Line type="monotone" dataKey="utilidad" name="Utilidad" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
 
-              {/* Tabla anual con clasificación */}
               <div>
                 <p className="text-sm font-semibold mb-1">Tabla anual {anualData.anio}</p>
                 <p className="text-xs text-muted-foreground mb-3">
-                  Cada mes se clasifica comparando su utilidad (cobrado − gastos) contra el promedio anual de {formatCurrency(anualData.promedioUtilidadMensual)}:
+                  Utilidad = Facturado − Gastos. Clasificación vs. promedio anual de {formatCurrency(anualData.promedioUtilidadMensual)}:
                   {' '}<span className="font-medium text-emerald-500">Buen mes</span> (10% o más por encima),
                   {' '}<span className="font-medium text-yellow-500">Mes regular</span> (cercano al promedio),
                   {' '}<span className="font-medium text-destructive">Mal mes</span> (10% o más por debajo).
@@ -396,13 +495,8 @@ export default function ReportesPage() {
                 <Table>
                   <thead>
                     <tr>
-                      <Th>Mes</Th>
-                      <Th>Pedidos</Th>
-                      <Th>Facturado</Th>
-                      <Th>Cobrado</Th>
-                      <Th>Gastos</Th>
-                      <Th>Utilidad</Th>
-                      <Th>Clasificación</Th>
+                      <Th>Mes</Th><Th>Pedidos</Th><Th>Facturado</Th><Th>Cobrado</Th>
+                      <Th>Gastos</Th><Th>Utilidad</Th><Th>Clasificación</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -410,7 +504,7 @@ export default function ReportesPage() {
                       <Tr key={m.mes}>
                         <Td><span className="text-sm font-medium">{m.nombreMes}</span></Td>
                         <Td><span className="text-sm">{m.pedidos}</span></Td>
-                        <Td><span className="text-sm">{formatCurrency(m.facturado)}</span></Td>
+                        <Td><span className="text-sm text-blue-500">{formatCurrency(m.facturado)}</span></Td>
                         <Td><span className="text-sm text-emerald-500">{formatCurrency(m.cobrado)}</span></Td>
                         <Td><span className="text-sm text-red-500">{formatCurrency(m.gastos)}</span></Td>
                         <Td><span className={`text-sm font-semibold ${m.utilidad >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>{formatCurrency(m.utilidad)}</span></Td>
@@ -424,6 +518,159 @@ export default function ReportesPage() {
           )}
         </div>
       )}
+
+      {/* ── MODAL: Detalle rentabilidad por cliente ── */}
+      <Modal
+        open={!!detalleRentCliente}
+        onClose={() => setDetalleRentCliente(null)}
+        title={detalleRentCliente ? `Rentabilidad — ${detalleRentCliente.nombre}` : ''}
+        maxWidth="max-w-5xl"
+      >
+        {lRentDetalle ? (
+          <TableSkeleton rows={5} cols={6} />
+        ) : rentClienteDetalle ? (
+          <div className="flex flex-col gap-5">
+            {/* Resumen totales */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-emerald-500/10 rounded-lg p-3 text-center">
+                <p className="text-xs text-muted-foreground">Total facturado</p>
+                <p className="font-bold text-lg text-emerald-500">{formatCurrency(rentClienteDetalle.totales.totalFacturado)}</p>
+              </div>
+              <div className="bg-destructive/10 rounded-lg p-3 text-center">
+                <p className="text-xs text-muted-foreground">Total costos</p>
+                <p className="font-bold text-lg text-destructive">{formatCurrency(rentClienteDetalle.totales.totalCostos)}</p>
+              </div>
+              <div className={`rounded-lg p-3 text-center ${rentClienteDetalle.totales.totalUtilidad >= 0 ? 'bg-emerald-500/10' : 'bg-destructive/10'}`}>
+                <p className="text-xs text-muted-foreground">Utilidad</p>
+                <p className={`font-bold text-lg ${rentClienteDetalle.totales.totalUtilidad >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
+                  {formatCurrency(rentClienteDetalle.totales.totalUtilidad)}
+                </p>
+              </div>
+            </div>
+
+            {/* Tabla por pedido */}
+            {rentClienteDetalle.pedidos.length > 0 ? (
+              <div className="overflow-x-auto">
+                <p className="text-sm font-semibold mb-2">Detalle por pedido</p>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <Th>#</Th>
+                      <Th>Fecha</Th>
+                      <Th>Ruta</Th>
+                      <Th>Factura(s)</Th>
+                      <Th>Total facturado</Th>
+                      <Th>Costos liq.</Th>
+                      <Th>Combustible</Th>
+                      <Th>Total costos</Th>
+                      <Th>Utilidad</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rentClienteDetalle.pedidos.map((p) => (
+                      <Tr key={p.id}>
+                        <Td><span className="font-mono text-xs text-muted-foreground">#{p.id}</span></Td>
+                        <Td><span className="text-xs text-muted-foreground">{formatDate(p.fecha)}</span></Td>
+                        <Td><span className="text-xs text-muted-foreground">{p.origen} → {p.destino}</span></Td>
+                        <Td>
+                          <div className="flex flex-col gap-0.5">
+                            {p.facturas.length > 0 ? p.facturas.map((f: any) => (
+                              <span key={f.id} className="text-xs font-mono text-blue-500">{f.numeroFactura}</span>
+                            )) : <span className="text-xs text-muted-foreground">Sin factura</span>}
+                          </div>
+                        </Td>
+                        <Td><span className="font-medium text-emerald-500">{formatCurrency(p.totalFacturado)}</span></Td>
+                        <Td><span className="text-sm text-destructive">{formatCurrency(p.costos.liquidacion)}</span></Td>
+                        <Td><span className="text-sm text-orange-500">{formatCurrency(p.costos.combustible)}</span></Td>
+                        <Td><span className="font-medium text-destructive">{formatCurrency(p.costos.total)}</span></Td>
+                        <Td>
+                          <span className={`font-semibold ${p.utilidad >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
+                            {formatCurrency(p.utilidad)}
+                          </span>
+                        </Td>
+                      </Tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <EmptyState message="Sin pedidos en el período" />
+            )}
+          </div>
+        ) : null}
+      </Modal>
+
+      {/* ── MODAL: Detalle facturas por cliente ── */}
+      <Modal
+        open={!!detalleFacCliente}
+        onClose={() => setDetalleFacCliente(null)}
+        title={detalleFacCliente ? `Facturas — ${detalleFacCliente.nombre}` : ''}
+        maxWidth="max-w-3xl"
+      >
+        <div className="flex flex-col gap-3">
+          {facturasDelCliente.length > 0 ? (
+            <Table>
+              <thead>
+                <tr>
+                  <Th>N° Factura</Th>
+                  <Th>Fecha emisión</Th>
+                  <Th>Monto</Th>
+                  <Th>Estado</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {facturasDelCliente.map((f: any) => (
+                  <Tr key={f.id}>
+                    <Td><span className="font-mono text-xs text-blue-500">{f.numeroFactura}</span></Td>
+                    <Td><span className="text-xs text-muted-foreground">{formatDate(f.fechaEmision)}</span></Td>
+                    <Td><span className="font-semibold">{formatCurrency(Number(f.total))}</span></Td>
+                    <Td><Badge value={f.estado} label={ESTADO_FACTURA_LABEL[f.estado as keyof typeof ESTADO_FACTURA_LABEL] ?? f.estado} /></Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          ) : (
+            <EmptyState message="Sin facturas para este cliente en el período" />
+          )}
+        </div>
+      </Modal>
+
+      {/* ── MODAL: Detalle gastos por vehículo ── */}
+      <Modal
+        open={!!detalleGasVehiculo}
+        onClose={() => setDetalleGasVehiculo(null)}
+        title={detalleGasVehiculo ? `Gastos — ${detalleGasVehiculo.placa}` : ''}
+        maxWidth="max-w-3xl"
+      >
+        <div className="flex flex-col gap-3">
+          {gastosDelVehiculo.length > 0 ? (
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Fecha</Th>
+                  <Th>Tipo</Th>
+                  <Th>Descripción</Th>
+                  <Th>Monto</Th>
+                  <Th>Responsable</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {gastosDelVehiculo.map((g: any) => (
+                  <Tr key={g.id}>
+                    <Td><span className="text-xs text-muted-foreground">{formatDate(g.fecha)}</span></Td>
+                    <Td><span className="text-xs">{TIPO_GASTO_LABEL[g.tipoGasto as keyof typeof TIPO_GASTO_LABEL] ?? g.tipoGasto}</span></Td>
+                    <Td><span className="text-sm">{g.descripcion}</span></Td>
+                    <Td><span className="font-semibold text-destructive">{formatCurrency(Number(g.monto))}</span></Td>
+                    <Td><span className="text-xs text-muted-foreground">{g.usuario?.nombre ?? '—'}</span></Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          ) : (
+            <EmptyState message="Sin gastos para este vehículo en el período" />
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

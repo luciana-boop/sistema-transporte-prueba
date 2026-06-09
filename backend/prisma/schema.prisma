@@ -230,13 +230,17 @@ model Caja {
   // movimiento de salida automático en esa cuenta). Nullable solo por
   // compatibilidad con cajas históricas; el flujo de apertura la exige.
   cuentaOrigenId  Int?       @map("cuenta_origen_id")
+  // Cuenta destino donde se devuelve el saldo restante al cerrar la caja.
+  // Si se establece, significa que ya se generó el movimiento de devolución.
+  cuentaDestinoId Int?       @map("cuenta_destino_id")
   aperturaEn      DateTime   @default(now()) @map("apertura_en")
   cierreEn        DateTime?  @map("cierre_en")
   creadoEn        DateTime   @default(now()) @map("creado_en")
   actualizadoEn   DateTime   @updatedAt @map("actualizado_en")
 
   usuario         Usuario       @relation(fields: [usuarioId], references: [id])
-  cuentaOrigen    CuentaDinero? @relation(fields: [cuentaOrigenId], references: [id])
+  cuentaOrigen    CuentaDinero? @relation("CajaOrigen", fields: [cuentaOrigenId], references: [id])
+  cuentaDestino   CuentaDinero? @relation("CajaDestino", fields: [cuentaDestinoId], references: [id])
   movimientos     MovimientoCaja[]
 
   @@map("cajas")
@@ -617,7 +621,9 @@ model CuentaDinero {
   movimientos   MovimientoCuentaV2[] @relation("CuentaOrigen")
   movimientosDestino MovimientoCuentaV2[] @relation("CuentaDestino")
   // Cajas abiertas tomando esta cuenta como origen de los fondos de apertura
-  cajasOrigen   Caja[]
+  cajasOrigen   Caja[] @relation("CajaOrigen")
+  // Cajas cerradas que devolvieron su saldo a esta cuenta
+  cajasDestino  Caja[] @relation("CajaDestino")
 
   @@map("cuentas_dinero")
 }

@@ -6,19 +6,18 @@ import { useQuery } from '@tanstack/react-query';
 import { reportesApi, cuentasApi } from '@/services/api';
 import { useConfig } from '@/hooks/useConfig';
 import { usePermisosStore } from '@/store/permisos.store';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDate } from '@/lib/utils';
 import { MonedaBadge, TipoCuentaBadge } from '@/components/shared/FinancialSelectors';
 import {
   StatCard, StatCardSkeleton, TableSkeleton, EmptyState,
-  Table, Th, Td, Tr, PageHeader, Input,
+  Table, Th, Td, Tr, PageHeader, Input, Modal, Badge,
 } from '@/components/shared';
-import { DollarSign, TrendingUp, Package, Users, ArrowUpRight, AlertCircle, Trophy, Fuel } from 'lucide-react';
+import { DollarSign, TrendingUp, Package, Users, ArrowUpRight, AlertCircle, Trophy, Fuel, Eye } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts';
 
-// Lunes de la semana que contiene la fecha dada, en formato YYYY-MM-DD.
 function lunesDe(fecha: Date) {
   const dia = fecha.getDay();
   const diff = dia === 0 ? -6 : 1 - dia;
@@ -29,16 +28,10 @@ function lunesDe(fecha: Date) {
 export default function DashboardPage() {
   const config = useConfig();
 
-  // Acceso al módulo "dashboard" — un usuario puede estar autenticado
-  // pero no tener permiso para este módulo (p.ej. un secretario configurado
-  // para trabajar solo con Pedidos). En ese caso no debe verse el panel
-  // ni dispararse sus consultas; se muestra una pantalla neutra.
   const modulos = usePermisosStore((s) => s.modulos);
   const tieneModulo = usePermisosStore((s) => s.tieneModulo);
   const accesoDashboard = modulos === null || tieneModulo('dashboard');
 
-  // Filtro de fechas del Dashboard — por defecto "inicio de mes a fecha actual",
-  // editable por el usuario.
   const [desde, setDesde] = useState(() => {
     const d = new Date(); d.setDate(1); return d.toISOString().split('T')[0];
   });
@@ -54,7 +47,6 @@ export default function DashboardPage() {
     queryFn: () => cuentasApi.getResumen().then(r => r.data.data).catch(() => null),
   });
 
-  // Tabla semanal — por defecto la semana actual (lunes a hoy), editable.
   const [desdeSemana, setDesdeSemana] = useState(() => lunesDe(new Date()));
   const [hastaSemana, setHastaSemana] = useState(() => new Date().toISOString().split('T')[0]);
 
@@ -68,8 +60,17 @@ export default function DashboardPage() {
     queryFn: () => reportesApi.conductorDelMes().then((r) => r.data.data),
   });
 
-  // Permisos ya cargados y el usuario no tiene acceso a este módulo:
-  // pantalla neutra en lugar del panel (que fallaría con 403 en sus consultas).
+  // Detalle de conductor
+  const [conductorDetalle, setConductorDetalle] = useState<{ id: number; nombre: string } | null>(null);
+  const { data: detalleData, isLoading: loadDetalle } = useQuery({
+    queryKey: ['reportes', 'detalle-conductor', conductorDetalle?.id, desdeSemana, hastaSemana],
+    queryFn: () =>
+      reportesApi
+        .detalleConductorSemanal(conductorDetalle!.id, { desde: desdeSemana, hasta: hastaSemana })
+        .then((r) => r.data.data),
+    enabled: !!conductorDetalle,
+  });
+
   if (!accesoDashboard) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -120,34 +121,10 @@ export default function DashboardPage() {
           Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />)
         ) : (
           <>
-            <StatCard
-              label="Facturado"
-              value={formatCurrency(dash?.financiero.facturado ?? 0)}
-              sub="Período seleccionado"
-              icon={DollarSign}
-              color="blue"
-            />
-            <StatCard
-              label="Cobrado"
-              value={formatCurrency(dash?.financiero.cobrado ?? 0)}
-              sub="Ingresos reales"
-              icon={TrendingUp}
-              color="green"
-            />
-            <StatCard
-              label="Por cobrar"
-              value={formatCurrency(dash?.financiero.porCobrar ?? 0)}
-              sub="Saldo pendiente"
-              icon={AlertCircle}
-              color="yellow"
-            />
-            <StatCard
-              label="Clientes activos"
-              value={dash?.clientes.total ?? 0}
-              sub="Total registrados"
-              icon={Users}
-              color="default"
-            />
+            <StatCard label="Facturado" value={formatCurrency(dash?.financiero.facturado ?? 0)} sub="Período seleccionado" icon={DollarSign} color="blue" />
+            <StatCard label="Cobrado" value={formatCurrency(dash?.financiero.cobrado ?? 0)} sub="Ingresos reales" icon={TrendingUp} color="green" />
+            <StatCard label="Por cobrar" value={formatCurrency(dash?.financiero.porCobrar ?? 0)} sub="Saldo pendiente" icon={AlertCircle} color="yellow" />
+            <StatCard label="Clientes activos" value={dash?.clientes.total ?? 0} sub="Total registrados" icon={Users} color="default" />
           </>
         )}
       </div>
@@ -158,20 +135,8 @@ export default function DashboardPage() {
           Array.from({ length: 2 }).map((_, i) => <StatCardSkeleton key={i} />)
         ) : (
           <>
-            <StatCard
-              label="Pedidos del período"
-              value={dash?.pedidos.totalMes ?? 0}
-              sub="Nuevos registros"
-              icon={Package}
-              color="default"
-            />
-            <StatCard
-              label="Utilidad bruta"
-              value={formatCurrency(dash?.financiero.utilidadBruta ?? 0)}
-              sub="Cobrado − Gastos"
-              icon={ArrowUpRight}
-              color={( dash?.financiero.utilidadBruta ?? 0) >= 0 ? 'green' : 'red'}
-            />
+            <StatCard label="Pedidos del período" value={dash?.pedidos.totalMes ?? 0} sub="Nuevos registros" icon={Package} color="default" />
+            <StatCard label="Utilidad bruta" value={formatCurrency(dash?.financiero.utilidadBruta ?? 0)} sub="Facturado − Gastos" icon={ArrowUpRight} color={(dash?.financiero.utilidadBruta ?? 0) >= 0 ? 'green' : 'red'} />
           </>
         )}
       </div>
@@ -201,7 +166,6 @@ export default function DashboardPage() {
 
       {/* Gráficos */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Financiero bar */}
         <div className="lg:col-span-2 bg-card border border-border rounded-xl p-5">
           <p className="text-sm font-semibold mb-4">Resumen financiero del período</p>
           {isLoading ? (
@@ -218,10 +182,7 @@ export default function DashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v) => `S/${(v/1000).toFixed(0)}k`} />
-                <Tooltip
-                  contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
-                  formatter={(v: number) => [formatCurrency(v), 'Monto']}
-                />
+                <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} formatter={(v: number) => [formatCurrency(v), 'Monto']} />
                 <Area type="monotone" dataKey="valor" stroke="hsl(221,83%,53%)" strokeWidth={2} fill="url(#colorValor)" />
               </AreaChart>
             </ResponsiveContainer>
@@ -291,14 +252,17 @@ export default function DashboardPage() {
           </div>
         </div>
         {loadTablaSemanal ? (
-          <TableSkeleton rows={5} cols={3} />
+          <TableSkeleton rows={5} cols={6} />
         ) : (
           <Table>
             <thead>
               <tr>
                 <Th>Conductor</Th>
                 <Th>Pedidos</Th>
+                <Th>Facturado</Th>
+                <Th>Gastos</Th>
                 <Th>Rentabilidad</Th>
+                <Th>Detalle</Th>
               </tr>
             </thead>
             <tbody>
@@ -307,20 +271,170 @@ export default function DashboardPage() {
                   <Tr key={c.conductorId}>
                     <Td><span className="font-medium">{c.nombre}</span></Td>
                     <Td><span className="text-muted-foreground">{c.cantidadPedidos}</span></Td>
+                    <Td><span className="text-emerald-500 font-medium">{formatCurrency(c.ingreso)}</span></Td>
+                    <Td><span className="text-destructive font-medium">{formatCurrency(c.costos)}</span></Td>
                     <Td>
                       <span className={`font-semibold ${c.rentabilidad >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
                         {formatCurrency(c.rentabilidad)}
                       </span>
                     </Td>
+                    <Td>
+                      <button
+                        onClick={() => setConductorDetalle({ id: c.conductorId, nombre: c.nombre })}
+                        className="text-xs text-primary hover:underline flex items-center gap-1"
+                      >
+                        <Eye className="w-3 h-3" /> Ver
+                      </button>
+                    </Td>
                   </Tr>
                 ))
               ) : (
-                <tr><td colSpan={3}><EmptyState message="Sin liquidaciones en el rango seleccionado" /></td></tr>
+                <tr><td colSpan={6}><EmptyState message="Sin liquidaciones en el rango seleccionado" /></td></tr>
               )}
             </tbody>
           </Table>
         )}
       </div>
+
+      {/* Modal detalle conductor */}
+      <Modal
+        open={!!conductorDetalle}
+        onClose={() => setConductorDetalle(null)}
+        title={conductorDetalle ? `Detalle — ${conductorDetalle.nombre}` : ''}
+        maxWidth="max-w-4xl"
+      >
+        {loadDetalle ? (
+          <TableSkeleton rows={5} cols={4} />
+        ) : detalleData ? (
+          <div className="flex flex-col gap-5">
+            {/* Resumen */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="bg-muted/20 rounded-lg p-3 text-center">
+                <p className="text-xs text-muted-foreground">Pedidos</p>
+                <p className="font-bold text-lg">{detalleData.resumen.cantidadPedidos}</p>
+              </div>
+              <div className="bg-emerald-500/10 rounded-lg p-3 text-center">
+                <p className="text-xs text-muted-foreground">Facturado</p>
+                <p className="font-bold text-lg text-emerald-500">{formatCurrency(detalleData.resumen.totalIngreso)}</p>
+              </div>
+              <div className="bg-destructive/10 rounded-lg p-3 text-center">
+                <p className="text-xs text-muted-foreground">Costos totales</p>
+                <p className="font-bold text-lg text-destructive">{formatCurrency(detalleData.resumen.totalCostos)}</p>
+              </div>
+              <div className="bg-muted/20 rounded-lg p-3 text-center">
+                <p className="text-xs text-muted-foreground">Combustible</p>
+                <p className="font-bold text-lg text-orange-500">{formatCurrency(detalleData.resumen.totalCombustible)}</p>
+              </div>
+              <div className="bg-muted/20 rounded-lg p-3 text-center">
+                <p className="text-xs text-muted-foreground">Liquidaciones</p>
+                <p className="font-bold text-lg">{detalleData.resumen.cantidadLiquidaciones}</p>
+              </div>
+              <div className={`rounded-lg p-3 text-center ${detalleData.resumen.rentabilidad >= 0 ? 'bg-emerald-500/10' : 'bg-destructive/10'}`}>
+                <p className="text-xs text-muted-foreground">Rentabilidad</p>
+                <p className={`font-bold text-lg ${detalleData.resumen.rentabilidad >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>
+                  {formatCurrency(detalleData.resumen.rentabilidad)}
+                </p>
+              </div>
+            </div>
+
+            {/* Pedidos */}
+            {detalleData.pedidos.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold mb-2">Pedidos realizados</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b border-border"><Th>#</Th><Th>Cliente</Th><Th>Ruta</Th><Th>Tarifa</Th><Th>Estado</Th><Th>Fecha</Th></tr></thead>
+                    <tbody>
+                      {detalleData.pedidos.map((p: any) => (
+                        <Tr key={p.id}>
+                          <Td><span className="font-mono text-xs text-muted-foreground">#{p.id}</span></Td>
+                          <Td><span className="text-sm">{p.cliente}</span></Td>
+                          <Td><span className="text-xs text-muted-foreground">{p.origen} → {p.destino}</span></Td>
+                          <Td><span className="font-medium text-emerald-500">{formatCurrency(p.tarifa)}</span></Td>
+                          <Td><Badge value={p.estado} label={p.estado} /></Td>
+                          <Td><span className="text-xs text-muted-foreground">{formatDate(p.fechaPedido)}</span></Td>
+                        </Tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Facturación */}
+            {detalleData.facturas.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold mb-2">Facturación asociada</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b border-border"><Th>N° Factura</Th><Th>Total</Th><Th>Estado</Th></tr></thead>
+                    <tbody>
+                      {detalleData.facturas.map((f: any) => (
+                        <Tr key={f.id}>
+                          <Td><span className="font-mono text-xs">{f.numeroFactura}</span></Td>
+                          <Td><span className="font-medium">{formatCurrency(Number(f.total))}</span></Td>
+                          <Td><Badge value={f.estado} label={f.estado} /></Td>
+                        </Tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Liquidaciones */}
+            {detalleData.liquidaciones.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold mb-2">Liquidaciones</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b border-border"><Th>#</Th><Th>Fecha</Th><Th>Gastos</Th><Th>Entregado</Th><Th>Devolución</Th><Th>Reintegro</Th><Th>Estado</Th></tr></thead>
+                    <tbody>
+                      {detalleData.liquidaciones.map((l: any) => (
+                        <Tr key={l.id}>
+                          <Td><span className="font-mono text-xs text-muted-foreground">#{l.id}</span></Td>
+                          <Td><span className="text-xs text-muted-foreground">{formatDate(l.fecha)}</span></Td>
+                          <Td><span className="text-destructive">{formatCurrency(l.totalGastos)}</span></Td>
+                          <Td><span className="font-medium">{formatCurrency(l.montoEntregado)}</span></Td>
+                          <Td><span className="text-emerald-500">{l.devolucion > 0 ? formatCurrency(l.devolucion) : '—'}</span></Td>
+                          <Td><span className="text-orange-500">{l.reintegro > 0 ? formatCurrency(l.reintegro) : '—'}</span></Td>
+                          <Td><Badge value={l.estado} label={l.estado} /></Td>
+                        </Tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Combustible */}
+            {detalleData.combustible.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold mb-2">Combustible</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b border-border"><Th>Vehículo</Th><Th>Monto</Th><Th>Litros</Th><Th>Fecha</Th></tr></thead>
+                    <tbody>
+                      {detalleData.combustible.map((c: any) => (
+                        <Tr key={c.id}>
+                          <Td><span className="text-sm">{c.vehiculo ?? '—'}</span></Td>
+                          <Td><span className="font-medium text-orange-500">{formatCurrency(c.monto)}</span></Td>
+                          <Td><span className="text-sm text-muted-foreground">{c.litros != null ? `${c.litros} L` : '—'}</span></Td>
+                          <Td><span className="text-xs text-muted-foreground">{formatDate(c.fecha)}</span></Td>
+                        </Tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {detalleData.pedidos.length === 0 && detalleData.liquidaciones.length === 0 && (
+              <EmptyState message="Sin datos en el período seleccionado" />
+            )}
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }

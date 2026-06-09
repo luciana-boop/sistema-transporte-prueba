@@ -178,6 +178,9 @@ export interface Caja {
   /** Cuenta de la que se retiraron los fondos de apertura (genera egreso automático) */
   cuentaOrigenId?: number;
   cuentaOrigen?: { id: number; nombre: string };
+  /** Cuenta destino donde se devolvió el saldo al cerrar. Si está seteado, la devolución ya fue procesada. */
+  cuentaDestinoId?: number;
+  cuentaDestino?: { id: number; nombre: string };
   aperturaEn: string;
   cierreEn?: string;
   usuario: { id: number; nombre: string };

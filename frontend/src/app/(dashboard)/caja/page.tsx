@@ -34,6 +34,7 @@ const abrirSchema = z.object({
 const cerrarSchema = z.object({
   saldoCierre: z.string().min(1, 'Saldo de cierre requerido'),
   observaciones: z.string().optional(),
+  cuentaDestinoId: z.string().optional(),
 });
 const movSchema = z.object({
   tipo: z.enum(['INGRESO', 'EGRESO']),
@@ -220,7 +221,11 @@ export default function CajaPage() {
 
   const cerrarMutation = useMutation({
     mutationFn: (d: z.infer<typeof cerrarSchema>) =>
-      cajaApi.cerrar(showCerrar!, { saldoCierre: parseFloat(d.saldoCierre), observaciones: d.observaciones }),
+      cajaApi.cerrar(showCerrar!, {
+        saldoCierre: parseFloat(d.saldoCierre),
+        observaciones: d.observaciones,
+        cuentaDestinoId: d.cuentaDestinoId ? parseInt(d.cuentaDestinoId) : undefined,
+      }),
     onSuccess: () => { toast.success('Caja cerrada'); setShowCerrar(null); cerrarForm.reset(); invalidate(); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
@@ -489,7 +494,14 @@ export default function CajaPage() {
                     <Td><span className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">{formatCurrency(c.ingresosTotales ?? 0)}</span></Td>
                     <Td><span className="text-sm text-destructive font-medium">{formatCurrency(c.egresosTotales ?? 0)}</span></Td>
                     <Td><span className="font-bold text-primary">{formatCurrency(c.saldoActual ?? (Number(c.saldoApertura) + (c.ingresosTotales ?? 0) - (c.egresosTotales ?? 0)))}</span></Td>
-                    <Td><Badge value={c.estado} label={c.estado === 'ABIERTA' ? 'Abierta' : 'Cerrada'} /></Td>
+                    <Td>
+                      <div className="flex flex-col gap-0.5">
+                        <Badge value={c.estado} label={c.estado === 'ABIERTA' ? 'Abierta' : 'Cerrada'} />
+                        {c.estado === 'CERRADA' && c.cuentaDestinoId && (
+                          <span className="text-[10px] text-emerald-500 font-medium">Saldo devuelto</span>
+                        )}
+                      </div>
+                    </Td>
                     <Td>
                       <div className="flex gap-2 flex-wrap">
                         <button onClick={() => handleVerMovimientos(c)} className="text-xs text-primary hover:underline flex items-center gap-1">
@@ -669,7 +681,28 @@ export default function CajaPage() {
       {/* Modal: Cerrar caja */}
       <Modal open={!!showCerrar} onClose={() => { setShowCerrar(null); cerrarForm.reset(); }} title="Cerrar caja">
         <form onSubmit={cerrarForm.handleSubmit((d) => cerrarMutation.mutate(d))} className="flex flex-col gap-4">
-          <FormField label="Saldo de cierre (S/)" required error={cerrarForm.formState.errors.saldoCierre?.message}><Input type="number" step="0.01" placeholder="0.00" {...cerrarForm.register('saldoCierre')} /></FormField>
+          {/* Saldo actual de la caja antes de cerrar */}
+          {cajaActual && showCerrar === cajaActual.id && (
+            <div className="bg-muted/30 rounded-lg p-3 text-sm">
+              <p className="text-xs text-muted-foreground mb-1">Saldo calculado actual</p>
+              <p className="font-bold text-base text-primary">{formatCurrency(cajaActual.saldoCalculado ?? cajaActual.saldoActual ?? 0)}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Este saldo puede ser devuelto a una cuenta al cerrar.</p>
+            </div>
+          )}
+          <FormField label="Saldo de cierre (S/)" required error={cerrarForm.formState.errors.saldoCierre?.message}>
+            <Input type="number" step="0.01" placeholder="0.00" {...cerrarForm.register('saldoCierre')} />
+          </FormField>
+          <FormField label="Cuenta destino (opcional)">
+            <Select {...cerrarForm.register('cuentaDestinoId')}>
+              <option value="">Sin devolución a cuenta</option>
+              {(resumenCuentas?.cuentas ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nombre} ({c.moneda?.simbolo} {c.moneda?.codigo}) — Saldo: {c.moneda?.simbolo} {Number(c.saldoActual).toFixed(2)}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <p className="text-xs text-muted-foreground -mt-2">Si seleccionas una cuenta, el saldo calculado se registrará como ingreso en esa cuenta. Esta operación no puede deshacerse.</p>
           <FormField label="Observaciones"><Textarea {...cerrarForm.register('observaciones')} /></FormField>
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="secondary" type="button" onClick={() => { setShowCerrar(null); cerrarForm.reset(); }}>Cancelar</Button>

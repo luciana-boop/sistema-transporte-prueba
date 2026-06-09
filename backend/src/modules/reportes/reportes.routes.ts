@@ -35,4 +35,13 @@ router.get('/caja', reportesController.caja.bind(reportesController));
 // GET /api/reportes/gastos?desde=2024-01-01&hasta=2024-12-31
 router.get('/gastos', reportesController.gastos.bind(reportesController));
 
+// GET /api/reportes/rentabilidad-cliente?desde=2024-01-01&hasta=2024-12-31
+router.get('/rentabilidad-cliente', reportesController.rentabilidadPorCliente.bind(reportesController));
+
+// GET /api/reportes/rentabilidad-cliente/:clienteId/detalle?desde=...&hasta=...
+router.get('/rentabilidad-cliente/:clienteId/detalle', reportesController.rentabilidadClienteDetalle.bind(reportesController));
+
+// GET /api/reportes/tabla-semanal/:conductorId/detalle?desde=...&hasta=...
+router.get('/tabla-semanal/:conductorId/detalle', reportesController.detalleConductorSemanal.bind(reportesController));
+
 export default router;

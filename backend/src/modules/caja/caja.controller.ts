@@ -62,18 +62,22 @@ export class CajaController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      const { saldoCierre, observaciones } = req.body;
+      const { saldoCierre, observaciones, cuentaDestinoId } = req.body;
       if (saldoCierre === undefined) { R.badRequest(res, 'saldoCierre es requerido'); return; }
       const data = await cajaService.cerrar(
         id,
-        { saldoCierre: parseFloat(saldoCierre), observaciones },
+        {
+          saldoCierre: parseFloat(saldoCierre),
+          observaciones,
+          cuentaDestinoId: cuentaDestinoId ? parseInt(cuentaDestinoId) : undefined,
+        },
         req.usuario!.id
       );
       R.ok(res, data, 'Caja cerrada correctamente');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Caja no encontrada') R.notFound(res, msg);
-      else if (msg.includes('ya está') || msg.includes('No puede')) R.badRequest(res, msg);
+      else if (msg.includes('ya está') || msg.includes('No puede') || msg.includes('ya fue devuelto') || msg.includes('no encontrada') || msg.includes('inactiva') || msg.includes('Saldo insuficiente')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }

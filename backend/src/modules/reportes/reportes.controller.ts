@@ -77,6 +77,36 @@ export class ReportesController {
       R.ok(res, data);
     } catch (e) { R.serverError(res, e); }
   }
+
+  async rentabilidadPorCliente(req: Request, res: Response): Promise<void> {
+    try {
+      const { desde, hasta, clienteId } = req.query as Record<string, string>;
+      const data = await reportesService.rentabilidadPorCliente({ desde, hasta, clienteId });
+      R.ok(res, data);
+    } catch (e) { R.serverError(res, e); }
+  }
+
+  async rentabilidadClienteDetalle(req: Request, res: Response): Promise<void> {
+    try {
+      const { clienteId } = req.params;
+      const { desde, hasta } = req.query as Record<string, string>;
+      const id = parseInt(clienteId);
+      if (isNaN(id)) { R.badRequest(res, 'clienteId inválido'); return; }
+      const data = await reportesService.rentabilidadClienteDetalle(id, { desde, hasta });
+      R.ok(res, data);
+    } catch (e) { R.serverError(res, e); }
+  }
+
+  async detalleConductorSemanal(req: Request, res: Response): Promise<void> {
+    try {
+      const { conductorId } = req.params;
+      const { desde, hasta } = req.query as Record<string, string>;
+      const id = parseInt(conductorId);
+      if (isNaN(id)) { R.badRequest(res, 'conductorId inválido'); return; }
+      const data = await reportesService.detalleConductorSemanal(id, { desde, hasta });
+      R.ok(res, data);
+    } catch (e) { R.serverError(res, e); }
+  }
 }
 
 export const reportesController = new ReportesController();

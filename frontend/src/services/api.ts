@@ -170,7 +170,7 @@ export const cajaApi = {
   actual: () => api.get<ApiResponse<Caja | null>>('/api/caja/actual'),
   abrir: (data: { saldoApertura: number; cuentaOrigenId: number; nombre?: string; observaciones?: string }) =>
     api.post<ApiResponse<Caja>>('/api/caja/abrir', data),
-  cerrar: (id: number, data: { saldoCierre: number; observaciones?: string }) =>
+  cerrar: (id: number, data: { saldoCierre: number; observaciones?: string; cuentaDestinoId?: number }) =>
     api.patch<ApiResponse<Caja>>(`/api/caja/${id}/cerrar`, data),
   registrarMovimiento: (id: number, data: {
     tipo: 'INGRESO' | 'EGRESO'; monto: number; concepto: string;
@@ -245,22 +245,48 @@ export const reportesApi = {
     }>>('/api/reportes/conductor-del-mes');
   },
   tablaSemanal: (params?: { desde?: string; hasta?: string }) => {
-    type ConductorSemana = { conductorId: number; nombre: string; cantidadPedidos: number; rentabilidad: number };
+    type ConductorSemana = {
+      conductorId: number;
+      nombre: string;
+      cantidadPedidos: number;
+      ingreso: number;
+      costos: number;
+      rentabilidad: number;
+    };
     return api.get<ApiResponse<{
       periodo: { desde: string; hasta: string };
       conductores: ConductorSemana[];
     }>>('/api/reportes/tabla-semanal', { params });
   },
+  detalleConductorSemanal: (conductorId: number, params?: { desde?: string; hasta?: string }) =>
+    api.get<ApiResponse<any>>(`/api/reportes/tabla-semanal/${conductorId}/detalle`, { params }),
   facturacion: (params?: { desde?: string; hasta?: string; clienteId?: number }) =>
     api.get<ApiResponse<{
       facturas: Factura[];
       resumenEstados: Array<{ estado: string; cantidad: number; total: number }>;
+      resumenPorCliente: Array<{
+        clienteId: number;
+        razonSocial: string;
+        totalFacturas: number;
+        emitidas: number;
+        pagadas: number;
+        parciales: number;
+        montoTotal: number;
+      }>;
       totales: { cantidad: number; subtotal: number; igv: number; total: number };
     }>>('/api/reportes/facturacion', { params }),
   cobranza: (params?: { desde?: string; hasta?: string; clienteId?: number }) =>
     api.get<ApiResponse<{
       pagos: Pago[];
       resumenPorMetodo: Array<{ metodoPago: MetodoPago; cantidad: number; total: number }>;
+      resumenPorCliente: Array<{
+        clienteId: number;
+        razonSocial: string;
+        totalFacturado: number;
+        totalCobrado: number;
+        saldoPendiente: number;
+        porcentajeCobrado: number;
+      }>;
       totales: { cantidad: number; totalCobrado: number };
     }>>('/api/reportes/cobranza', { params }),
   caja: (params?: { desde?: string; hasta?: string }) =>
@@ -269,8 +295,44 @@ export const reportesApi = {
     api.get<ApiResponse<{
       gastos: Gasto[];
       resumenPorTipo: Array<{ tipoGasto: TipoGasto; cantidad: number; total: number }>;
+      resumenPorVehiculo: Array<{
+        vehiculoId: number | null;
+        placa: string;
+        cantidadGastos: number;
+        totalGastado: number;
+        participacion: number;
+      }>;
       totales: { cantidad: number; totalGastos: number };
     }>>('/api/reportes/gastos', { params }),
+  rentabilidadCliente: (params?: { desde?: string; hasta?: string; clienteId?: number }) =>
+    api.get<ApiResponse<{
+      clientes: Array<{
+        clienteId: number;
+        razonSocial: string;
+        cantidadPedidos: number;
+        facturacion: number;
+        costos: number;
+        utilidad: number;
+        margen: number;
+      }>;
+    }>>('/api/reportes/rentabilidad-cliente', { params }),
+  rentabilidadClienteDetalle: (clienteId: number, params?: { desde?: string; hasta?: string }) =>
+    api.get<ApiResponse<{
+      clienteId: number;
+      pedidos: Array<{
+        id: number;
+        fecha: string;
+        origen: string;
+        destino: string;
+        estado: string;
+        facturas: Array<{ id: number; numeroFactura: string; total: number; estado: string; fechaEmision: string }>;
+        totalFacturado: number;
+        costos: { liquidacion: number; combustible: number; total: number };
+        liquidacionesDetalle: Array<{ liquidacionId: number; costoAsignado: number; combustibleAsignado: number }>;
+        utilidad: number;
+      }>;
+      totales: { totalFacturado: number; totalCostos: number; totalUtilidad: number };
+    }>>(`/api/reportes/rentabilidad-cliente/${clienteId}/detalle`, { params }),
 };
 
 // ─── USUARIOS ────────────────────────────────────────────────────────────────

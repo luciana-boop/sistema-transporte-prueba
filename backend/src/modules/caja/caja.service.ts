@@ -14,6 +14,7 @@ export interface AbrirCajaDto {
 export interface CerrarCajaDto {
   saldoCierre: number;
   observaciones?: string;
+  cuentaDestinoId?: number;
 }
 
 export interface MovimientoManualDto {
@@ -196,10 +197,53 @@ export class CajaService {
     const caja = await this.findById(id);
 
     if (caja.estado === EstadoCaja.CERRADA) {
+      // Si la caja ya está cerrada y tenía cuenta destino, informar que ya fue procesado
+      if ((caja as any).cuentaDestinoId) {
+        throw new Error('La caja ya está cerrada y el saldo ya fue devuelto a la cuenta destino');
+      }
       throw new Error('La caja ya está cerrada');
     }
     if (caja.usuarioId !== usuarioId) {
       throw new Error('No puede cerrar una caja de otro usuario');
+    }
+
+    // Si se especifica una cuenta destino, generar el movimiento de devolución
+    if (dto.cuentaDestinoId) {
+      const cuentaDestino = await prisma.cuentaDinero.findUnique({ where: { id: dto.cuentaDestinoId } });
+      if (!cuentaDestino) throw new Error('Cuenta destino no encontrada');
+      if (!cuentaDestino.activo) throw new Error('La cuenta destino está inactiva');
+
+      // El saldo que se devuelve es el calculado (no necesariamente el saldoCierre ingresado)
+      const saldoCalculado = caja.saldoCalculado ?? 0;
+
+      return prisma.$transaction(async (tx: any) => {
+        // 1. Cerrar la caja con la cuenta destino registrada
+        const cajaActualizada = await tx.caja.update({
+          where: { id },
+          data: {
+            estado: EstadoCaja.CERRADA,
+            saldoCierre: dto.saldoCierre,
+            cierreEn: new Date(),
+            observaciones: dto.observaciones,
+            cuentaDestinoId: dto.cuentaDestinoId,
+          },
+        });
+
+        // 2. Registrar el ingreso en la cuenta destino (saldo devuelto)
+        if (saldoCalculado > 0) {
+          await cuentasService._registrarMovimientoEnTx(tx, {
+            cuentaId: dto.cuentaDestinoId!,
+            tipo: 'INGRESO',
+            monto: saldoCalculado,
+            monedaId: cuentaDestino.monedaId,
+            concepto: `Devolución de saldo al cerrar caja${(caja as any).nombre ? ` — ${(caja as any).nombre}` : ''}`,
+            referencia: `CIERRE-CAJA-${id}`,
+            usuarioId,
+          });
+        }
+
+        return cajaActualizada;
+      });
     }
 
     return prisma.caja.update({
