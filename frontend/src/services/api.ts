@@ -449,9 +449,9 @@ export const configuracionApi = {
   updateParametro: (clave: string, valor: string) =>
     api.put<ApiResponse<ConfigParam>>(`/api/configuracion/parametros/${clave}`, { valor }),
   getSeries: () => api.get<ApiResponse<SerieFacturacion[]>>('/api/configuracion/series'),
-  createSerie: (data: { serie: string; tipoDocumento?: string; descripcion?: string }) =>
+  createSerie: (data: { serie: string; tipoDocumento?: string; descripcion?: string; correlativoInicial?: number }) =>
     api.post<ApiResponse<SerieFacturacion>>('/api/configuracion/series', data),
-  updateSerie: (id: number, data: { correlativoActual?: number; activo?: boolean; descripcion?: string }) =>
+  updateSerie: (id: number, data: { correlativoActual?: number; activo?: boolean; descripcion?: string; tipoDocumento?: string }) =>
     api.put<ApiResponse<SerieFacturacion>>(`/api/configuracion/series/${id}`, data),
   deleteSerie: (id: number) => api.delete<ApiResponse<null>>(`/api/configuracion/series/${id}`),
   inicializar: () =>
