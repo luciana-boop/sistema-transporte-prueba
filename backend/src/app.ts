@@ -43,33 +43,19 @@ app.use((_req, res, next) => {
   next();
 });
 
-// ── CORS: solo orígenes explícitamente declarados ────────────────────────────
-const corsOrigins = [
-  'http://localhost:3000',
-  'https://transportessalvadorr-iuinr2f0n-transporte-salva.vercel.app',
-  ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()) : []),
-];
-
 app.use(cors({
   origin: (origin, callback) => {
-    // Peticiones sin origen (curl, Postman) se permiten solo en desarrollo
-    if (!origin) {
-      if (process.env.NODE_ENV === 'production') {
-        return callback(new Error('Origen no permitido por CORS'));
-      }
-      return callback(null, true);
-    }
-    const isLocalhost = /^https?:\/\/localhost(:\d+)?$/.test(origin);
-    const isAllowed = corsOrigins.includes(origin) || (process.env.NODE_ENV !== 'production' && isLocalhost);
-    if (isAllowed) {
+    const allowed = [
+      /\.vercel\.app$/,
+      /^http:\/\/localhost/
+    ];
+    if (!origin || allowed.some(pattern => pattern.test(origin))) {
       callback(null, true);
     } else {
-      callback(new Error(`Origen no permitido por CORS: ${origin}`));
+      callback(new Error('Not allowed by CORS'));
     }
   },
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
+  credentials: true
 }));
 
 app.use(express.json({ limit: '20mb' }));
