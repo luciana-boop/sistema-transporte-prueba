@@ -197,7 +197,6 @@ async function main() {
   await prisma.gasto.createMany({
     data: [
       {
-        pedidoId: pedido1.id,
         usuarioId: secretario.id,
         tipoGasto: TipoGasto.COMBUSTIBLE,
         monto: 350.00,
@@ -205,7 +204,6 @@ async function main() {
         fecha: new Date('2024-01-14'),
       },
       {
-        pedidoId: pedido1.id,
         usuarioId: secretario.id,
         tipoGasto: TipoGasto.PEAJE,
         monto: 85.00,
@@ -213,7 +211,6 @@ async function main() {
         fecha: new Date('2024-01-14'),
       },
       {
-        pedidoId: pedido1.id,
         usuarioId: secretario.id,
         tipoGasto: TipoGasto.VIATICOS,
         monto: 120.00,
