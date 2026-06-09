@@ -5,6 +5,11 @@
 //   - Acciones de reintegro y devolución post-pago
 //   - Historial financiero en vista detalle
 //   - No se permiten pagos parciales
+// CAMBIO v3 (FLUJO 2 ETAPAS):
+//   - Creación: solo cabecera (sin gastos) → PENDIENTE_RENDICION
+//   - Modal "Rendir liquidación": registra gastos reales, recalcula, pasa a PENDIENTE
+//   - Columna Estado en tabla; botón Imprimir eliminado de la tabla (queda en detalle)
+//   - Pagar solo disponible para liquidaciones en estado PENDIENTE (con gastos)
 
 'use client';
 
@@ -14,7 +19,7 @@ import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Search, Trash2, Eye, Printer, Download, Package, X, CreditCard, ArrowDownLeft, ArrowUpRight, History } from 'lucide-react';
+import { Plus, Search, Trash2, Eye, Printer, Download, Package, X, CreditCard, ArrowDownLeft, ArrowUpRight, History, ClipboardList } from 'lucide-react';
 import { liquidacionesApi, conductoresApi, vehiculosApi } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
 import {
@@ -30,6 +35,7 @@ const detalleSchema = z.object({
   monto: z.string().min(1, 'Monto requerido'),
 });
 
+// v3: formulario de creación — solo cabecera, sin gastos
 const schema = z.object({
   conductorId: z.string().min(1, 'Conductor requerido'),
   placaTracto: z.string().min(1, 'Placa tracto requerida'),
@@ -39,12 +45,30 @@ const schema = z.object({
   fecha: z.string().min(1, 'Fecha requerida'),
   guiaReferencia: z.string().optional(),
   observaciones: z.string().optional(),
-  detalles: z.array(detalleSchema),
 });
 type FormData = z.infer<typeof schema>;
 
+// v3: formulario de rendición — gastos reales del viaje
+const rendirSchema = z.object({
+  detalles: z.array(detalleSchema).min(1, 'Debe agregar al menos un gasto'),
+  observaciones: z.string().optional(),
+});
+type RendirFormData = z.infer<typeof rendirSchema>;
+
 const CATEGORIA_LABEL: Record<string, string> = {
   PEAJE: 'Peaje', BALANZA: 'Balanza', VIATICO: 'Viático', TOLDO: 'Toldo', OTROS: 'Otros',
+};
+
+const ESTADO_LIQUIDACION_LABEL: Record<string, string> = {
+  PENDIENTE_RENDICION: 'Sin rendir',
+  PENDIENTE: 'Por pagar',
+  PAGADA: 'Pagada',
+};
+
+const ESTADO_LIQUIDACION_COLOR: Record<string, string> = {
+  PENDIENTE_RENDICION: 'text-amber-600 bg-amber-50 border-amber-200',
+  PENDIENTE: 'text-blue-600 bg-blue-50 border-blue-200',
+  PAGADA: 'text-emerald-600 bg-emerald-50 border-emerald-200',
 };
 
 export default function LiquidacionesPage() {
@@ -55,6 +79,9 @@ export default function LiquidacionesPage() {
   const [filtroHasta, setFiltroHasta] = useState(() => new Date().toISOString().split('T')[0]);
   const [showForm, setShowForm] = useState(false);
   const [viewing, setViewing] = useState<Liquidacion | null>(null);
+
+  // v3: modal de rendición (registrar gastos del viaje)
+  const [showRendirModal, setShowRendirModal] = useState<Liquidacion | null>(null);
 
   // P3: estados para modales de pago
   const [showPagarModal, setShowPagarModal] = useState<Liquidacion | null>(null);
@@ -114,11 +141,24 @@ export default function LiquidacionesPage() {
     resolver: zodResolver(schema),
     defaultValues: {
       fecha: new Date().toISOString().split('T')[0],
-      detalles: [{ categoria: 'PEAJE', descripcion: '', monto: '' }],
     },
   });
 
-  const { fields, append, remove } = useFieldArray({ control, name: 'detalles' });
+  // v3: formulario independiente para rendición de gastos
+  const {
+    register: rendirRegister,
+    handleSubmit: rendirHandleSubmit,
+    reset: rendirReset,
+    watch: rendirWatch,
+    control: rendirControl,
+    formState: { errors: rendirErrors, isSubmitting: rendirIsSubmitting },
+  } = useForm<RendirFormData>({
+    resolver: zodResolver(rendirSchema),
+    defaultValues: { detalles: [{ categoria: 'PEAJE', descripcion: '', monto: '' }] },
+  });
+
+  const { fields: rendirFields, append: rendirAppend, remove: rendirRemove } =
+    useFieldArray({ control: rendirControl, name: 'detalles' });
 
   // Auto-fill vehicle preferences when conductor is selected
   const watchConductorId = watch('conductorId');
@@ -131,14 +171,13 @@ export default function LiquidacionesPage() {
     }
   }, [watchConductorId, conductores, setValue]);
 
-  // Cálculos automáticos
-  const watchDetalles = watch('detalles');
-  const watchEntregado = watch('montoEntregado');
-  const totalGastos = watchDetalles.reduce((s, d) => s + (parseFloat(d.monto) || 0), 0);
-  const entregado = parseFloat(watchEntregado || '0');
-  const diferencia = entregado - totalGastos;
-  const devolucion = diferencia > 0 ? diferencia : 0;
-  const reintegro = diferencia < 0 ? Math.abs(diferencia) : 0;
+  // v3: cálculos automáticos para el modal de rendición
+  const rendirWatchDetalles = rendirWatch('detalles');
+  const rendirTotalGastos = rendirWatchDetalles.reduce((s, d) => s + (parseFloat(d.monto) || 0), 0);
+  const rendirEntregado = showRendirModal ? Number(showRendirModal.montoEntregado) : 0;
+  const rendirDiferencia = rendirEntregado - rendirTotalGastos;
+  const rendirDevolucion = rendirDiferencia > 0 ? rendirDiferencia : 0;
+  const rendirReintegro = rendirDiferencia < 0 ? Math.abs(rendirDiferencia) : 0;
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['liquidaciones'] });
@@ -175,7 +214,7 @@ export default function LiquidacionesPage() {
   };
 
   const resetForm = () => {
-    reset();
+    reset({ fecha: new Date().toISOString().split('T')[0] });
     setPedidosSeleccionados([]);
     setPedidoSelectorId('');
     setErrorPedidos('');
@@ -192,17 +231,31 @@ export default function LiquidacionesPage() {
         fecha: d.fecha,
         guiaReferencia: d.guiaReferencia,
         observaciones: d.observaciones,
-        detalles: d.detalles.map((det) => ({
-          categoria: det.categoria as 'PEAJE' | 'BALANZA' | 'VIATICO' | 'TOLDO' | 'OTROS',
-          descripcion: det.descripcion,
-          monto: parseFloat(det.monto),
-        })),
         pedidoIds: pedidosSeleccionados.map((p) => p.id),
       }),
     onSuccess: () => {
-      toast.success('Liquidación creada');
+      toast.success('Liquidación creada — pendiente de rendición');
       setShowForm(false);
       resetForm();
+      invalidate();
+    },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  // v3: mutación para rendir gastos
+  const rendirMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: RendirFormData }) =>
+      liquidacionesApi.rendir(id, {
+        detalles: data.detalles.map((d) => ({
+          categoria: d.categoria as 'PEAJE' | 'BALANZA' | 'VIATICO' | 'TOLDO' | 'OTROS',
+          descripcion: d.descripcion,
+          monto: parseFloat(d.monto),
+        })),
+        observaciones: data.observaciones,
+      }),
+    onSuccess: () => {
+      toast.success('Gastos registrados — liquidación lista para pagar');
+      setShowRendirModal(null);
       invalidate();
     },
     onError: (e) => toast.error(getErrorMessage(e)),
@@ -324,6 +377,26 @@ export default function LiquidacionesPage() {
     w.print();
   };
 
+  // v3: abrir modal de rendición; pre-llenar detalles si ya existen (re-edición)
+  const openRendirModal = (liq: Liquidacion) => {
+    setShowRendirModal(liq);
+    if (liq.detalles && liq.detalles.length > 0) {
+      rendirReset({
+        detalles: liq.detalles.map((d) => ({
+          categoria: d.categoria as 'PEAJE' | 'BALANZA' | 'VIATICO' | 'TOLDO' | 'OTROS',
+          descripcion: d.descripcion,
+          monto: String(d.monto),
+        })),
+        observaciones: liq.observaciones ?? '',
+      });
+    } else {
+      rendirReset({
+        detalles: [{ categoria: 'PEAJE', descripcion: '', monto: '' }],
+        observaciones: liq.observaciones ?? '',
+      });
+    }
+  };
+
   // Pedidos disponibles que aún no fueron seleccionados en el formulario actual
   const pedidosParaSelector = pedidosDisponibles.filter(
     (p) => !pedidosSeleccionados.some((s) => s.id === p.id),
@@ -382,11 +455,12 @@ export default function LiquidacionesPage() {
               <Th>Entregado</Th>
               <Th>Total gastos</Th>
               <Th>Devolución / Reintegro</Th>
+              <Th>Estado</Th>
               <Th>Acciones</Th>
             </tr>
           </thead>
           <tbody>
-            {filtered.length > 0 ? filtered.map((l) => (
+            {filtered.length > 0 ? (filtered.map((l) => (
               <Tr key={l.id}>
                 <Td><span className="font-mono text-xs text-muted-foreground">#{l.id}</span></Td>
                 <Td><span className="text-sm">{formatDate(l.fecha)}</span></Td>
@@ -416,14 +490,31 @@ export default function LiquidacionesPage() {
                   )}
                 </Td>
                 <Td>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${ESTADO_LIQUIDACION_COLOR[l.estado] ?? 'text-muted-foreground bg-muted border-border'}`}>
+                    {ESTADO_LIQUIDACION_LABEL[l.estado] ?? l.estado}
+                  </span>
+                </Td>
+                <Td>
                   <div className="flex items-center gap-1 flex-wrap">
+                    {/* Ver detalle */}
                     <button onClick={() => setViewing(l)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Ver detalle">
                       <Eye className="w-3.5 h-3.5" />
                     </button>
-                    <button onClick={() => handlePrint(l)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Imprimir">
-                      <Printer className="w-3.5 h-3.5" />
-                    </button>
-                    {/* P3: Pagar — solo si PENDIENTE */}
+                    {/* v3: Rendir — para PENDIENTE_RENDICION y PENDIENTE (antes de pagar) */}
+                    {l.estado !== 'PAGADA' && (
+                      <button
+                        onClick={() => openRendirModal(l)}
+                        className={`p-1.5 rounded-md transition-all ${
+                          l.estado === 'PENDIENTE_RENDICION'
+                            ? 'hover:bg-amber-50 text-amber-600 hover:text-amber-700'
+                            : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                        }`}
+                        title={l.estado === 'PENDIENTE_RENDICION' ? 'Rendir liquidación (registrar gastos)' : 'Ver / editar gastos'}
+                      >
+                        <ClipboardList className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {/* P3: Pagar — solo si PENDIENTE (ya tiene gastos) */}
                     {l.estado === 'PENDIENTE' && (
                       <button
                         onClick={() => { setShowPagarModal(l); setCajaSeleccionada(''); }}
@@ -467,7 +558,7 @@ export default function LiquidacionesPage() {
                   </div>
                 </Td>
               </Tr>
-            )) : <tr><td colSpan={9}><EmptyState message="No hay liquidaciones" /></td></tr>}
+            ))) : <tr><td colSpan={10}><EmptyState message="No hay liquidaciones" /></td></tr>}
           </tbody>
         </Table>
       )}
@@ -475,6 +566,13 @@ export default function LiquidacionesPage() {
       {/* ─── Create Modal ──────────────────────────────────────────────────── */}
       <Modal open={showForm} onClose={() => { setShowForm(false); resetForm(); }} title="Nueva liquidación" maxWidth="max-w-2xl">
         <form onSubmit={handleSubmit((d) => createMutation.mutate(d))} className="flex flex-col gap-4">
+
+          {/* Aviso informativo */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700">
+            <strong>Etapa 1 de 2 — Anticipo del viaje.</strong> Registrá la información disponible antes de que el conductor salga.
+            Los gastos reales se cargarán cuando el conductor regrese usando <strong>Rendir liquidación</strong>.
+          </div>
+
           {/* Cabecera */}
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Conductor" required error={errors.conductorId?.message}>
@@ -558,7 +656,7 @@ export default function LiquidacionesPage() {
                     <Th>Cliente</Th>
                     <Th>Origen</Th>
                     <Th>Destino</Th>
-                    <Th className="w-8"></Th>
+                    <Th className="w-8">&nbsp;</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -589,56 +687,7 @@ export default function LiquidacionesPage() {
             )}
           </div>
 
-          {/* Detalle dinámico */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold">Detalle de gastos</p>
-              <Button type="button" variant="secondary" size="sm"
-                onClick={() => append({ categoria: 'PEAJE', descripcion: '', monto: '' })}>
-                <Plus className="w-3 h-3" /> Agregar
-              </Button>
-            </div>
-            <div className="flex flex-col gap-2">
-              {fields.map((field, index) => (
-                <div key={field.id} className="grid grid-cols-8 gap-2 items-start">
-                  <div className="col-span-2">
-                    <Select {...register(`detalles.${index}.categoria`)}>
-                      <option value="PEAJE">Peaje</option>
-                      <option value="BALANZA">Balanza</option>
-                      <option value="VIATICO">Viático</option>
-                      <option value="TOLDO">Toldo</option>
-                      <option value="OTROS">Otros</option>
-                    </Select>
-                  </div>
-                  <div className="col-span-4">
-                    <Input placeholder="Descripción" {...register(`detalles.${index}.descripcion`)} />
-                    {errors.detalles?.[index]?.descripcion && (
-                      <p className="text-xs text-destructive mt-0.5">{errors.detalles[index]?.descripcion?.message}</p>
-                    )}
-                  </div>
-                  <div className="col-span-1">
-                    <Input type="number" step="0.01" placeholder="0.00" {...register(`detalles.${index}.monto`)} />
-                  </div>
-                  <div className="col-span-1 flex items-center pt-0.5">
-                    <button type="button" onClick={() => remove(index)}
-                      className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Cálculos automáticos */}
-          <div className="bg-muted/40 rounded-xl p-4 grid grid-cols-4 gap-3 text-center">
-            <div><p className="text-xs text-muted-foreground">Total gastos</p><p className="font-bold">{formatCurrency(totalGastos)}</p></div>
-            <div><p className="text-xs text-muted-foreground">Entregado</p><p className="font-bold">{formatCurrency(entregado)}</p></div>
-            <div><p className="text-xs text-muted-foreground">Devolución</p><p className={`font-bold ${devolucion > 0 ? 'text-emerald-500' : 'text-muted-foreground'}`}>{formatCurrency(devolucion)}</p></div>
-            <div><p className="text-xs text-muted-foreground">Reintegro</p><p className={`font-bold ${reintegro > 0 ? 'text-red-500' : 'text-muted-foreground'}`}>{formatCurrency(reintegro)}</p></div>
-          </div>
-
-          <FormField label="Observaciones" error={errors.observaciones?.message}>
+          <FormField label="Observaciones iniciales" error={errors.observaciones?.message}>
             <Textarea placeholder="Notas adicionales..." {...register('observaciones')} />
           </FormField>
 
@@ -649,10 +698,124 @@ export default function LiquidacionesPage() {
         </form>
       </Modal>
 
+      {/* ─── v3: Modal Rendir liquidación ────────────────────────────────────── */}
+      <Modal
+        open={!!showRendirModal}
+        onClose={() => setShowRendirModal(null)}
+        title={showRendirModal?.estado === 'PENDIENTE_RENDICION' ? 'Rendir liquidación — registrar gastos' : 'Ver / editar gastos del viaje'}
+        maxWidth="max-w-2xl"
+      >
+        {showRendirModal && (
+          <form onSubmit={rendirHandleSubmit((d) => rendirMutation.mutate({ id: showRendirModal.id, data: d }))} className="flex flex-col gap-4">
+
+            {/* Datos de cabecera como referencia */}
+            <div className="bg-muted/30 rounded-lg p-3 grid grid-cols-3 gap-2 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">Conductor</p>
+                <p className="font-medium">{showRendirModal.conductor?.nombre}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Fecha</p>
+                <p className="font-medium">{formatDate(showRendirModal.fecha)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Monto entregado</p>
+                <p className="font-bold text-foreground">{formatCurrency(Number(showRendirModal.montoEntregado))}</p>
+              </div>
+            </div>
+
+            {showRendirModal.estado === 'PENDIENTE_RENDICION' && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
+                <strong>Etapa 2 de 2 — Rendición de gastos.</strong> Registrá todos los gastos reales del viaje.
+                Al confirmar, la liquidación quedará lista para ser pagada.
+              </div>
+            )}
+
+            {/* Detalle de gastos dinámico */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-semibold">Detalle de gastos</p>
+                <Button type="button" variant="secondary" size="sm"
+                  onClick={() => rendirAppend({ categoria: 'PEAJE', descripcion: '', monto: '' })}>
+                  <Plus className="w-3 h-3" /> Agregar
+                </Button>
+              </div>
+              {rendirErrors.detalles?.root && (
+                <p className="text-xs text-destructive mb-1">{rendirErrors.detalles.root.message}</p>
+              )}
+              <div className="flex flex-col gap-2">
+                {rendirFields.map((field, index) => (
+                  <div key={field.id} className="grid grid-cols-8 gap-2 items-start">
+                    <div className="col-span-2">
+                      <Select {...rendirRegister(`detalles.${index}.categoria`)}>
+                        <option value="PEAJE">Peaje</option>
+                        <option value="BALANZA">Balanza</option>
+                        <option value="VIATICO">Viático</option>
+                        <option value="TOLDO">Toldo</option>
+                        <option value="OTROS">Otros</option>
+                      </Select>
+                    </div>
+                    <div className="col-span-4">
+                      <Input placeholder="Descripción" {...rendirRegister(`detalles.${index}.descripcion`)} />
+                      {rendirErrors.detalles?.[index]?.descripcion && (
+                        <p className="text-xs text-destructive mt-0.5">{rendirErrors.detalles[index]?.descripcion?.message}</p>
+                      )}
+                    </div>
+                    <div className="col-span-1">
+                      <Input type="number" step="0.01" placeholder="0.00" {...rendirRegister(`detalles.${index}.monto`)} />
+                      {rendirErrors.detalles?.[index]?.monto && (
+                        <p className="text-xs text-destructive mt-0.5">{rendirErrors.detalles[index]?.monto?.message}</p>
+                      )}
+                    </div>
+                    <div className="col-span-1 flex items-center pt-0.5">
+                      <button type="button" onClick={() => rendirRemove(index)}
+                        className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Cálculos automáticos */}
+            <div className="bg-muted/40 rounded-xl p-4 grid grid-cols-4 gap-3 text-center">
+              <div><p className="text-xs text-muted-foreground">Entregado</p><p className="font-bold">{formatCurrency(rendirEntregado)}</p></div>
+              <div><p className="text-xs text-muted-foreground">Total gastos</p><p className="font-bold">{formatCurrency(rendirTotalGastos)}</p></div>
+              <div>
+                <p className="text-xs text-muted-foreground">Devolución</p>
+                <p className={`font-bold ${rendirDevolucion > 0 ? 'text-emerald-500' : 'text-muted-foreground'}`}>{formatCurrency(rendirDevolucion)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Reintegro</p>
+                <p className={`font-bold ${rendirReintegro > 0 ? 'text-red-500' : 'text-muted-foreground'}`}>{formatCurrency(rendirReintegro)}</p>
+              </div>
+            </div>
+
+            <FormField label="Observaciones finales">
+              <Textarea placeholder="Observaciones del viaje..." {...rendirRegister('observaciones')} />
+            </FormField>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
+              <Button variant="secondary" type="button" onClick={() => setShowRendirModal(null)}>Cancelar</Button>
+              <Button type="submit" loading={rendirIsSubmitting || rendirMutation.isPending}>
+                {showRendirModal.estado === 'PENDIENTE_RENDICION' ? 'Confirmar rendición' : 'Guardar cambios'}
+              </Button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
       {/* ─── View Modal ────────────────────────────────────────────────────── */}
       <Modal open={!!viewing} onClose={() => setViewing(null)} title={`Liquidación #${viewing?.id}`} maxWidth="max-w-lg">
         {viewing && (
           <div className="flex flex-col gap-4">
+            {/* Estado badge */}
+            <div className="flex items-center gap-2">
+              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${ESTADO_LIQUIDACION_COLOR[viewing.estado] ?? 'text-muted-foreground bg-muted border-border'}`}>
+                {ESTADO_LIQUIDACION_LABEL[viewing.estado] ?? viewing.estado}
+              </span>
+            </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div><p className="text-xs text-muted-foreground">Conductor</p><p className="font-medium">{viewing.conductor?.nombre}</p></div>
               <div><p className="text-xs text-muted-foreground">Fecha</p><p className="font-medium">{formatDate(viewing.fecha)}</p></div>
@@ -692,27 +855,37 @@ export default function LiquidacionesPage() {
               </div>
             )}
 
-            <Table>
-              <thead><tr><Th>Categoría</Th><Th>Descripción</Th><Th className="text-right">Monto</Th></tr></thead>
-              <tbody>
-                {(viewing.detalles || []).map((d, i) => (
-                  <Tr key={i}>
-                    <Td><span className="text-xs">{CATEGORIA_LABEL[d.categoria]}</span></Td>
-                    <Td><span className="text-sm">{d.descripcion}</span></Td>
-                    <Td className="text-right"><span className="text-sm font-medium">{formatCurrency(Number(d.monto))}</span></Td>
-                  </Tr>
-                ))}
-                {viewing.toldo != null && Number(viewing.toldo) > 0 && (
-                  <Tr><Td><span className="text-xs">Toldo</span></Td><Td>—</Td><Td className="text-right"><span className="text-sm font-medium">{formatCurrency(Number(viewing.toldo))}</span></Td></Tr>
-                )}
-              </tbody>
-            </Table>
-            <div className="grid grid-cols-4 gap-3 bg-muted/40 rounded-xl p-3 text-center">
-              <div><p className="text-xs text-muted-foreground">Entregado</p><p className="font-bold text-sm">{formatCurrency(Number(viewing.montoEntregado))}</p></div>
-              <div><p className="text-xs text-muted-foreground">Total gastos</p><p className="font-bold text-sm">{formatCurrency(Number(viewing.totalGastos))}</p></div>
-              <div><p className="text-xs text-muted-foreground">Devolución</p><p className={`font-bold text-sm ${Number(viewing.devolucion) > 0 ? 'text-emerald-500' : ''}`}>{formatCurrency(Number(viewing.devolucion))}</p></div>
-              <div><p className="text-xs text-muted-foreground">Reintegro</p><p className={`font-bold text-sm ${Number(viewing.reintegro) > 0 ? 'text-red-500' : ''}`}>{formatCurrency(Number(viewing.reintegro))}</p></div>
-            </div>
+            {viewing.estado === 'PENDIENTE_RENDICION' ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-center text-sm text-amber-700">
+                <ClipboardList className="w-6 h-6 mx-auto mb-2 opacity-60" />
+                <p className="font-medium">Gastos pendientes de rendición</p>
+                <p className="text-xs mt-1">El conductor aún no ha rendido los gastos del viaje.<br />Usá la acción <strong>Rendir liquidación</strong> cuando regrese.</p>
+              </div>
+            ) : (
+              <>
+                <Table>
+                  <thead><tr><Th>Categoría</Th><Th>Descripción</Th><Th className="text-right">Monto</Th></tr></thead>
+                  <tbody>
+                    {(viewing.detalles || []).map((d, i) => (
+                      <Tr key={i}>
+                        <Td><span className="text-xs">{CATEGORIA_LABEL[d.categoria]}</span></Td>
+                        <Td><span className="text-sm">{d.descripcion}</span></Td>
+                        <Td className="text-right"><span className="text-sm font-medium">{formatCurrency(Number(d.monto))}</span></Td>
+                      </Tr>
+                    ))}
+                    {viewing.toldo != null && Number(viewing.toldo) > 0 && (
+                      <Tr><Td><span className="text-xs">Toldo</span></Td><Td>—</Td><Td className="text-right"><span className="text-sm font-medium">{formatCurrency(Number(viewing.toldo))}</span></Td></Tr>
+                    )}
+                  </tbody>
+                </Table>
+                <div className="grid grid-cols-4 gap-3 bg-muted/40 rounded-xl p-3 text-center">
+                  <div><p className="text-xs text-muted-foreground">Entregado</p><p className="font-bold text-sm">{formatCurrency(Number(viewing.montoEntregado))}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Total gastos</p><p className="font-bold text-sm">{formatCurrency(Number(viewing.totalGastos))}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Devolución</p><p className={`font-bold text-sm ${Number(viewing.devolucion) > 0 ? 'text-emerald-500' : ''}`}>{formatCurrency(Number(viewing.devolucion))}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Reintegro</p><p className={`font-bold text-sm ${Number(viewing.reintegro) > 0 ? 'text-red-500' : ''}`}>{formatCurrency(Number(viewing.reintegro))}</p></div>
+                </div>
+              </>
+            )}
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => handlePrint(viewing)}>
                 <Printer className="w-4 h-4" /> Imprimir

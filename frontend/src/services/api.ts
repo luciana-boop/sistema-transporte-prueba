@@ -5,6 +5,7 @@
 // (la descarga/visualización se hace con la instancia `api` + responseType: 'blob'
 // porque el endpoint /pdf exige el header Authorization, que un <a href> no envía).
 // v2 P3: liquidacionesApi añade cajasAbiertas, pagar, reintegro, devolucion, historialFinanciero.
+// v3: liquidacionesApi añade rendir(); crear() hace detalles opcionales (flujo 2 etapas).
 
 import axios from 'axios';
 import type {
@@ -407,9 +408,16 @@ export const liquidacionesApi = {
     conductorId: number; placaTracto: string; placaCarreta?: string;
     montoEntregado: number; reciboAnticipo?: string; fecha: string;
     guiaReferencia?: string; observaciones?: string;
-    detalles: Array<{ categoria: LiquidacionDetalle['categoria']; descripcion: string; monto: number }>;
+    detalles?: Array<{ categoria: LiquidacionDetalle['categoria']; descripcion: string; monto: number }>;
     pedidoIds?: number[];
   }) => api.post<ApiResponse<Liquidacion>>('/api/liquidaciones', data),
+
+  // v3: registra/reemplaza gastos reales del viaje, recalcula totales, pasa a PENDIENTE
+  rendir: (id: number, data: {
+    detalles: Array<{ categoria: LiquidacionDetalle['categoria']; descripcion: string; monto: number }>;
+    observaciones?: string;
+  }) => api.post<ApiResponse<Liquidacion>>(`/api/liquidaciones/${id}/rendir`, data),
+
   actualizar: (id: number, data: Partial<Liquidacion> & { pedidoIds?: number[] }) =>
     api.put<ApiResponse<Liquidacion>>(`/api/liquidaciones/${id}`, data),
   eliminar: (id: number) => api.delete<ApiResponse<null>>(`/api/liquidaciones/${id}`),

@@ -5,6 +5,8 @@
 //   - reintegro(): registra egreso en caja cuando la empresa entrega dinero adicional al conductor
 //   - devolucion(): registra ingreso en caja cuando el conductor devuelve dinero sobrante
 //   - historialFinanciero(): movimientos financieros de la liquidación
+// CAMBIOS v3 (FLUJO 2 ETAPAS):
+//   - rendir(): registra/reemplaza gastos reales del viaje, recalcula totales
 
 import { Request, Response } from 'express';
 import { liquidacionesService } from './liquidaciones.service';
@@ -145,7 +147,8 @@ export class LiquidacionesController {
         R.badRequest(res, 'conductorId, placaTracto, montoEntregado y fecha son requeridos');
         return;
       }
-      if (!Array.isArray(detalles)) {
+      // detalles es opcional; si se envía debe ser un array
+      if (detalles !== undefined && !Array.isArray(detalles)) {
         R.badRequest(res, 'detalles debe ser un array');
         return;
       }
@@ -161,11 +164,13 @@ export class LiquidacionesController {
           conductorId: parseInt(conductorId),
           montoEntregado: parseFloat(montoEntregado),
           toldo: req.body.toldo ? parseFloat(req.body.toldo) : undefined,
-          detalles: detalles.map((d: any) => ({
-            categoria: d.categoria,
-            descripcion: d.descripcion,
-            monto: parseFloat(d.monto),
-          })),
+          detalles: Array.isArray(detalles)
+            ? detalles.map((d: any) => ({
+                categoria: d.categoria,
+                descripcion: d.descripcion,
+                monto: parseFloat(d.monto),
+              }))
+            : [],
           pedidoIds: pedidoIds ? (pedidoIds as any[]).map((id) => parseInt(id)) : [],
         }),
         'Liquidación creada',
@@ -173,6 +178,39 @@ export class LiquidacionesController {
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('no encontrado') || msg.includes('ya está asignado') || msg.includes('duplicados')) {
+        R.badRequest(res, msg);
+      } else { R.serverError(res, e); }
+    }
+  }
+
+  // ── v3: rendir — registra/reemplaza gastos del viaje ────────────────────────
+  async rendir(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
+
+      const { detalles, observaciones } = req.body;
+      if (!Array.isArray(detalles) || detalles.length === 0) {
+        R.badRequest(res, 'detalles es requerido y debe contener al menos un elemento');
+        return;
+      }
+
+      const result = await liquidacionesService.rendir(id, {
+        detalles: detalles.map((d: any) => ({
+          categoria: d.categoria,
+          descripcion: d.descripcion,
+          monto: parseFloat(d.monto),
+        })),
+        observaciones,
+      });
+      R.ok(res, result, 'Liquidación rendida correctamente');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (
+        msg.includes('no encontrada') ||
+        msg.includes('ya pagada') ||
+        msg.includes('al menos un gasto')
+      ) {
         R.badRequest(res, msg);
       } else { R.serverError(res, e); }
     }

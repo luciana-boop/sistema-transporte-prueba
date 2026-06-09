@@ -6,16 +6,19 @@
 //   - getHistorialFinanciero(): movimientos financieros de una liquidación
 //   - getEstados(): devuelve cajas abiertas disponibles para pago
 //
+// CAMBIOS v3 (FLUJO 2 ETAPAS):
+//   - create(): detalles opcionales; sin detalles → estado PENDIENTE_RENDICION
+//   - rendir(): agrega/reemplaza gastos, recalcula totales, pasa a PENDIENTE
+//
 // REGLA CLAVE: Al registrar el pago, SOLO se aceptan cajas abiertas (no cuentas bancarias).
 // NO se permiten pagos parciales. El monto siempre es montoEntregado.
 //
 // FLUJO:
-//   1. Liquidación creada → estado PENDIENTE
-//   2. Se paga completamente → estado PAGADA (egreso en caja)
-//   3. Opcionalmente: reintegro (el conductor gastó más de lo entregado → la empresa
-//                                le entrega el faltante → EGRESO en caja)
-//                    devolución (al conductor le sobró dinero → lo devuelve a la
-//                                empresa → INGRESO en caja)
+//   1. Liquidación creada (solo cabecera) → estado PENDIENTE_RENDICION
+//      O Liquidación creada con detalles    → estado PENDIENTE (flujo legado)
+//   2. Se rinden gastos (rendir())          → estado PENDIENTE
+//   3. Se paga completamente               → estado PAGADA (egreso en caja)
+//   4. Opcionalmente: reintegro / devolución
 
 import prisma from '../../prisma/client';
 
@@ -35,8 +38,13 @@ export interface CreateLiquidacionDto {
   guiaReferencia?: string;
   observaciones?: string;
   toldo?: number;
-  detalles: DetalleDto[];
+  detalles?: DetalleDto[];   // opcional — si vacío/ausente → PENDIENTE_RENDICION
   pedidoIds?: number[];
+}
+
+export interface RendirLiquidacionDto {
+  detalles: DetalleDto[];
+  observaciones?: string;
 }
 
 export interface PagarLiquidacionDto {
@@ -195,6 +203,9 @@ export class LiquidacionesService {
     });
     if (!liquidacion) throw new Error('Liquidación no encontrada');
     if (liquidacion.estado === 'PAGADA') throw new Error('La liquidación ya fue pagada');
+    if (liquidacion.estado === 'PENDIENTE_RENDICION') {
+      throw new Error('Debe rendir los gastos del viaje antes de registrar el pago');
+    }
 
     // Verificar que la caja existe y está ABIERTA
     const caja = await prisma.caja.findUnique({ where: { id: dto.cajaId } });
@@ -389,10 +400,16 @@ export class LiquidacionesService {
     const pedidoIds = dto.pedidoIds ?? [];
     await this.validarPedidosDisponibles(pedidoIds);
 
-    const totalGastos = dto.detalles.reduce((s, d) => s + d.monto, 0);
+    const detalles = dto.detalles ?? [];
+    const conGastos = detalles.length > 0;
+
+    const totalGastos = detalles.reduce((s, d) => s + d.monto, 0);
     const diferencia = dto.montoEntregado - totalGastos;
     const devolucion = diferencia > 0 ? diferencia : 0;
     const reintegro = diferencia < 0 ? Math.abs(diferencia) : 0;
+
+    // Sin gastos → el conductor aún no rindió; con gastos → listo para pagar
+    const estado = conGastos ? 'PENDIENTE' : 'PENDIENTE_RENDICION';
 
     return prisma.liquidacion.create({
       data: {
@@ -408,19 +425,63 @@ export class LiquidacionesService {
         totalGastos,
         devolucion,
         reintegro,
-        estado: 'PENDIENTE',
-        detalles: {
-          create: dto.detalles.map((d) => ({
-            categoria: d.categoria as any,
-            descripcion: d.descripcion,
-            monto: d.monto,
-          })),
-        },
+        estado,
+        detalles: conGastos
+          ? {
+              create: detalles.map((d) => ({
+                categoria: d.categoria as any,
+                descripcion: d.descripcion,
+                monto: d.monto,
+              })),
+            }
+          : undefined,
         pedidos: pedidoIds.length
           ? { create: pedidoIds.map((pedidoId) => ({ pedidoId })) }
           : undefined,
       },
       include: LIQUIDACION_INCLUDE,
+    });
+  }
+
+  // ── v3: rendir — registra/reemplaza gastos reales, recalcula totales ─────────
+  // Funciona tanto para PENDIENTE_RENDICION (primera vez) como para PENDIENTE
+  // (re-edición antes del pago). Bloquea si ya está PAGADA.
+  async rendir(id: number, dto: RendirLiquidacionDto) {
+    const liq = await this.findById(id);
+    if (liq.estado === 'PAGADA') {
+      throw new Error('No se pueden modificar los gastos de una liquidación ya pagada');
+    }
+    if (!dto.detalles || dto.detalles.length === 0) {
+      throw new Error('Debe registrar al menos un gasto para rendir la liquidación');
+    }
+
+    const totalGastos = dto.detalles.reduce((s, d) => s + d.monto, 0);
+    const diferencia = Number(liq.montoEntregado) - totalGastos;
+    const devolucion = diferencia > 0 ? diferencia : 0;
+    const reintegro = diferencia < 0 ? Math.abs(diferencia) : 0;
+
+    return prisma.$transaction(async (tx: any) => {
+      // Reemplazar detalles existentes
+      await tx.liquidacionDetalle.deleteMany({ where: { liquidacionId: id } });
+
+      return tx.liquidacion.update({
+        where: { id },
+        data: {
+          totalGastos,
+          devolucion,
+          reintegro,
+          estado: 'PENDIENTE',
+          ...(dto.observaciones !== undefined && { observaciones: dto.observaciones }),
+          detalles: {
+            create: dto.detalles.map((d) => ({
+              categoria: d.categoria as any,
+              descripcion: d.descripcion,
+              monto: d.monto,
+            })),
+          },
+        },
+        include: LIQUIDACION_INCLUDE,
+      });
     });
   }
 

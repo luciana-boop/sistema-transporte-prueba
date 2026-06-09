@@ -5,6 +5,8 @@
 //   POST /:id/reintegro               → conductor devuelve dinero a caja
 //   POST /:id/devolucion              → empresa paga deuda al conductor desde caja
 //   GET  /:id/historial-financiero    → movimientos financieros de la liquidación
+// CAMBIOS v3 (FLUJO 2 ETAPAS):
+//   POST /:id/rendir                  → registra/reemplaza gastos reales del viaje
 
 import { Router } from 'express';
 import { liquidacionesController } from './liquidaciones.controller';
@@ -30,5 +32,8 @@ router.post('/:id/pagar',                  liquidacionesController.pagar.bind(li
 router.post('/:id/reintegro',              liquidacionesController.reintegro.bind(liquidacionesController));
 router.post('/:id/devolucion',             liquidacionesController.devolucion.bind(liquidacionesController));
 router.get('/:id/historial-financiero',    liquidacionesController.historialFinanciero.bind(liquidacionesController));
+
+// v3: rendición de gastos del viaje
+router.post('/:id/rendir',                 liquidacionesController.rendir.bind(liquidacionesController));
 
 export default router;
