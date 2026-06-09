@@ -163,7 +163,7 @@ export function StatCard({
 
 // ─── BUTTON ──────────────────────────────────────────────────────────────────
 type BtnVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
-type BtnSize = 'sm' | 'md';
+type BtnSize = 'xs' | 'sm' | 'md';
 
 const btnVariants: Record<BtnVariant, string> = {
   primary:     'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm',
@@ -172,6 +172,7 @@ const btnVariants: Record<BtnVariant, string> = {
   destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
 };
 const btnSizes: Record<BtnSize, string> = {
+  xs: 'px-2 py-1 text-xs rounded gap-1',
   sm: 'px-3 py-1.5 text-xs rounded-md gap-1.5',
   md: 'px-4 py-2 text-sm rounded-lg gap-2',
 };
