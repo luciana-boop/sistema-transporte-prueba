@@ -44,11 +44,11 @@ app.use((_req, res, next) => {
 });
 
 // ── CORS: solo orígenes explícitamente declarados ────────────────────────────
-// En producción CORS_ORIGIN debe estar definido. En desarrollo se permite
-// localhost para facilitar el trabajo local.
-const corsOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
-  : [];
+const corsOrigins = [
+  'http://localhost:3000',
+  'https://transportessalvadorr-iuinr2f0n-transporte-salva.vercel.app',
+  ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()) : []),
+];
 
 app.use(cors({
   origin: (origin, callback) => {
