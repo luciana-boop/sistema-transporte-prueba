@@ -325,10 +325,10 @@ export function Td({ children, className }: { children: React.ReactNode; classNa
   );
 }
 
-export function Tr({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+export function Tr({ children, onClick, className }: { children: React.ReactNode; onClick?: () => void; className?: string }) {
   return (
     <tr
-      className={cn('hover:bg-muted/20 transition-colors', onClick && 'cursor-pointer')}
+      className={cn('hover:bg-muted/20 transition-colors', onClick && 'cursor-pointer', className)}
       onClick={onClick}
     >
       {children}
