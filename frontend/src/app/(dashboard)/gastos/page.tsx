@@ -207,7 +207,7 @@ export default function GastosPage() {
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
-  const chartData = resumen?.resumenPorTipo.map((r) => ({
+  const chartData = resumen?.resumenPorTipo.map((r: { tipoGasto: string; totalMonto: number }) => ({
     name: TIPO_GASTO_LABEL[r.tipoGasto] ?? r.tipoGasto,
     total: r.totalMonto,
   })) ?? [];
@@ -238,7 +238,7 @@ export default function GastosPage() {
         <StatCard
           label="Mayor tipo"
           value={resumen?.resumenPorTipo.length
-            ? TIPO_GASTO_LABEL[resumen.resumenPorTipo.sort((a, b) => b.totalMonto - a.totalMonto)[0].tipoGasto]
+            ? TIPO_GASTO_LABEL[resumen.resumenPorTipo.sort((a: { totalMonto: number }, b: { totalMonto: number }) => b.totalMonto - a.totalMonto)[0].tipoGasto]
             : '—'}
           color="yellow"
         />

@@ -286,15 +286,16 @@ export function Modal({
 
 // ─── FORM FIELD ──────────────────────────────────────────────────────────────
 export function FormField({
-  label, error, required, children,
+  label, error, required, hint, children,
 }: {
-  label: string; error?: string; required?: boolean; children: React.ReactNode;
+  label: string; error?: string; required?: boolean; hint?: string; children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-sm font-medium">
         {label}{required && <span className="text-destructive ml-0.5">*</span>}
       </label>
+      {hint && <p className="text-xs text-muted-foreground -mt-0.5">{hint}</p>}
       {children}
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>

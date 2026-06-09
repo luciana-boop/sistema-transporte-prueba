@@ -76,7 +76,7 @@ export default function UsuariosPage() {
   });
 
   const passMutation = useMutation({
-    mutationFn: (d: PassForm) => usuariosApi.cambiarPassword(changingPass!, d.password),
+    mutationFn: (d: PassForm) => usuariosApi.cambiarPassword(changingPass!, { password: d.password }),
     onSuccess: () => { toast.success('Contraseña actualizada'); setChangingPass(null); passForm.reset(); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
