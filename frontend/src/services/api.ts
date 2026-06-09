@@ -351,7 +351,7 @@ export const usuariosApi = {
 
 // ─── CONDUCTORES ─────────────────────────────────────────────────────────────
 export const conductoresApi = {
-  listar: (params?: { activo?: boolean }) =>
+  listar: (params?: { activo?: boolean; search?: string }) =>
     api.get<ApiResponse<Conductor[]>>('/api/conductores', { params }),
   obtener: (id: number) => api.get<ApiResponse<Conductor>>(`/api/conductores/${id}`),
   crear: (data: Omit<Conductor, 'id' | 'creadoEn'>) =>
@@ -363,7 +363,7 @@ export const conductoresApi = {
 
 // ─── VEHÍCULOS ────────────────────────────────────────────────────────────────
 export const vehiculosApi = {
-  listar: (params?: { activo?: boolean; tipo?: string }) =>
+  listar: (params?: { activo?: boolean; tipo?: string; search?: string }) =>
     api.get<ApiResponse<Vehiculo[]>>('/api/vehiculos', { params }),
   obtener: (id: number) => api.get<ApiResponse<Vehiculo>>(`/api/vehiculos/${id}`),
   crear: (data: Omit<Vehiculo, 'id' | 'creadoEn'>) =>
