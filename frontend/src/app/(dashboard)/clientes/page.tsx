@@ -8,7 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, Edit2, Trash2, BarChart2, Download } from 'lucide-react';
-import { clientesApi } from '@/services/api';
+import { clientesApi, fetchAllPages } from '@/services/api';
 import { formatCurrency, getErrorMessage, CONDICION_PAGO_LABEL } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -30,14 +30,19 @@ type FormData = z.infer<typeof schema>;
 export default function ClientesPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [showStats, setShowStats] = useState<Cliente | null>(null);
   const [editing, setEditing] = useState<Cliente | null>(null);
 
-  const { data: clientes = [], isLoading } = useQuery({
-    queryKey: ['clientes', search],
-    queryFn: () => clientesApi.listar({ search: search || undefined }).then((r) => r.data.data),
+  const limit = 20;
+  const { data, isLoading } = useQuery({
+    queryKey: ['clientes', search, page],
+    queryFn: () => clientesApi.listar({ search: search || undefined, page, limit }).then((r) => r.data.data),
   });
+  const clientes = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.ceil(total / limit);
 
   const { data: stats } = useQuery({
     queryKey: ['clientes', showStats?.id, 'estadisticas'],
@@ -49,8 +54,9 @@ export default function ClientesPage() {
     resolver: zodResolver(schema),
   });
 
-  const exportExcel = () => {
-    const rows = clientes.map((c) => ({
+  const exportExcel = async () => {
+    const todos = await fetchAllPages((p) => clientesApi.listar({ search: search || undefined, ...p }).then((r) => r.data.data));
+    const rows = todos.map((c) => ({
       '#': c.id, 'Razón social': c.razonSocial, RUC: c.ruc,
       Dirección: c.direccion, Teléfono: c.telefono ?? '', Email: c.email ?? '',
       'Cond. pago': CONDICION_PAGO_LABEL[c.condicionPago], Estado: c.activo ? 'Activo' : 'Inactivo',
@@ -98,7 +104,7 @@ export default function ClientesPage() {
     <div className="page-container">
       <PageHeader
         title="Clientes"
-        description={`${clientes.length} cliente${clientes.length !== 1 ? 's' : ''} registrados`}
+        description={`${total} cliente${total !== 1 ? 's' : ''} registrados`}
         action={
           <div className="flex gap-2">
             <Button variant="secondary" size="sm" onClick={exportExcel}><Download className="w-4 h-4" /> Excel</Button>
@@ -116,7 +122,7 @@ export default function ClientesPage() {
           placeholder="Buscar por nombre, RUC..."
           className="pl-9"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
         />
       </div>
 
@@ -169,6 +175,18 @@ export default function ClientesPage() {
             )}
           </tbody>
         </Table>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            Anterior
+          </Button>
+          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
+          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            Siguiente
+          </Button>
+        </div>
       )}
 
       {/* Create/Edit Modal */}

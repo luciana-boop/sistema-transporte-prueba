@@ -11,8 +11,8 @@ import * as R from '../../utils/response';
 export class LiquidacionesController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
-      const { conductorId, desde, hasta, sinCombustible } = req.query as Record<string, string>;
-      R.ok(res, await liquidacionesService.findAll({ conductorId, desde, hasta, sinCombustible }));
+      const { conductorId, desde, hasta, sinCombustible, page, limit } = req.query as Record<string, string>;
+      R.ok(res, await liquidacionesService.findAll({ conductorId, desde, hasta, sinCombustible, page, limit }));
     } catch (e) { R.serverError(res, e); }
   }
 

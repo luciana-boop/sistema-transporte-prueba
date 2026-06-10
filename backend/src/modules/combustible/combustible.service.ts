@@ -6,6 +6,7 @@
 
 import prisma from '../../prisma/client';
 import { cuentasService } from '../configuracion/cuentas.service';
+import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 export interface CreateCombustibleDto {
   vehiculoId: number;
@@ -28,7 +29,7 @@ export class CombustibleService {
   async findAll(query: {
     vehiculoId?: string; conductorId?: string;
     desde?: string; hasta?: string;
-  }) {
+  } & PaginacionQuery) {
     const where: any = {};
     if (query.vehiculoId) where.vehiculoId = parseInt(query.vehiculoId);
     if (query.conductorId) where.conductorId = parseInt(query.conductorId);
@@ -37,15 +38,22 @@ export class CombustibleService {
       if (query.desde) where.fecha.gte = new Date(query.desde);
       if (query.hasta) where.fecha.lte = new Date(query.hasta + 'T23:59:59');
     }
-    return prisma.combustible.findMany({
-      where,
-      orderBy: { fecha: 'desc' },
-      include: {
-        vehiculo: { select: { id: true, placa: true, marca: true, modelo: true } },
-        conductor: { select: { id: true, nombre: true } },
-        liquidacion: { select: { id: true, fecha: true, estado: true } },
-      },
-    });
+    const { skip, take, page, limit } = paginar(query);
+    const [total, items] = await Promise.all([
+      prisma.combustible.count({ where }),
+      prisma.combustible.findMany({
+        where,
+        orderBy: { fecha: 'desc' },
+        skip,
+        take,
+        include: {
+          vehiculo: { select: { id: true, placa: true, marca: true, modelo: true } },
+          conductor: { select: { id: true, nombre: true } },
+          liquidacion: { select: { id: true, fecha: true, estado: true } },
+        },
+      }),
+    ]);
+    return { items, total, page, limit };
   }
 
   async resumen(query: { desde?: string; hasta?: string }) {

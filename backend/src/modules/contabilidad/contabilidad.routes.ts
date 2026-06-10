@@ -9,11 +9,12 @@ import {
   mapeoContableController,
 } from './contabilidad.controller';
 import { verificarToken, adminOSecretario } from '../../middleware/auth.middleware';
+import { verificarModulo } from '../../middleware/permisos.middleware';
 import { contabilidadIntegration } from './contabilidad.integration';
 import { contabilidadDiagnostico } from './contabilidad.diagnostico';
 
 const router = Router();
-router.use(verificarToken, adminOSecretario);
+router.use(verificarToken, adminOSecretario, verificarModulo('contabilidad'));
 
 // ── Plan de cuentas ───────────────────────────────────────────────────────────
 router.get('/cuentas/arbol',   cuentasContablesController.arbol.bind(cuentasContablesController));

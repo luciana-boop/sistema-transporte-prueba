@@ -11,6 +11,7 @@
 
 import prisma from '../../prisma/client';
 import { contabilidadIntegration } from '../contabilidad/contabilidad.integration';
+import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 export interface DetalleDto {
   categoria: 'PEAJE' | 'BALANZA' | 'VIATICO' | 'TOLDO' | 'OTROS';
@@ -120,7 +121,7 @@ export class LiquidacionesService {
     }
   }
 
-  async findAll(query: { conductorId?: string; desde?: string; hasta?: string; sinCombustible?: string }) {
+  async findAll(query: { conductorId?: string; desde?: string; hasta?: string; sinCombustible?: string } & PaginacionQuery) {
     const where: any = {};
     if (query.conductorId) where.conductorId = parseInt(query.conductorId);
     if (query.desde || query.hasta) {
@@ -129,11 +130,18 @@ export class LiquidacionesService {
       if (query.hasta) where.fecha.lte = new Date(query.hasta + 'T23:59:59');
     }
     if (query.sinCombustible === 'true') where.combustibles = { none: {} };
-    return prisma.liquidacion.findMany({
-      where,
-      orderBy: { fecha: 'desc' },
-      include: LIQUIDACION_INCLUDE,
-    });
+    const { skip, take, page, limit } = paginar(query);
+    const [total, items] = await Promise.all([
+      prisma.liquidacion.count({ where }),
+      prisma.liquidacion.findMany({
+        where,
+        orderBy: { fecha: 'desc' },
+        skip,
+        take,
+        include: LIQUIDACION_INCLUDE,
+      }),
+    ]);
+    return { items, total, page, limit };
   }
 
   async findById(id: number) {

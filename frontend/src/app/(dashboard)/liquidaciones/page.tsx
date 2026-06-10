@@ -16,7 +16,7 @@ import {
   Plus, Search, Trash2, Eye, Printer, Download, Package, X,
   CreditCard, History, ClipboardList, CheckCircle, Lock,
 } from 'lucide-react';
-import { liquidacionesApi, conductoresApi, vehiculosApi } from '@/services/api';
+import { liquidacionesApi, conductoresApi, vehiculosApi, fetchAllPages } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, TableSkeleton,
@@ -83,6 +83,7 @@ export default function LiquidacionesPage() {
   const [search, setSearch] = useState('');
   const [filtroDesde, setFiltroDesde] = useState(() => new Date().toISOString().split('T')[0]);
   const [filtroHasta, setFiltroHasta] = useState(() => new Date().toISOString().split('T')[0]);
+  const [page, setPage] = useState(1);
 
   // Modales
   const [showForm, setShowForm] = useState(false);
@@ -107,20 +108,21 @@ export default function LiquidacionesPage() {
 
   const { data: liquidaciones = [], isLoading } = useQuery({
     queryKey: ['liquidaciones', filtroDesde, filtroHasta],
-    queryFn: () => liquidacionesApi.listar({
+    queryFn: () => fetchAllPages((p) => liquidacionesApi.listar({
       desde: filtroDesde || undefined,
       hasta: filtroHasta || undefined,
-    }).then((r) => r.data.data),
+      ...p,
+    }).then((r) => r.data.data)),
   });
 
   const { data: conductores = [] } = useQuery({
     queryKey: ['conductores'],
-    queryFn: () => conductoresApi.listar({ activo: true }).then((r) => r.data.data),
+    queryFn: () => conductoresApi.listar({ activo: true, limit: 100 }).then((r) => r.data.data.items),
   });
 
   const { data: vehiculos = [] } = useQuery({
     queryKey: ['vehiculos'],
-    queryFn: () => vehiculosApi.listar({ activo: true }).then((r) => r.data.data),
+    queryFn: () => vehiculosApi.listar({ activo: true, limit: 100 }).then((r) => r.data.data.items),
   });
 
   const { data: pedidosDisponibles = [] } = useQuery({
@@ -349,6 +351,10 @@ export default function LiquidacionesPage() {
       : true,
   );
 
+  const limit = 20;
+  const totalPages = Math.ceil(filtered.length / limit);
+  const pageItems = filtered.slice((page - 1) * limit, page * limit);
+
   // ─── Cálculo diferencia para cierre ──────────────────────────────────────────
   const calcularDiferenciaCierre = (liq: Liquidacion) => {
     const pagado = Number(liq.montoPagado ?? liq.montoEntregado);
@@ -382,18 +388,18 @@ export default function LiquidacionesPage() {
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative w-full max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Buscar conductor, placa..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input placeholder="Buscar conductor, placa..." className="pl-9" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
         </div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground">Desde</label>
-          <Input type="date" className="w-36" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)} />
+          <Input type="date" className="w-36" value={filtroDesde} onChange={(e) => { setFiltroDesde(e.target.value); setPage(1); }} />
         </div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground">Hasta</label>
-          <Input type="date" className="w-36" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} />
+          <Input type="date" className="w-36" value={filtroHasta} onChange={(e) => { setFiltroHasta(e.target.value); setPage(1); }} />
         </div>
         {(filtroDesde || filtroHasta) && (
-          <button onClick={() => { setFiltroDesde(''); setFiltroHasta(''); }} className="text-xs text-muted-foreground hover:text-foreground underline">
+          <button onClick={() => { setFiltroDesde(''); setFiltroHasta(''); setPage(1); }} className="text-xs text-muted-foreground hover:text-foreground underline">
             Limpiar fechas
           </button>
         )}
@@ -408,7 +414,7 @@ export default function LiquidacionesPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length > 0 ? filtered.map((l) => (
+            {pageItems.length > 0 ? pageItems.map((l) => (
               <Tr key={l.id}>
                 <Td><span className="font-mono text-xs text-muted-foreground">#{l.id}</span></Td>
                 <Td><span className="text-sm">{formatDate(l.fecha)}</span></Td>
@@ -493,6 +499,18 @@ export default function LiquidacionesPage() {
             )) : <tr><td colSpan={10}><EmptyState message="No hay liquidaciones" /></td></tr>}
           </tbody>
         </Table>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            Anterior
+          </Button>
+          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
+          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            Siguiente
+          </Button>
+        </div>
       )}
 
       {/* ─── Modal: Nueva Liquidación ────────────────────────────────────────── */}

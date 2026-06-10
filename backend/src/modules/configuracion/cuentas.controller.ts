@@ -186,10 +186,10 @@ export class CuentasController {
   // ── MOVIMIENTOS ─────────────────────────────────────────────────────────────
   async getMovimientos(req: Request, res: Response): Promise<void> {
     try {
-      const { cuentaId, tipo, desde, hasta } = req.query as Record<string, string>;
+      const { cuentaId, tipo, desde, hasta, page, limit } = req.query as Record<string, string>;
       R.ok(res, await cuentasService.getMovimientos({
         cuentaId: cuentaId ? parseInt(cuentaId) : undefined,
-        tipo, desde, hasta,
+        tipo, desde, hasta, page, limit,
       }));
     } catch (e) { R.serverError(res, e); }
   }

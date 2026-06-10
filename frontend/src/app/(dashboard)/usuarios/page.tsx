@@ -51,11 +51,16 @@ export default function UsuariosPage() {
     if (usuario?.rol !== 'ADMIN') router.replace('/dashboard');
   }, [usuario, router]);
 
-  const { data: usuarios = [], isLoading } = useQuery({
-    queryKey: ['usuarios'],
-    queryFn: () => usuariosApi.listar().then((r) => r.data.data),
+  const [page, setPage] = useState(1);
+  const limit = 20;
+  const { data, isLoading } = useQuery({
+    queryKey: ['usuarios', page],
+    queryFn: () => usuariosApi.listar({ page, limit }).then((r) => r.data.data),
     enabled: usuario?.rol === 'ADMIN',
   });
+  const usuarios = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.ceil(total / limit);
 
   const createForm = useForm<CreateForm>({ resolver: zodResolver(createSchema), defaultValues: { rol: 'SECRETARIO' } });
   const editForm = useForm<EditForm>({ resolver: zodResolver(editSchema) });
@@ -87,7 +92,7 @@ export default function UsuariosPage() {
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
-  const openEdit = (u: typeof usuarios[0]) => {
+  const openEdit = (u: { id: number; nombre: string; email: string; rol: Rol; activo: boolean }) => {
     setEditing({ id: u.id, nombre: u.nombre, email: u.email, rol: u.rol, activo: u.activo });
     editForm.setValue('nombre', u.nombre);
     editForm.setValue('email', u.email);
@@ -110,7 +115,7 @@ export default function UsuariosPage() {
     <div className="page-container">
       <PageHeader
         title="Usuarios"
-        description={`${usuarios.length} usuario${usuarios.length !== 1 ? 's' : ''} registrados`}
+        description={`${total} usuario${total !== 1 ? 's' : ''} registrados`}
         action={
           <Button onClick={() => { setShowCreate(true); createForm.reset(); }}>
             <Plus className="w-4 h-4" /> Nuevo usuario
@@ -186,6 +191,18 @@ export default function UsuariosPage() {
             )}
           </tbody>
         </Table>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            Anterior
+          </Button>
+          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
+          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            Siguiente
+          </Button>
+        </div>
       )}
 
       {/* Create */}

@@ -3,12 +3,16 @@
 import { Router } from 'express';
 import { authController } from './auth.controller';
 import { verificarToken } from '../middleware/auth.middleware';
+import { loginLimiter } from '../middleware/rateLimit.middleware';
 import { permisosService } from '../modules/permisos/permisos.service';
 
 const router = Router();
 
-// POST /api/auth/login  (sin cambios)
-router.post('/login', authController.login.bind(authController));
+// POST /api/auth/login
+router.post('/login', loginLimiter, authController.login.bind(authController));
+
+// POST /api/auth/logout — limpia las cookies de sesión
+router.post('/logout', authController.logout.bind(authController));
 
 // GET /api/auth/perfil  (sin cambios)
 router.get('/perfil', verificarToken, authController.perfil.bind(authController));

@@ -14,6 +14,7 @@ export interface LoginDto {
 
 export interface AuthResponse {
   token: string;
+  csrfToken: string;
   usuario: {
     id: number;
     nombre: string;

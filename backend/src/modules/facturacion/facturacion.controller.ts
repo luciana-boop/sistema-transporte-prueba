@@ -12,8 +12,8 @@ import * as R from '../../utils/response';
 export class FacturacionController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
-      const { estado, clienteId, desde, hasta, serie } = req.query as Record<string, string>;
-      R.ok(res, await facturacionService.findAll({ estado, clienteId, desde, hasta, serie }));
+      const { estado, clienteId, desde, hasta, serie, page, limit } = req.query as Record<string, string>;
+      R.ok(res, await facturacionService.findAll({ estado, clienteId, desde, hasta, serie, page, limit }));
     } catch (e) { R.serverError(res, e); }
   }
 

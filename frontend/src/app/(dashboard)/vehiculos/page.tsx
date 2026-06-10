@@ -8,7 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, Edit2, Trash2, AlertTriangle, Download } from 'lucide-react';
-import { vehiculosApi } from '@/services/api';
+import { vehiculosApi, fetchAllPages } from '@/services/api';
 import { formatDate, getErrorMessage } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -58,21 +58,27 @@ export default function VehiculosPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('');
+  const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Vehiculo | null>(null);
 
-  const { data: vehiculos = [], isLoading } = useQuery({
-    queryKey: ['vehiculos', search, filtroTipo],
-    queryFn: () => vehiculosApi.listar({ search: search || undefined, tipo: filtroTipo || undefined }).then((r) => r.data.data),
+  const limit = 20;
+  const { data, isLoading } = useQuery({
+    queryKey: ['vehiculos', search, filtroTipo, page],
+    queryFn: () => vehiculosApi.listar({ search: search || undefined, tipo: filtroTipo || undefined, page, limit }).then((r) => r.data.data),
   });
+  const vehiculos = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.ceil(total / limit);
 
   const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { tipo: 'TRACTO', estado: 'OPERATIVO' },
   });
 
-  const exportExcel = () => {
-    const rows = vehiculos.map((v) => ({
+  const exportExcel = async () => {
+    const todos = await fetchAllPages((p) => vehiculosApi.listar({ search: search || undefined, tipo: filtroTipo || undefined, ...p }).then((r) => r.data.data));
+    const rows = todos.map((v) => ({
       '#': v.id, Placa: v.placa, Tipo: v.tipo, Marca: v.marca, Modelo: v.modelo, Año: v.anio,
       SOAT: v.soat ?? '', 'Venc. SOAT': v.vencimientoSoat ? formatDate(v.vencimientoSoat) : '',
       'Rev. Técnica': v.revisionTecnica ?? '', 'Venc. Rev.': v.vencimientoRevision ? formatDate(v.vencimientoRevision) : '',
@@ -120,7 +126,7 @@ export default function VehiculosPage() {
     <div className="page-container">
       <PageHeader
         title="Vehículos"
-        description={`${vehiculos.length} vehículo${vehiculos.length !== 1 ? 's' : ''} registrados`}
+        description={`${total} vehículo${total !== 1 ? 's' : ''} registrados`}
         action={
           <div className="flex gap-2">
             <Button variant="secondary" size="sm" onClick={exportExcel}><Download className="w-4 h-4" /> Excel</Button>
@@ -134,9 +140,9 @@ export default function VehiculosPage() {
       <div className="flex gap-3 flex-wrap">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Buscar placa, marca..." className="pl-9 w-64" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input placeholder="Buscar placa, marca..." className="pl-9 w-64" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
         </div>
-        <Select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} className="w-36">
+        <Select value={filtroTipo} onChange={(e) => { setFiltroTipo(e.target.value); setPage(1); }} className="w-36">
           <option value="">Todos los tipos</option>
           <option value="TRACTO">Tracto</option>
           <option value="CARRETA">Carreta</option>
@@ -186,6 +192,18 @@ export default function VehiculosPage() {
             )) : <tr><td colSpan={8}><EmptyState message="No se encontraron vehículos" /></td></tr>}
           </tbody>
         </Table>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            Anterior
+          </Button>
+          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
+          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            Siguiente
+          </Button>
+        </div>
       )}
 
       <Modal open={showForm || !!editing} onClose={() => { setShowForm(false); setEditing(null); reset(); }} title={editing ? 'Editar vehículo' : 'Nuevo vehículo'} maxWidth="max-w-2xl">

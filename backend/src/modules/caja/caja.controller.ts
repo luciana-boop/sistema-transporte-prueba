@@ -8,8 +8,8 @@ import * as R from '../../utils/response';
 export class CajaController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
-      const { estado, usuarioId, desde, hasta } = req.query as Record<string, string>;
-      const data = await cajaService.findAll({ estado, usuarioId, desde, hasta });
+      const { estado, usuarioId, desde, hasta, page, limit } = req.query as Record<string, string>;
+      const data = await cajaService.findAll({ estado, usuarioId, desde, hasta, page, limit });
       R.ok(res, data);
     } catch (e) { R.serverError(res, e); }
   }
@@ -118,8 +118,8 @@ export class CajaController {
 
   async getMovimientosGlobal(req: Request, res: Response): Promise<void> {
     try {
-      const { desde, hasta, tipo, cajaId } = req.query as Record<string, string>;
-      const data = await cajaService.getMovimientosGlobal({ desde, hasta, tipo, cajaId });
+      const { desde, hasta, tipo, cajaId, page, limit } = req.query as Record<string, string>;
+      const data = await cajaService.getMovimientosGlobal({ desde, hasta, tipo, cajaId, page, limit });
       R.ok(res, data);
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';

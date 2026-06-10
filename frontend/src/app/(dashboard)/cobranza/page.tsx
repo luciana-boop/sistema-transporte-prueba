@@ -10,7 +10,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, AlertTriangle, Download, Search, Edit2, XCircle, Eye } from 'lucide-react';
-import { cobranzaApi, clientesApi, cuentasApi } from '@/services/api';
+import { cobranzaApi, clientesApi, cuentasApi, fetchAllPages } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage, METODO_PAGO_LABEL, ESTADO_FACTURA_LABEL } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -61,6 +61,10 @@ export default function CobranzaPage() {
   const [viewing, setViewing] = useState<any>(null);
   const [viewingCpc, setViewingCpc] = useState<any>(null);
 
+  const [pagosPage, setPagosPage] = useState(1);
+  const [cpcPage, setCpcPage] = useState(1);
+  const pageLimit = 20;
+
   const cambiarTab = (t: 'pagos' | 'cpc') => {
     setTab(t);
     // El set de estados disponibles difiere entre secciones (CPC solo muestra deudas activas)
@@ -73,17 +77,20 @@ export default function CobranzaPage() {
     setFiltroHasta('');
     setFiltroCliente('');
     setFiltroEstado('');
+    setPagosPage(1);
+    setCpcPage(1);
   };
   const hayFiltrosActivos = !!(searchText || filtroDesde || filtroHasta || filtroCliente || filtroEstado);
 
   const { data: pagosRaw = [], isLoading: loadPagos } = useQuery({
     queryKey: ['pagos', filtroDesde, filtroHasta, filtroCliente, filtroEstado],
-    queryFn: () => cobranzaApi.listar({
+    queryFn: () => fetchAllPages((p) => cobranzaApi.listar({
       desde: filtroDesde || undefined,
       hasta: filtroHasta || undefined,
       clienteId: filtroCliente ? parseInt(filtroCliente) : undefined,
       estado: (filtroEstado as any) || undefined,
-    }).then((r) => r.data.data),
+      ...p,
+    }).then((r) => r.data.data)),
   });
 
   // Búsqueda libre — mismo comportamiento en ambas secciones: cliente, factura (y referencia para pagos)
@@ -96,15 +103,18 @@ export default function CobranzaPage() {
       p.referencia?.toLowerCase().includes(q)
     );
   });
+  const pagosTotalPages = Math.ceil(pagos.length / pageLimit);
+  const pagosPagina = pagos.slice((pagosPage - 1) * pageLimit, pagosPage * pageLimit);
 
   const { data: cpcRaw = [], isLoading: loadCpc } = useQuery({
     queryKey: ['cuentas-por-cobrar', filtroDesde, filtroHasta, filtroCliente, filtroEstado],
-    queryFn: () => cobranzaApi.cuentasPorCobrar({
+    queryFn: () => fetchAllPages((p) => cobranzaApi.cuentasPorCobrar({
       desde: filtroDesde || undefined,
       hasta: filtroHasta || undefined,
       clienteId: filtroCliente ? parseInt(filtroCliente) : undefined,
       estado: (filtroEstado as any) || undefined,
-    }).then((r) => r.data.data),
+      ...p,
+    }).then((r) => r.data.data)),
     enabled: tab === 'cpc',
   });
 
@@ -116,6 +126,8 @@ export default function CobranzaPage() {
       c.numeroFactura?.toLowerCase().includes(q)
     );
   });
+  const cpcTotalPages = Math.ceil(cpc.length / pageLimit);
+  const cpcPagina = cpc.slice((cpcPage - 1) * pageLimit, cpcPage * pageLimit);
 
   // P8: detalle enriquecido — el listado no incluye cuenta/moneda/movimiento generado
   const { data: detallePago, isLoading: loadDetallePago } = useQuery({
@@ -132,7 +144,7 @@ export default function CobranzaPage() {
 
   const { data: clientes = [] } = useQuery({
     queryKey: ['clientes'],
-    queryFn: () => clientesApi.listar({ activo: true }).then((r) => r.data.data),
+    queryFn: () => clientesApi.listar({ activo: true, limit: 100 }).then((r) => r.data.data.items),
   });
 
   const { data: cuentas = [] } = useQuery({
@@ -304,27 +316,27 @@ export default function CobranzaPage() {
             placeholder={tab === 'pagos' ? 'Buscar por cliente, factura o referencia…' : 'Buscar por cliente o factura…'}
             className="pl-9 w-72"
             value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
+            onChange={(e) => { setSearchText(e.target.value); setPagosPage(1); setCpcPage(1); }}
           />
         </div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground">Desde</label>
-          <Input type="date" className="w-36" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)} />
+          <Input type="date" className="w-36" value={filtroDesde} onChange={(e) => { setFiltroDesde(e.target.value); setPagosPage(1); setCpcPage(1); }} />
         </div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground">Hasta</label>
-          <Input type="date" className="w-36" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} />
+          <Input type="date" className="w-36" value={filtroHasta} onChange={(e) => { setFiltroHasta(e.target.value); setPagosPage(1); setCpcPage(1); }} />
         </div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground">Cliente</label>
-          <Select className="w-48" value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)}>
+          <Select className="w-48" value={filtroCliente} onChange={(e) => { setFiltroCliente(e.target.value); setPagosPage(1); setCpcPage(1); }}>
             <option value="">Todos</option>
             {clientes.map((c) => <option key={c.id} value={c.id}>{c.razonSocial}</option>)}
           </Select>
         </div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground">Estado</label>
-          <Select className="w-44" value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}>
+          <Select className="w-44" value={filtroEstado} onChange={(e) => { setFiltroEstado(e.target.value); setPagosPage(1); setCpcPage(1); }}>
             <option value="">Todos</option>
             {(tab === 'pagos'
               ? (Object.keys(ESTADO_FACTURA_LABEL) as Array<keyof typeof ESTADO_FACTURA_LABEL>)
@@ -351,7 +363,7 @@ export default function CobranzaPage() {
                 </tr>
               </thead>
               <tbody>
-                {pagos.length > 0 ? pagos.map((p) => (
+                {pagosPagina.length > 0 ? pagosPagina.map((p) => (
                   <Tr key={p.id}>
                     <Td><span className="font-mono text-xs text-muted-foreground">#{p.id}</span></Td>
                     <Td><span className="font-mono text-xs">{p.factura?.numeroFactura}</span></Td>
@@ -401,11 +413,23 @@ export default function CobranzaPage() {
               </tbody>
             </Table>
           )}
+          {pagosTotalPages > 1 && (
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="secondary" size="sm" disabled={pagosPage <= 1} onClick={() => setPagosPage((p) => p - 1)}>
+                Anterior
+              </Button>
+              <span className="text-sm text-muted-foreground">Página {pagosPage} de {pagosTotalPages}</span>
+              <Button variant="secondary" size="sm" disabled={pagosPage >= pagosTotalPages} onClick={() => setPagosPage((p) => p + 1)}>
+                Siguiente
+              </Button>
+            </div>
+          )}
         </>
       )}
 
       {tab === 'cpc' && (
         loadCpc ? <TableSkeleton rows={5} cols={8} /> : (
+          <>
           <Table>
             <thead>
               <tr>
@@ -414,7 +438,7 @@ export default function CobranzaPage() {
               </tr>
             </thead>
             <tbody>
-              {cpc.length > 0 ? cpc.map((c) => (
+              {cpcPagina.length > 0 ? cpcPagina.map((c) => (
                 <Tr key={c.facturaId}>
                   <Td><span className="font-mono text-xs">{c.numeroFactura}</span></Td>
                   <Td><span className="text-sm font-medium">{c.cliente?.razonSocial}</span></Td>
@@ -445,6 +469,18 @@ export default function CobranzaPage() {
               )) : <tr><td colSpan={8}><EmptyState message="No hay cuentas por cobrar" /></td></tr>}
             </tbody>
           </Table>
+          {cpcTotalPages > 1 && (
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="secondary" size="sm" disabled={cpcPage <= 1} onClick={() => setCpcPage((p) => p - 1)}>
+                Anterior
+              </Button>
+              <span className="text-sm text-muted-foreground">Página {cpcPage} de {cpcTotalPages}</span>
+              <Button variant="secondary" size="sm" disabled={cpcPage >= cpcTotalPages} onClick={() => setCpcPage((p) => p + 1)}>
+                Siguiente
+              </Button>
+            </div>
+          )}
+          </>
         )
       )}
 

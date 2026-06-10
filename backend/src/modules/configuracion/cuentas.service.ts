@@ -6,6 +6,7 @@
 // El método público registrarMovimiento() existente se mantiene sin cambios.
 
 import prisma from '../../prisma/client';
+import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 // ── Default data ──────────────────────────────────────────────────────────────
 
@@ -207,7 +208,7 @@ export class CuentasService {
   // ── MOVIMIENTOS POR CUENTA ──────────────────────────────────────────────────
   async getMovimientos(query: {
     cuentaId?: number; tipo?: string; desde?: string; hasta?: string;
-  }) {
+  } & PaginacionQuery) {
     const where: any = {};
     if (query.cuentaId) where.cuentaId = query.cuentaId;
     if (query.tipo) where.tipo = query.tipo;
@@ -216,18 +217,24 @@ export class CuentasService {
       if (query.desde) where.fecha.gte = new Date(query.desde);
       if (query.hasta) where.fecha.lte = new Date(query.hasta + 'T23:59:59');
     }
-    return prisma.movimientoCuentaV2.findMany({
-      where,
-      orderBy: { fecha: 'desc' },
-      take: 200,
-      include: {
-        cuenta: { select: { id: true, nombre: true, tipoCuenta: true } },
-        moneda: { select: { codigo: true, simbolo: true } },
-        tipoPago: { select: { nombre: true } },
-        usuario: { select: { id: true, nombre: true } },
-        liquidacion: { select: { id: true, conductor: { select: { nombre: true } } } },
-      },
-    });
+    const { skip, take, page, limit } = paginar(query);
+    const [total, items] = await Promise.all([
+      prisma.movimientoCuentaV2.count({ where }),
+      prisma.movimientoCuentaV2.findMany({
+        where,
+        orderBy: { fecha: 'desc' },
+        skip,
+        take,
+        include: {
+          cuenta: { select: { id: true, nombre: true, tipoCuenta: true } },
+          moneda: { select: { codigo: true, simbolo: true } },
+          tipoPago: { select: { nombre: true } },
+          usuario: { select: { id: true, nombre: true } },
+          liquidacion: { select: { id: true, conductor: { select: { nombre: true } } } },
+        },
+      }),
+    ]);
+    return { items, total, page, limit };
   }
 
   // ── P7: origen del movimiento (a partir de la referencia / vínculos) ────────

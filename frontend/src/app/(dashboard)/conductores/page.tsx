@@ -8,7 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, Edit2, Trash2, AlertTriangle, Download } from 'lucide-react';
-import { conductoresApi } from '@/services/api';
+import { conductoresApi, fetchAllPages } from '@/services/api';
 import { formatDate, getErrorMessage } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -39,17 +39,22 @@ function diasHasta(fechaStr: string): number {
 export default function ConductoresPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Conductor | null>(null);
 
-  const { data: conductores = [], isLoading } = useQuery({
-    queryKey: ['conductores', search],
-    queryFn: () => conductoresApi.listar({ search: search || undefined }).then((r) => r.data.data),
+  const limit = 20;
+  const { data, isLoading } = useQuery({
+    queryKey: ['conductores', search, page],
+    queryFn: () => conductoresApi.listar({ search: search || undefined, page, limit }).then((r) => r.data.data),
   });
+  const conductores = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.ceil(total / limit);
 
   const { data: vehiculos = [] } = useQuery({
     queryKey: ['vehiculos'],
-    queryFn: () => import('@/services/api').then(m => m.vehiculosApi.listar({ activo: true })).then((r) => r.data.data),
+    queryFn: () => import('@/services/api').then(m => m.vehiculosApi.listar({ activo: true, limit: 100 })).then((r) => r.data.data.items),
   });
 
   const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<FormData>({
@@ -58,8 +63,9 @@ export default function ConductoresPage() {
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['conductores'] });
 
-  const exportExcel = () => {
-    const rows = conductores.map((cond) => ({
+  const exportExcel = async () => {
+    const todos = await fetchAllPages((p) => conductoresApi.listar({ search: search || undefined, ...p }).then((r) => r.data.data));
+    const rows = todos.map((cond) => ({
       '#': cond.id, Nombre: cond.nombre, DNI: cond.dni, Licencia: cond.licencia,
       'Venc. Licencia': cond.vencimientoLicencia ? formatDate(cond.vencimientoLicencia) : '',
       Teléfono: cond.telefono ?? '', Dirección: cond.direccion ?? '',
@@ -111,7 +117,7 @@ export default function ConductoresPage() {
     <div className="page-container">
       <PageHeader
         title="Conductores"
-        description={`${conductores.length} conductor${conductores.length !== 1 ? 'es' : ''} registrados`}
+        description={`${total} conductor${total !== 1 ? 'es' : ''} registrados`}
         action={
           <div className="flex gap-2">
             <Button variant="secondary" size="sm" onClick={exportExcel}><Download className="w-4 h-4" /> Excel</Button>
@@ -124,7 +130,7 @@ export default function ConductoresPage() {
 
       <div className="relative w-full max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input placeholder="Buscar por nombre, DNI..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <Input placeholder="Buscar por nombre, DNI..." className="pl-9" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
       </div>
 
       {isLoading ? <TableSkeleton rows={5} cols={7} /> : (
@@ -180,6 +186,18 @@ export default function ConductoresPage() {
             )}
           </tbody>
         </Table>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            Anterior
+          </Button>
+          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
+          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            Siguiente
+          </Button>
+        </div>
       )}
 
       <Modal open={modalOpen} onClose={() => { setShowForm(false); setEditing(null); reset(); }} title={editing ? 'Editar conductor' : 'Nuevo conductor'}>

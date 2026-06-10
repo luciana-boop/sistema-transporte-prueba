@@ -3,10 +3,11 @@
 import { Router } from 'express';
 import { reportesController } from './reportes.controller';
 import { verificarToken, adminOSecretario } from '../../middleware/auth.middleware';
+import { verificarModulo } from '../../middleware/permisos.middleware';
 
 const router = Router();
 
-router.use(verificarToken, adminOSecretario);
+router.use(verificarToken, adminOSecretario, verificarModulo('reportes'));
 
 // GET /api/reportes/dashboard
 router.get('/dashboard', reportesController.dashboard.bind(reportesController));

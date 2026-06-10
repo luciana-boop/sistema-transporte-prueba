@@ -33,21 +33,21 @@ export function useNotifications() {
 
   const { data: vehiculos = [] } = useQuery({
     queryKey: ['vehiculos'],
-    queryFn: () => vehiculosApi.listar().then((r) => r.data.data).catch(() => []),
+    queryFn: () => vehiculosApi.listar({ limit: 100 }).then((r) => r.data.data.items).catch(() => []),
     staleTime: 5 * 60 * 1000,
     enabled: canFetch, // ← NUEVO
   });
 
   const { data: conductores = [] } = useQuery({
     queryKey: ['conductores'],
-    queryFn: () => conductoresApi.listar().then((r) => r.data.data).catch(() => []),
+    queryFn: () => conductoresApi.listar({ limit: 100 }).then((r) => r.data.data.items).catch(() => []),
     staleTime: 5 * 60 * 1000,
     enabled: canFetch, // ← NUEVO
   });
 
   const { data: cpc = [] } = useQuery({
     queryKey: ['cuentas-por-cobrar'],
-    queryFn: () => cobranzaApi.cuentasPorCobrar().then((r) => r.data.data).catch(() => []),
+    queryFn: () => cobranzaApi.cuentasPorCobrar({ limit: 100 }).then((r) => r.data.data.items).catch(() => []),
     staleTime: 5 * 60 * 1000,
     enabled: canFetch, // ← NUEVO
   });

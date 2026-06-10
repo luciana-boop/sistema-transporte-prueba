@@ -19,8 +19,10 @@ export const verificarToken = (
   next: NextFunction
 ): void => {
   const authHeader = req.headers.authorization;
+  const tokenHeader = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
+  const token = req.cookies?.token || tokenHeader;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!token) {
     res.status(401).json({
       success: false,
       error: 'Token de acceso requerido',
@@ -28,7 +30,6 @@ export const verificarToken = (
     return;
   }
 
-  const token = authHeader.split(' ')[1];
   const secret = process.env.JWT_SECRET;
 
   if (!secret) {

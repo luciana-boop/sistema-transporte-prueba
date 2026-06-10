@@ -300,6 +300,7 @@ model LogActividad {
 
   usuario    Usuario  @relation(fields: [usuarioId], references: [id])
 
+  @@index([fechaHora])
   @@map("log_actividad")
 }
 

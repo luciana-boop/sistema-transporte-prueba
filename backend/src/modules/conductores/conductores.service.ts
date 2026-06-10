@@ -1,6 +1,7 @@
 // FILE: src/modules/conductores/conductores.service.ts
 
 import prisma from '../../prisma/client';
+import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 export interface CreateConductorDto {
   nombre: string;
@@ -15,7 +16,7 @@ export interface CreateConductorDto {
 }
 
 export class ConductoresService {
-  async findAll(query: { activo?: string; search?: string }) {
+  async findAll(query: { activo?: string; search?: string } & PaginacionQuery) {
     const where: any = {};
     if (query.activo !== undefined) where.activo = query.activo === 'true';
     if (query.search) {
@@ -25,7 +26,12 @@ export class ConductoresService {
         { licencia: { contains: query.search, mode: 'insensitive' } },
       ];
     }
-    return prisma.conductor.findMany({ where, orderBy: { nombre: 'asc' } });
+    const { skip, take, page, limit } = paginar(query);
+    const [total, items] = await Promise.all([
+      prisma.conductor.count({ where }),
+      prisma.conductor.findMany({ where, orderBy: { nombre: 'asc' }, skip, take }),
+    ]);
+    return { items, total, page, limit };
   }
 
   async findById(id: number) {

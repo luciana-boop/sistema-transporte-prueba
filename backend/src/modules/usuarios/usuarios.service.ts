@@ -7,6 +7,7 @@ import prisma from '../../prisma/client';
 import bcrypt from 'bcryptjs';
 import { Rol } from '../../utils/enums';
 import { permisosService } from '../permisos/permisos.service';
+import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 export interface CreateUsuarioDto {
   nombre: string;
@@ -23,19 +24,26 @@ export interface UpdateUsuarioDto {
 }
 
 export class UsuariosService {
-  async findAll() {
-    return prisma.usuario.findMany({
-      select: {
-        id: true,
-        nombre: true,
-        email: true,
-        rol: true,
-        activo: true,
-        ultimoAcceso: true,
-        creadoEn: true,
-      },
-      orderBy: { creadoEn: 'desc' },
-    });
+  async findAll(query: PaginacionQuery = {}) {
+    const { skip, take, page, limit } = paginar(query);
+    const [total, items] = await Promise.all([
+      prisma.usuario.count(),
+      prisma.usuario.findMany({
+        select: {
+          id: true,
+          nombre: true,
+          email: true,
+          rol: true,
+          activo: true,
+          ultimoAcceso: true,
+          creadoEn: true,
+        },
+        orderBy: { creadoEn: 'desc' },
+        skip,
+        take,
+      }),
+    ]);
+    return { items, total, page, limit };
   }
 
   async findById(id: number) {

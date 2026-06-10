@@ -5,6 +5,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -26,6 +27,8 @@ import configuracionRoutes from './modules/configuracion/configuracion.routes';
 import cuentasRoutes       from './modules/configuracion/cuentas.routes';
 import permisosRoutes      from './modules/permisos/permisos.routes';
 import contabilidadRoutes  from './modules/contabilidad/contabilidad.routes';
+import { apiLimiter }      from './middleware/rateLimit.middleware';
+import { verificarCsrf }   from './middleware/csrf.middleware';
 
 const app = express();
 
@@ -44,13 +47,29 @@ app.use((_req, res, next) => {
   next();
 });
 
+// Orígenes permitidos: configurables vía CORS_ORIGIN (lista separada por comas).
+// Además se permiten los preview deployments del proyecto en Vercel
+// (subdominios con prefijo "transportessalvadorr-...-transporte-salva.vercel.app")
+// y, fuera de producción, cualquier http://localhost:*.
+const corsOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const vercelPreviewPattern = /^https:\/\/transportessalvadorr-[a-z0-9-]+-transporte-salva\.vercel\.app$/;
+
 app.use(cors({
   origin: (origin, callback) => {
-    const allowed = [
-      /\.vercel\.app$/,
-      /^http:\/\/localhost/
-    ];
-    if (!origin || allowed.some(pattern => pattern.test(origin))) {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    const permitido =
+      corsOrigins.includes(origin) ||
+      vercelPreviewPattern.test(origin) ||
+      (process.env.NODE_ENV !== 'production' && /^http:\/\/localhost(:\d+)?$/.test(origin));
+
+    if (permitido) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -61,13 +80,20 @@ app.use(cors({
 
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+app.use('/api', apiLimiter);
+
 app.use('/api/auth',          authRoutes);
+
+// CSRF aplica a partir de aquí: login/logout no dependen de la cookie csrf_token
+// (login aún no la tiene; logout solo limpia cookies y no muta datos de negocio).
+app.use('/api', verificarCsrf);
 app.use('/api/clientes',      clientesRoutes);
 app.use('/api/pedidos',       pedidosRoutes);
 app.use('/api/facturacion',   facturacionRoutes);

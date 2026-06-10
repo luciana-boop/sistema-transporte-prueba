@@ -9,8 +9,8 @@ import * as R from '../../utils/response';
 export class GastosController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
-      const { tipoGasto, vehiculoId, usuarioId, desde, hasta, search } = req.query as Record<string, string>;
-      const data = await gastosService.findAll({ tipoGasto, vehiculoId, usuarioId, desde, hasta, search });
+      const { tipoGasto, vehiculoId, usuarioId, desde, hasta, search, page, limit } = req.query as Record<string, string>;
+      const data = await gastosService.findAll({ tipoGasto, vehiculoId, usuarioId, desde, hasta, search, page, limit });
       R.ok(res, data);
     } catch (e) { R.serverError(res, e); }
   }

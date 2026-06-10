@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Plus, Edit2, Trash2, ArrowUpCircle, ArrowDownCircle, ArrowLeftRight, Eye, Ban } from 'lucide-react';
-import { cuentasApi } from '@/services/api';
+import { cuentasApi, fetchAllPages } from '@/services/api';
 import { formatDate, formatDatetime, getErrorMessage } from '@/lib/utils';
 import {
   Button, Table, Th, Td, Tr, TableSkeleton, EmptyState,
@@ -227,7 +227,7 @@ export function CuentasTab() {
   });
   const { data: movimientos = [] } = useQuery({
     queryKey: ['movimientos', showMovs?.id, movDesde, movHasta],
-    queryFn: () => cuentasApi.getMovimientos({ cuentaId: showMovs!.id, desde: movDesde || undefined, hasta: movHasta || undefined }).then(r => r.data.data),
+    queryFn: () => fetchAllPages((p) => cuentasApi.getMovimientos({ cuentaId: showMovs!.id, desde: movDesde || undefined, hasta: movHasta || undefined, ...p }).then(r => r.data.data)),
     enabled: !!showMovs,
   });
   // P7: detalle del movimiento seleccionado (incluye "origen del movimiento")

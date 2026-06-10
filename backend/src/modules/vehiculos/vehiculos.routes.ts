@@ -3,9 +3,10 @@
 import { Router } from 'express';
 import { vehiculosController } from './vehiculos.controller';
 import { verificarToken, adminOSecretario } from '../../middleware/auth.middleware';
+import { verificarModulo } from '../../middleware/permisos.middleware';
 
 const router = Router();
-router.use(verificarToken, adminOSecretario);
+router.use(verificarToken, adminOSecretario, verificarModulo('vehiculos'));
 
 router.get('/', vehiculosController.listar.bind(vehiculosController));
 router.get('/:id', vehiculosController.obtener.bind(vehiculosController));

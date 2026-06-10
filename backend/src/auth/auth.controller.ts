@@ -2,6 +2,10 @@
 
 import { Request, Response } from 'express';
 import { authService } from './auth.service';
+import { duracionAMs } from '../utils/duration';
+
+const esProduccion = process.env.NODE_ENV === 'production';
+const COOKIE_MAX_AGE = duracionAMs(process.env.JWT_EXPIRES_IN || '2h', 2 * 60 * 60 * 1000);
 
 export class AuthController {
   async login(req: Request, res: Response): Promise<void> {
@@ -13,17 +17,41 @@ export class AuthController {
         return;
       }
 
-      const result = await authService.login({ email, password });
+      const { token, csrfToken, usuario } = await authService.login({ email, password });
+
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: esProduccion,
+        sameSite: esProduccion ? 'none' : 'lax',
+        maxAge: COOKIE_MAX_AGE,
+        path: '/',
+      });
+
+      // Cookie legible por JS: el frontend la reenvía como header X-CSRF-Token
+      // en mutaciones (patrón double-submit cookie).
+      res.cookie('csrf_token', csrfToken, {
+        httpOnly: false,
+        secure: esProduccion,
+        sameSite: esProduccion ? 'none' : 'lax',
+        maxAge: COOKIE_MAX_AGE,
+        path: '/',
+      });
 
       res.json({
         success: true,
         message: 'Sesión iniciada correctamente',
-        data: result,
+        data: { usuario, csrfToken },
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Error al iniciar sesión';
       res.status(401).json({ success: false, error: message });
     }
+  }
+
+  async logout(_req: Request, res: Response): Promise<void> {
+    res.clearCookie('token', { path: '/' });
+    res.clearCookie('csrf_token', { path: '/' });
+    res.json({ success: true, message: 'Sesión cerrada' });
   }
 
   async perfil(req: Request, res: Response): Promise<void> {

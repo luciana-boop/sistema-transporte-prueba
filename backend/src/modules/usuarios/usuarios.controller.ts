@@ -8,7 +8,8 @@ import * as R from '../../utils/response';
 export class UsuariosController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
-      const data = await usuariosService.findAll();
+      const { page, limit } = req.query as Record<string, string>;
+      const data = await usuariosService.findAll({ page, limit });
       R.ok(res, data);
     } catch (e) { R.serverError(res, e); }
   }

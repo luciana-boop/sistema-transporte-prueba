@@ -3,6 +3,7 @@
 import prisma from '../../prisma/client';
 import { EstadoCaja, TipoMovimientoCaja } from '../../utils/enums';
 import { cuentasService } from '../configuracion/cuentas.service';
+import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 export interface AbrirCajaDto {
   saldoApertura: number;
@@ -55,7 +56,7 @@ export interface MovimientoEnriquecido {
 }
 
 export class CajaService {
-  async findAll(query: { estado?: string; usuarioId?: string; desde?: string; hasta?: string }) {
+  async findAll(query: { estado?: string; usuarioId?: string; desde?: string; hasta?: string } & PaginacionQuery) {
     const where: any = {};
     if (query.estado) where.estado = query.estado as EstadoCaja;
     if (query.usuarioId) where.usuarioId = parseInt(query.usuarioId);
@@ -65,17 +66,24 @@ export class CajaService {
       if (query.hasta) where.fecha.lte = new Date(query.hasta + 'T23:59:59');
     }
 
-    const cajas = await prisma.caja.findMany({
-      where,
-      orderBy: { aperturaEn: 'desc' },
-      include: {
-        usuario: { select: { id: true, nombre: true } },
-        movimientos: true,
-        _count: { select: { movimientos: true } },
-      },
-    });
+    const { skip, take, page, limit } = paginar(query);
 
-    return cajas.map((caja: any) => {
+    const [total, cajas] = await Promise.all([
+      prisma.caja.count({ where }),
+      prisma.caja.findMany({
+        where,
+        orderBy: { aperturaEn: 'desc' },
+        skip,
+        take,
+        include: {
+          usuario: { select: { id: true, nombre: true } },
+          movimientos: true,
+          _count: { select: { movimientos: true } },
+        },
+      }),
+    ]);
+
+    const items = cajas.map((caja: any) => {
       const activos = caja.movimientos.filter((m: any) => !m.anulado);
       const ingresos = activos
         .filter((m: any) => m.tipo === 'INGRESO')
@@ -87,6 +95,8 @@ export class CajaService {
       const { movimientos: _m, ...rest } = caja;
       return { ...rest, ingresosTotales: ingresos, egresosTotales: egresos, saldoActual };
     });
+
+    return { items, total, page, limit };
   }
 
   async findById(id: number) {
@@ -357,7 +367,7 @@ export class CajaService {
     return { caja, movimientos, saldoInicial, totalIngresos, totalEgresos, saldoFinal };
   }
 
-  async getMovimientosGlobal(filtros: FiltrosMovimientosDto) {
+  async getMovimientosGlobal(filtros: FiltrosMovimientosDto & PaginacionQuery) {
     const where: any = {};
 
     if (filtros.cajaId) {
@@ -380,30 +390,41 @@ export class CajaService {
       }
     }
 
-    const movimientos = await prisma.movimientoCaja.findMany({
-      where,
-      orderBy: { creadoEn: 'asc' },
-      include: {
-        caja: {
-          select: {
-            id: true,
-            nombre: true,
-            fecha: true,
-            saldoApertura: true,
-            estado: true,
-            usuario: { select: { id: true, nombre: true } },
-          },
-        },
-      },
+    // Totales calculados sobre TODOS los movimientos que cumplen el filtro (no solo la página actual)
+    const todosActivos = await prisma.movimientoCaja.findMany({
+      where: { ...where, anulado: false },
+      select: { tipo: true, monto: true },
     });
-
-    const movimientosActivos = movimientos.filter((m: any) => !m.anulado);
-    const totalIngresos = movimientosActivos
+    const totalIngresos = todosActivos
       .filter((m: any) => m.tipo === 'INGRESO')
       .reduce((s: number, m: any) => s + Number(m.monto), 0);
-    const totalEgresos = movimientosActivos
+    const totalEgresos = todosActivos
       .filter((m: any) => m.tipo === 'EGRESO')
       .reduce((s: number, m: any) => s + Number(m.monto), 0);
+
+    const { skip, take, page, limit } = paginar(filtros);
+
+    const [total, movimientos] = await Promise.all([
+      prisma.movimientoCaja.count({ where }),
+      prisma.movimientoCaja.findMany({
+        where,
+        orderBy: { creadoEn: 'asc' },
+        skip,
+        take,
+        include: {
+          caja: {
+            select: {
+              id: true,
+              nombre: true,
+              fecha: true,
+              saldoApertura: true,
+              estado: true,
+              usuario: { select: { id: true, nombre: true } },
+            },
+          },
+        },
+      }),
+    ]);
 
     const enriquecidos = movimientos.map((m: any) => {
       let referencia: string | null = m.referencia ?? null;
@@ -422,7 +443,7 @@ export class CajaService {
       };
     });
 
-    return { movimientos: enriquecidos, totalIngresos, totalEgresos };
+    return { items: enriquecidos, total, page, limit, totalIngresos, totalEgresos };
   }
 
   async editarMovimiento(movimientoId: number, dto: EditarMovimientoDto, usuarioId: number) {

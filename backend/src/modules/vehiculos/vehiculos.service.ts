@@ -1,6 +1,7 @@
 // FILE: src/modules/vehiculos/vehiculos.service.ts
 
 import prisma from '../../prisma/client';
+import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 export interface CreateVehiculoDto {
   placa: string;
@@ -21,7 +22,7 @@ export interface CreateVehiculoDto {
 const toDate = (s?: string) => (s ? new Date(s) : undefined);
 
 export class VehiculosService {
-  async findAll(query: { tipo?: string; activo?: string; search?: string }) {
+  async findAll(query: { tipo?: string; activo?: string; search?: string } & PaginacionQuery) {
     const where: any = {};
     if (query.tipo) where.tipo = query.tipo;
     if (query.activo !== undefined) where.activo = query.activo === 'true';
@@ -32,7 +33,12 @@ export class VehiculosService {
         { modelo: { contains: query.search, mode: 'insensitive' } },
       ];
     }
-    return prisma.vehiculo.findMany({ where, orderBy: { placa: 'asc' } });
+    const { skip, take, page, limit } = paginar(query);
+    const [total, items] = await Promise.all([
+      prisma.vehiculo.count({ where }),
+      prisma.vehiculo.findMany({ where, orderBy: { placa: 'asc' }, skip, take }),
+    ]);
+    return { items, total, page, limit };
   }
 
   async findById(id: number) {

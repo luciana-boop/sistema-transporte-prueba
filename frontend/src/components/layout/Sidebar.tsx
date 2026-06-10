@@ -25,6 +25,7 @@ import { useConfig }         from '@/hooks/useConfig';
 import { useRouter }         from 'next/navigation';
 import { cn }                from '@/lib/utils';
 import { toast }             from 'sonner';
+import { authApi }           from '@/services/api';
 import type { ModuloKey }    from '@/config/permisos.config';
 
 const navItems: { href: string; label: string; icon: React.ElementType; moduloKey: ModuloKey }[] = [
@@ -75,7 +76,12 @@ export function Sidebar() {
 
   usePermisos();
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await authApi.logout();
+    } catch {
+      // si falla la llamada igual limpiamos la sesión local
+    }
     resetPermisos(); // limpiar permisos al cerrar sesión
     logout();
     toast.success('Sesión cerrada');

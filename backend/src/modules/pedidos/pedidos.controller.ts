@@ -7,8 +7,8 @@ import * as R from '../../utils/response';
 export class PedidosController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
-      const { estado, clienteId, desde, hasta, search } = req.query as Record<string, string>;
-      R.ok(res, await pedidosService.findAll({ estado, clienteId, desde, hasta, search }));
+      const { estado, clienteId, desde, hasta, search, page, limit } = req.query as Record<string, string>;
+      R.ok(res, await pedidosService.findAll({ estado, clienteId, desde, hasta, search, page, limit }));
     } catch (e) { R.serverError(res, e); }
   }
 

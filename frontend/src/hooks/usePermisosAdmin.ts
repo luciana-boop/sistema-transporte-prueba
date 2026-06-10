@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useAuthStore } from '@/store/auth.store';
+import api from '@/services/api';
 import type { ModuloKey, AccionKey } from '@/config/permisos.config';
 
 export interface PermisoModuloItem  { key: ModuloKey;  habilitado: boolean }
@@ -16,33 +16,24 @@ export interface PermisosAdminData {
 }
 
 export function usePermisosAdmin(usuarioId: number) {
-  const token = useAuthStore((s) => s.token);
-
   const [data,      setData]      = useState<PermisosAdminData | null>(null);
   const [cargando,  setCargando]  = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [error,     setError]     = useState<string | null>(null);
 
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
-
   // ─── Cargar permisos del usuario ──────────────────────────────────────────
   const cargar = useCallback(async () => {
-    if (!token) return;
     setCargando(true);
     setError(null);
     try {
-      const res = await fetch(`${baseUrl}/api/permisos/${usuarioId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error(`Error ${res.status}`);
-      const json = await res.json();
-      setData(json.data);
+      const res = await api.get(`/api/permisos/${usuarioId}`);
+      setData(res.data.data);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al cargar permisos');
     } finally {
       setCargando(false);
     }
-  }, [token, usuarioId, baseUrl]);
+  }, [usuarioId]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -51,27 +42,17 @@ export function usePermisosAdmin(usuarioId: number) {
     modulos:  PermisoModuloItem[],
     acciones: PermisoAccionItem[],
   ): Promise<{ ok: boolean; mensaje: string }> => {
-    if (!token) return { ok: false, mensaje: 'Sin token' };
     setGuardando(true);
     try {
-      const res = await fetch(`${baseUrl}/api/permisos/${usuarioId}`, {
-        method:  'PUT',
-        headers: {
-          'Content-Type':  'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ modulos, acciones }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? `Error ${res.status}`);
-      return { ok: true, mensaje: json.message ?? 'Permisos guardados' };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Error al guardar';
+      const res = await api.put(`/api/permisos/${usuarioId}`, { modulos, acciones });
+      return { ok: true, mensaje: res.data.message ?? 'Permisos guardados' };
+    } catch (e: any) {
+      const msg = e?.response?.data?.error ?? (e instanceof Error ? e.message : 'Error al guardar');
       return { ok: false, mensaje: msg };
     } finally {
       setGuardando(false);
     }
-  }, [token, usuarioId, baseUrl]);
+  }, [usuarioId]);
 
   return { data, cargando, guardando, error, guardar, recargar: cargar };
 }

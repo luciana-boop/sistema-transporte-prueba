@@ -5,7 +5,7 @@ import { useState, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Download, Upload, AlertTriangle, CheckCircle, Database, FileSpreadsheet, FileJson } from 'lucide-react';
-import { backupsApi, clientesApi, pedidosApi, conductoresApi, vehiculosApi, gastosApi, liquidacionesApi, combustibleApi, usuariosApi } from '@/services/api';
+import { backupsApi, clientesApi, pedidosApi, conductoresApi, vehiculosApi, gastosApi, liquidacionesApi, combustibleApi, usuariosApi, fetchAllPages } from '@/services/api';
 import { facturacionApi } from '@/services/api';
 import { PageHeader, Button, StatCard } from '@/components/shared';
 import { formatCurrency, formatDate, getErrorMessage, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL, TIPO_GASTO_LABEL } from '@/lib/utils';
@@ -21,10 +21,10 @@ export default function BackupsPage() {
   const restoreRef = useRef<HTMLInputElement>(null);
 
   // Prefetch counts for display
-  const { data: clientes = [] } = useQuery({ queryKey: ['clientes'], queryFn: () => clientesApi.listar().then(r => r.data.data) });
-  const { data: pedidos = [] } = useQuery({ queryKey: ['pedidos'], queryFn: () => pedidosApi.listar().then(r => r.data.data) });
-  const { data: conductores = [] } = useQuery({ queryKey: ['conductores'], queryFn: () => conductoresApi.listar().then(r => r.data.data) });
-  const { data: vehiculos = [] } = useQuery({ queryKey: ['vehiculos'], queryFn: () => vehiculosApi.listar().then(r => r.data.data) });
+  const { data: clientesTotal = 0 } = useQuery({ queryKey: ['clientes', 'count'], queryFn: () => clientesApi.listar({ limit: 1 }).then(r => r.data.data.total) });
+  const { data: pedidosTotal = 0 } = useQuery({ queryKey: ['pedidos', 'count'], queryFn: () => pedidosApi.listar({ limit: 1 }).then(r => r.data.data.total) });
+  const { data: conductoresTotal = 0 } = useQuery({ queryKey: ['conductores', 'count'], queryFn: () => conductoresApi.listar({ limit: 1 }).then(r => r.data.data.total) });
+  const { data: vehiculosTotal = 0 } = useQuery({ queryKey: ['vehiculos', 'count'], queryFn: () => vehiculosApi.listar({ limit: 1 }).then(r => r.data.data.total) });
 
   const handleJsonBackup = async () => {
     setLoadingJson(true);
@@ -54,15 +54,15 @@ export default function BackupsPage() {
         cData, pData, facData, , condData, vehData,
         gData, liqData, combData
       ] = await Promise.all([
-        clientesApi.listar().then(r => r.data.data),
-        pedidosApi.listar().then(r => r.data.data),
-        facturacionApi.listar().then(r => r.data.data),
+        fetchAllPages((p) => clientesApi.listar(p).then(r => r.data.data)),
+        fetchAllPages((p) => pedidosApi.listar(p).then(r => r.data.data)),
+        fetchAllPages((p) => facturacionApi.listar(p).then(r => r.data.data)),
         Promise.resolve([]),
-        conductoresApi.listar().then(r => r.data.data),
-        vehiculosApi.listar().then(r => r.data.data),
-        gastosApi.listar().then(r => r.data.data),
-        liquidacionesApi.listar().then(r => r.data.data),
-        combustibleApi.listar().then(r => r.data.data),
+        fetchAllPages((p) => conductoresApi.listar(p).then(r => r.data.data)),
+        fetchAllPages((p) => vehiculosApi.listar(p).then(r => r.data.data)),
+        fetchAllPages((p) => gastosApi.listar(p).then(r => r.data.data)),
+        fetchAllPages((p) => liquidacionesApi.listar(p).then(r => r.data.data)),
+        fetchAllPages((p) => combustibleApi.listar(p).then(r => r.data.data)),
       ]);
 
       // Sheet: Clientes
@@ -160,10 +160,10 @@ export default function BackupsPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Clientes" value={clientes.length} color="blue" icon={Database} />
-        <StatCard label="Pedidos" value={pedidos.length} color="default" icon={Database} />
-        <StatCard label="Conductores" value={conductores.length} color="green" icon={Database} />
-        <StatCard label="Vehículos" value={vehiculos.length} color="yellow" icon={Database} />
+        <StatCard label="Clientes" value={clientesTotal} color="blue" icon={Database} />
+        <StatCard label="Pedidos" value={pedidosTotal} color="default" icon={Database} />
+        <StatCard label="Conductores" value={conductoresTotal} color="green" icon={Database} />
+        <StatCard label="Vehículos" value={vehiculosTotal} color="yellow" icon={Database} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

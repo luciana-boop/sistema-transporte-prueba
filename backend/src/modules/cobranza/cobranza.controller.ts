@@ -8,8 +8,8 @@ import * as R from '../../utils/response';
 export class CobranzaController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
-      const { clienteId, metodoPago, estado, desde, hasta, facturaId } = req.query as Record<string, string>;
-      R.ok(res, await cobranzaService.findAll({ clienteId, metodoPago, estado, desde, hasta, facturaId }));
+      const { clienteId, metodoPago, estado, desde, hasta, facturaId, page, limit } = req.query as Record<string, string>;
+      R.ok(res, await cobranzaService.findAll({ clienteId, metodoPago, estado, desde, hasta, facturaId, page, limit }));
     } catch (e) { R.serverError(res, e); }
   }
 
@@ -123,8 +123,8 @@ export class CobranzaController {
 
   async cuentasPorCobrar(req: Request, res: Response): Promise<void> {
     try {
-      const { clienteId, estado, desde, hasta } = req.query as Record<string, string>;
-      R.ok(res, await cobranzaService.cuentasPorCobrar({ clienteId, estado, desde, hasta }));
+      const { clienteId, estado, desde, hasta, page, limit } = req.query as Record<string, string>;
+      R.ok(res, await cobranzaService.cuentasPorCobrar({ clienteId, estado, desde, hasta, page, limit }));
     } catch (e) { R.serverError(res, e); }
   }
 

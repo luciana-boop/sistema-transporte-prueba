@@ -14,7 +14,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, Trash2, Download, X, Eye } from 'lucide-react';
-import { gastosApi, vehiculosApi, cuentasApi } from '@/services/api';
+import { gastosApi, vehiculosApi, cuentasApi, fetchAllPages } from '@/services/api';
 import { formatDate, formatCurrency, getErrorMessage, TIPO_GASTO_LABEL } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -54,6 +54,7 @@ export default function GastosPage() {
   const [filtroDesde, setFiltroDesde] = useState(() => new Date().toISOString().split('T')[0]);
   const [filtroHasta, setFiltroHasta] = useState(() => new Date().toISOString().split('T')[0]);
   const [showForm, setShowForm] = useState(false);
+  const [page, setPage] = useState(1);
   // MEJORA 4: detalle
   const [viewing, setViewing] = useState<any>(null);
 
@@ -67,28 +68,46 @@ export default function GastosPage() {
     setFiltroTipo('');
     setFiltroDesde('');
     setFiltroHasta('');
+    setPage(1);
   }
 
   // ── Datos ──────────────────────────────────────────────────────────────────
-  const { data: gastos = [], isLoading } = useQuery({
-    queryKey: ['gastos', filtroTipo, filtroDesde, filtroHasta, search],
+  const limit = 20;
+  const { data, isLoading } = useQuery({
+    queryKey: ['gastos', filtroTipo, filtroDesde, filtroHasta, search, page],
     queryFn: () =>
       gastosApi.listar({
         tipoGasto: filtroTipo as TipoGasto || undefined,
         desde: filtroDesde || undefined,
         hasta: filtroHasta || undefined,
         search: search || undefined,
+        page, limit,
       } as any).then((r) => r.data.data),
   });
+  const gastos = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.ceil(total / limit);
 
   const { data: resumen } = useQuery({
     queryKey: ['gastos', 'resumen'],
     queryFn: () => gastosApi.resumen().then((r) => r.data.data),
   });
 
+  // Total filtrado (independiente de la página actual) para el StatCard
+  const { data: gastosFiltrados = [] } = useQuery({
+    queryKey: ['gastos', 'todos', filtroTipo, filtroDesde, filtroHasta, search],
+    queryFn: () => fetchAllPages((p) => gastosApi.listar({
+      tipoGasto: filtroTipo as TipoGasto || undefined,
+      desde: filtroDesde || undefined,
+      hasta: filtroHasta || undefined,
+      search: search || undefined,
+      ...p,
+    } as any).then((r) => r.data.data)),
+  });
+
   const { data: vehiculos = [] } = useQuery({
     queryKey: ['vehiculos'],
-    queryFn: () => vehiculosApi.listar().then((r) => r.data.data),
+    queryFn: () => vehiculosApi.listar({ limit: 100 }).then((r) => r.data.data.items),
   });
 
   // Cuentas con su moneda incluida — para la lógica cuenta→moneda
@@ -150,7 +169,7 @@ export default function GastosPage() {
 
   // ── Excel export ───────────────────────────────────────────────────────────
   const exportExcel = () => {
-    const rows = gastos.map((g) => ({
+    const rows = gastosFiltrados.map((g) => ({
       '#': g.id,
       Tipo: TIPO_GASTO_LABEL[g.tipoGasto],
       Concepto: g.descripcion,
@@ -212,7 +231,7 @@ export default function GastosPage() {
     total: r.totalMonto,
   })) ?? [];
 
-  const totalGastos = gastos.reduce((s, g) => s + Number(g.monto), 0);
+  const totalGastos = gastosFiltrados.reduce((s, g) => s + Number(g.monto), 0);
 
   return (
     <div className="page-container">
@@ -234,7 +253,7 @@ export default function GastosPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard label="Total gastos" value={`${defaultSimbolo} ${totalGastos.toFixed(2)}`} color="red" />
-        <StatCard label="Registros" value={gastos.length} color="default" />
+        <StatCard label="Registros" value={total} color="default" />
         <StatCard
           label="Mayor tipo"
           value={resumen?.resumenPorTipo.length
@@ -268,10 +287,10 @@ export default function GastosPage() {
             placeholder="Buscar comprobante, concepto, tipo..."
             className="pl-9 w-72"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
         </div>
-        <Select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} className="w-44">
+        <Select value={filtroTipo} onChange={(e) => { setFiltroTipo(e.target.value); setPage(1); }} className="w-44">
           <option value="">Todos los tipos</option>
           {Object.entries(TIPO_GASTO_LABEL).map(([v, l]) => (
             <option key={v} value={v}>{l}</option>
@@ -279,11 +298,11 @@ export default function GastosPage() {
         </Select>
         <div className="flex flex-col gap-0.5">
           <label className="text-xs text-muted-foreground">Desde</label>
-          <Input type="date" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)} className="w-36" />
+          <Input type="date" value={filtroDesde} onChange={(e) => { setFiltroDesde(e.target.value); setPage(1); }} className="w-36" />
         </div>
         <div className="flex flex-col gap-0.5">
           <label className="text-xs text-muted-foreground">Hasta</label>
-          <Input type="date" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} className="w-36" />
+          <Input type="date" value={filtroHasta} onChange={(e) => { setFiltroHasta(e.target.value); setPage(1); }} className="w-36" />
         </div>
         {hayFiltros && (
           <Button variant="ghost" size="sm" onClick={limpiarFiltros} className="text-muted-foreground">
@@ -345,6 +364,18 @@ export default function GastosPage() {
             )}
           </tbody>
         </Table>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            Anterior
+          </Button>
+          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
+          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            Siguiente
+          </Button>
+        </div>
       )}
 
       {/* Modal: Registrar gasto */}

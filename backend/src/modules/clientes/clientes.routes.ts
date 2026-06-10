@@ -3,11 +3,12 @@
 import { Router } from 'express';
 import { clientesController } from './clientes.controller';
 import { verificarToken, adminOSecretario } from '../../middleware/auth.middleware';
+import { verificarModulo } from '../../middleware/permisos.middleware';
 
 const router = Router();
 
-// Todos los endpoints requieren autenticación
-router.use(verificarToken, adminOSecretario);
+// Todos los endpoints requieren autenticación + permiso de acceso al módulo
+router.use(verificarToken, adminOSecretario, verificarModulo('clientes'));
 
 router.get('/', clientesController.listar.bind(clientesController));
 router.get('/:id', clientesController.obtener.bind(clientesController));

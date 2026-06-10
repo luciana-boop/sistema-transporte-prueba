@@ -2,6 +2,7 @@
 
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import prisma from '../prisma/client';
 import { LoginDto, AuthResponse, JwtPayload } from './auth.types';
 
@@ -57,11 +58,14 @@ export class AuthService {
     if (!secret) throw new Error('JWT_SECRET no configurado');
 
     const token = jwt.sign(payload, secret, {
-      expiresIn: process.env.JWT_EXPIRES_IN || '8h',
+      expiresIn: process.env.JWT_EXPIRES_IN || '2h',
     } as jwt.SignOptions);
+
+    const csrfToken = crypto.randomBytes(32).toString('hex');
 
     return {
       token,
+      csrfToken,
       usuario: {
         id: usuario.id,
         nombre: usuario.nombre,

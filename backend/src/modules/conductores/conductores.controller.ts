@@ -7,8 +7,8 @@ import * as R from '../../utils/response';
 export class ConductoresController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
-      const { activo, search } = req.query as Record<string, string>;
-      R.ok(res, await conductoresService.findAll({ activo, search }));
+      const { activo, search, page, limit } = req.query as Record<string, string>;
+      R.ok(res, await conductoresService.findAll({ activo, search, page, limit }));
     } catch (e) { R.serverError(res, e); }
   }
 

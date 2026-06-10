@@ -241,7 +241,10 @@ export interface MovimientosCajaResponse {
 
 /** NUEVO: respuesta del endpoint de movimientos globales */
 export interface MovimientosGlobalResponse {
-  movimientos: MovimientoGlobal[];
+  items: MovimientoGlobal[];
+  total: number;
+  page: number;
+  limit: number;
   totalIngresos: number;
   totalEgresos: number;
 }
@@ -286,6 +289,13 @@ export interface PaginationMeta {
   page: number;
   limit: number;
   total: number;
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 // ─── CONDUCTORES ─────────────────────────────────────────────────────────────

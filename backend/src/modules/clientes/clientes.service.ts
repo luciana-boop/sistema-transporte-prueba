@@ -2,6 +2,7 @@
 
 import prisma from '../../prisma/client';
 import { CondicionPago, EstadoPedido } from '../../utils/enums';
+import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 export interface CreateClienteDto {
   razonSocial: string;
@@ -17,7 +18,7 @@ export interface UpdateClienteDto extends Partial<CreateClienteDto> {
 }
 
 export class ClientesService {
-  async findAll(query: { activo?: string; search?: string }) {
+  async findAll(query: { activo?: string; search?: string } & PaginacionQuery) {
     const where: any = {};
 
     if (query.activo !== undefined) {
@@ -32,15 +33,24 @@ export class ClientesService {
       ];
     }
 
-    return prisma.cliente.findMany({
-      where,
-      orderBy: { razonSocial: 'asc' },
-      include: {
-        _count: {
-          select: { pedidos: true, facturas: true },
+    const { skip, take, page, limit } = paginar(query);
+
+    const [total, items] = await Promise.all([
+      prisma.cliente.count({ where }),
+      prisma.cliente.findMany({
+        where,
+        orderBy: { razonSocial: 'asc' },
+        skip,
+        take,
+        include: {
+          _count: {
+            select: { pedidos: true, facturas: true },
+          },
         },
-      },
-    });
+      }),
+    ]);
+
+    return { items, total, page, limit };
   }
 
   async findById(id: number) {

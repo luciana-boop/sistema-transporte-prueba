@@ -5,6 +5,7 @@
 import prisma from '../../prisma/client';
 import { EstadoFactura } from '../../utils/enums';
 import { cuentasService } from '../configuracion/cuentas.service';
+import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 export interface CreatePagoDto {
   facturaId: number;
@@ -29,7 +30,7 @@ export class CobranzaService {
   async findAll(query: {
     clienteId?: string; metodoPago?: string; estado?: string;
     desde?: string; hasta?: string; facturaId?: string;
-  }) {
+  } & PaginacionQuery) {
     const where: any = { anulado: false };
     if (query.clienteId) where.clienteId = parseInt(query.clienteId);
     if (query.metodoPago) where.metodoPago = query.metodoPago;
@@ -42,15 +43,25 @@ export class CobranzaService {
       if (query.desde) where.fechaPago.gte = new Date(query.desde);
       if (query.hasta) where.fechaPago.lte = new Date(query.hasta + 'T23:59:59');
     }
-    return prisma.pago.findMany({
-      where,
-      orderBy: { fechaPago: 'desc' },
-      include: {
-        factura: { select: { id: true, numeroFactura: true, total: true, estado: true, totalPagado: true } },
-        cliente: { select: { id: true, razonSocial: true, ruc: true } },
-        usuario: { select: { id: true, nombre: true } },
-      },
-    });
+
+    const { skip, take, page, limit } = paginar(query);
+
+    const [total, items] = await Promise.all([
+      prisma.pago.count({ where }),
+      prisma.pago.findMany({
+        where,
+        orderBy: { fechaPago: 'desc' },
+        skip,
+        take,
+        include: {
+          factura: { select: { id: true, numeroFactura: true, total: true, estado: true, totalPagado: true } },
+          cliente: { select: { id: true, razonSocial: true, ruc: true } },
+          usuario: { select: { id: true, nombre: true } },
+        },
+      }),
+    ]);
+
+    return { items, total, page, limit };
   }
 
   async findById(id: number) {
@@ -308,7 +319,7 @@ export class CobranzaService {
 
   async cuentasPorCobrar(query: {
     clienteId?: string; estado?: string; desde?: string; hasta?: string;
-  } = {}) {
+  } & PaginacionQuery = {}) {
     // P8: filtros consistentes con "Pagos registrados" — Desde/Hasta/Cliente/Estado
     const where: any = {
       estado: query.estado
@@ -323,16 +334,23 @@ export class CobranzaService {
       if (query.hasta) where.fechaEmision.lte = new Date(query.hasta + 'T23:59:59');
     }
 
-    const facturas = await prisma.factura.findMany({
-      where,
-      include: {
-        cliente: { select: { id: true, razonSocial: true, ruc: true } },
-      },
-      orderBy: { fechaVencimiento: 'asc' },
-    });
+    const { skip, take, page, limit } = paginar(query);
+
+    const [total, facturas] = await Promise.all([
+      prisma.factura.count({ where }),
+      prisma.factura.findMany({
+        where,
+        include: {
+          cliente: { select: { id: true, razonSocial: true, ruc: true } },
+        },
+        orderBy: { fechaVencimiento: 'asc' },
+        skip,
+        take,
+      }),
+    ]);
 
     const ahora = new Date();
-    return facturas.map((f: any) => {
+    const items = facturas.map((f: any) => {
       const pagado = Number(f.totalPagado || 0);
       const saldo = Number(f.total) - pagado;
       const vencida = f.fechaVencimiento < ahora;
@@ -352,6 +370,8 @@ export class CobranzaService {
         estado: f.estado,
       };
     }).filter((f: any) => f.saldoPendiente > 0.01);
+
+    return { items, total, page, limit };
   }
 
   /**

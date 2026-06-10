@@ -8,6 +8,7 @@ import prisma from '../../prisma/client';
 import { TipoGasto } from '../../utils/enums';
 import { cuentasService } from '../configuracion/cuentas.service';
 import { contabilidadIntegration } from '../contabilidad/contabilidad.integration';
+import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 export interface CreateGastoDto {
   vehiculoId?: number;
@@ -39,7 +40,7 @@ export class GastosService {
     desde?: string;
     hasta?: string;
     search?: string;
-  }) {
+  } & PaginacionQuery) {
     const where: any = {};
 
     if (query.tipoGasto) where.tipoGasto = query.tipoGasto as TipoGasto;
@@ -59,14 +60,23 @@ export class GastosService {
       ];
     }
 
-    return prisma.gasto.findMany({
-      where,
-      orderBy: { fecha: 'desc' },
-      include: {
-        vehiculo: { select: { id: true, placa: true, marca: true, modelo: true } },
-        usuario: { select: { id: true, nombre: true } },
-      },
-    });
+    const { skip, take, page, limit } = paginar(query);
+
+    const [total, items] = await Promise.all([
+      prisma.gasto.count({ where }),
+      prisma.gasto.findMany({
+        where,
+        orderBy: { fecha: 'desc' },
+        skip,
+        take,
+        include: {
+          vehiculo: { select: { id: true, placa: true, marca: true, modelo: true } },
+          usuario: { select: { id: true, nombre: true } },
+        },
+      }),
+    ]);
+
+    return { items, total, page, limit };
   }
 
   async findById(id: number) {

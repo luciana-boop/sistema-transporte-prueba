@@ -49,8 +49,8 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginForm) => {
     try {
       const res = await authApi.login(data.email, data.password);
-      const { token, usuario } = res.data.data;
-      setAuth(token, usuario);
+      const { usuario } = res.data.data;
+      setAuth(usuario);
       toast.success(`Bienvenido, ${usuario.nombre}`);
       router.push('/dashboard');
     } catch (err) {

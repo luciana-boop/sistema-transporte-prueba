@@ -8,8 +8,8 @@ import * as R from '../../utils/response';
 export class CombustibleController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
-      const { vehiculoId, conductorId, desde, hasta } = req.query as Record<string, string>;
-      R.ok(res, await combustibleService.findAll({ vehiculoId, conductorId, desde, hasta }));
+      const { vehiculoId, conductorId, desde, hasta, page, limit } = req.query as Record<string, string>;
+      R.ok(res, await combustibleService.findAll({ vehiculoId, conductorId, desde, hasta, page, limit }));
     } catch (e) { R.serverError(res, e); }
   }
 

@@ -14,7 +14,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, Trash2, Fuel, Eye } from 'lucide-react';
-import { combustibleApi, vehiculosApi, conductoresApi, cuentasApi, liquidacionesApi } from '@/services/api';
+import { combustibleApi, vehiculosApi, conductoresApi, cuentasApi, liquidacionesApi, fetchAllPages } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, TableSkeleton,
@@ -52,14 +52,15 @@ export default function CombustiblePage() {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [filtroVehiculo, setFiltroVehiculo] = useState('');
+  const [page, setPage] = useState(1);
   const [viewing, setViewing] = useState<{ id: number } | null>(null);
 
   const { data: registros = [], isLoading } = useQuery({
     queryKey: ['combustible', filtroVehiculo],
     queryFn: () =>
-      combustibleApi
-        .listar({ vehiculoId: filtroVehiculo ? parseInt(filtroVehiculo) : undefined })
-        .then((r) => r.data.data),
+      fetchAllPages((p) => combustibleApi
+        .listar({ vehiculoId: filtroVehiculo ? parseInt(filtroVehiculo) : undefined, ...p })
+        .then((r) => r.data.data)),
   });
 
   const { data: resumen } = useQuery({
@@ -69,12 +70,12 @@ export default function CombustiblePage() {
 
   const { data: vehiculos = [] } = useQuery({
     queryKey: ['vehiculos'],
-    queryFn: () => vehiculosApi.listar({ activo: true }).then((r) => r.data.data),
+    queryFn: () => vehiculosApi.listar({ activo: true, limit: 100 }).then((r) => r.data.data.items),
   });
 
   const { data: conductores = [] } = useQuery({
     queryKey: ['conductores'],
-    queryFn: () => conductoresApi.listar({ activo: true }).then((r) => r.data.data),
+    queryFn: () => conductoresApi.listar({ activo: true, limit: 100 }).then((r) => r.data.data.items),
   });
 
   const { data: cuentas = [] } = useQuery({
@@ -116,7 +117,7 @@ export default function CombustiblePage() {
     // Solo se ofrecen liquidaciones que aún no están asociadas a otra carga de
     // combustible: una vez asociada, deja de estar disponible para nuevas cargas
     // a menos que esa asociación se anule/revierta (ver liquidaciones.service.ts → findAll).
-    queryFn: () => liquidacionesApi.listar({ conductorId: parseInt(watchedConductorId!), sinCombustible: true }).then((r) => r.data.data),
+    queryFn: () => liquidacionesApi.listar({ conductorId: parseInt(watchedConductorId!), sinCombustible: true, limit: 100 }).then((r) => r.data.data.items),
     enabled: !!watchedConductorId,
   });
 
@@ -176,6 +177,10 @@ export default function CombustiblePage() {
       : true
   );
 
+  const limit = 20;
+  const totalPages = Math.ceil(filtered.length / limit);
+  const pageItems = filtered.slice((page - 1) * limit, page * limit);
+
   const chartData = (resumen?.porVehiculo ?? []).map((v: any) => ({
     name: v.placa,
     monto: v.totalMonto,
@@ -225,9 +230,9 @@ export default function CombustiblePage() {
       <div className="flex gap-3 flex-wrap">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Buscar placa, grifo..." className="pl-9 w-64" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input placeholder="Buscar placa, grifo..." className="pl-9 w-64" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
         </div>
-        <Select value={filtroVehiculo} onChange={(e) => setFiltroVehiculo(e.target.value)} className="w-44">
+        <Select value={filtroVehiculo} onChange={(e) => { setFiltroVehiculo(e.target.value); setPage(1); }} className="w-44">
           <option value="">Todos los vehículos</option>
           {vehiculos.map((v) => (<option key={v.id} value={v.id}>{v.placa} — {v.marca}</option>))}
         </Select>
@@ -243,7 +248,7 @@ export default function CombustiblePage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length > 0 ? filtered.map((r) => (
+            {pageItems.length > 0 ? pageItems.map((r) => (
               <Tr key={r.id}>
                 <Td><span className="font-mono text-xs text-muted-foreground">#{r.id}</span></Td>
                 <Td><span className="text-sm">{formatDate(r.fecha)}</span></Td>
@@ -284,6 +289,18 @@ export default function CombustiblePage() {
             )}
           </tbody>
         </Table>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            Anterior
+          </Button>
+          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
+          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            Siguiente
+          </Button>
+        </div>
       )}
 
       <Modal open={showForm} onClose={() => { setShowForm(false); reset(); }} title="Registrar carga de combustible">

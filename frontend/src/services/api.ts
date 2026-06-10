@@ -17,23 +17,28 @@ import type {
   ResumenFinanciero, TipoGasto, EstadoFactura, FacturaDetalle, PedidoResumen,
   PagoDetalle, CuentaPorCobrarDetalle,
   MovimientosCajaResponse, MovimientosGlobalResponse,
+  PaginatedResponse,
 } from '@/types';
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001',
   timeout: 30000,
+  withCredentials: true,
 });
 
+const METODOS_SEGUROS = new Set(['get', 'head', 'options']);
+
+function getCookie(nombre: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${nombre}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 api.interceptors.request.use((config) => {
-  if (typeof window !== 'undefined') {
-    try {
-      const raw = localStorage.getItem('auth-storage');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        const token = parsed?.state?.token;
-        if (token) config.headers.Authorization = `Bearer ${token}`;
-      }
-    } catch { /* ignore */ }
+  const metodo = (config.method ?? 'get').toLowerCase();
+  if (!METODOS_SEGUROS.has(metodo)) {
+    const csrfToken = getCookie('csrf_token');
+    if (csrfToken) config.headers['X-CSRF-Token'] = csrfToken;
   }
   return config;
 });
@@ -51,17 +56,36 @@ api.interceptors.response.use(
 
 export default api;
 
+/**
+ * Recorre todas las páginas de un endpoint paginado y devuelve la lista completa.
+ * Usado en exportaciones (backups) que necesitan el dataset completo, no una página.
+ */
+export async function fetchAllPages<T>(
+  fetchPage: (params: { page: number; limit: number }) => Promise<PaginatedResponse<T>>,
+): Promise<T[]> {
+  const limit = 100;
+  const primera = await fetchPage({ page: 1, limit });
+  const items = [...primera.items];
+  const totalPaginas = Math.ceil(primera.total / limit);
+  for (let page = 2; page <= totalPaginas; page++) {
+    const res = await fetchPage({ page, limit });
+    items.push(...res.items);
+  }
+  return items;
+}
+
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 export const authApi = {
   login: (email: string, password: string) =>
-    api.post<ApiResponse<{ token: string; usuario: Usuario }>>('/api/auth/login', { email, password }),
+    api.post<ApiResponse<{ usuario: Usuario; csrfToken: string }>>('/api/auth/login', { email, password }),
+  logout: () => api.post<ApiResponse<null>>('/api/auth/logout'),
   me: () => api.get<ApiResponse<Usuario>>('/api/auth/me'),
 };
 
 // ─── CLIENTES ─────────────────────────────────────────────────────────────────
 export const clientesApi = {
-  listar: (params?: { activo?: boolean; search?: string }) =>
-    api.get<ApiResponse<Cliente[]>>('/api/clientes', { params }),
+  listar: (params?: { activo?: boolean; search?: string; page?: number; limit?: number }) =>
+    api.get<ApiResponse<PaginatedResponse<Cliente>>>('/api/clientes', { params }),
   obtener: (id: number) => api.get<ApiResponse<Cliente>>(`/api/clientes/${id}`),
   estadisticas: (id: number) =>
     api.get<ApiResponse<import('@/types').ClienteEstadisticas>>(`/api/clientes/${id}/estadisticas`),
@@ -76,8 +100,8 @@ export const clientesApi = {
 
 // ─── PEDIDOS ──────────────────────────────────────────────────────────────────
 export const pedidosApi = {
-  listar: (params?: { estado?: string; clienteId?: number; search?: string; desde?: string; hasta?: string }) =>
-    api.get<ApiResponse<Pedido[]>>('/api/pedidos', { params }),
+  listar: (params?: { estado?: string; clienteId?: number; search?: string; desde?: string; hasta?: string; page?: number; limit?: number }) =>
+    api.get<ApiResponse<PaginatedResponse<Pedido>>>('/api/pedidos', { params }),
   disponibles: (clienteId: number) =>
     api.get<ApiResponse<Pedido[]>>('/api/pedidos/disponibles', { params: { clienteId } }),
   obtener: (id: number) => api.get<ApiResponse<Pedido>>(`/api/pedidos/${id}`),
@@ -105,8 +129,8 @@ export const pedidosApi = {
 
 // ─── FACTURACIÓN ─────────────────────────────────────────────────────────────
 export const facturacionApi = {
-  listar: (params?: { estado?: string; clienteId?: number; desde?: string; hasta?: string }) =>
-    api.get<ApiResponse<Factura[]>>('/api/facturacion', { params }),
+  listar: (params?: { estado?: string; clienteId?: number; desde?: string; hasta?: string; serie?: string; page?: number; limit?: number }) =>
+    api.get<ApiResponse<PaginatedResponse<Factura>>>('/api/facturacion', { params }),
   obtener: (id: number) => api.get<ApiResponse<Factura>>(`/api/facturacion/${id}`),
   series: () => api.get<ApiResponse<string[]>>('/api/facturacion/series'),
   proximoCorrelativo: (serie: string) =>
@@ -138,11 +162,11 @@ export const facturacionApi = {
 
 // ─── COBRANZA ────────────────────────────────────────────────────────────────
 export const cobranzaApi = {
-  listar: (params?: { clienteId?: number; metodoPago?: MetodoPago; estado?: EstadoFactura; desde?: string; hasta?: string }) =>
-    api.get<ApiResponse<Pago[]>>('/api/cobranza', { params }),
+  listar: (params?: { clienteId?: number; metodoPago?: MetodoPago; estado?: EstadoFactura; desde?: string; hasta?: string; page?: number; limit?: number }) =>
+    api.get<ApiResponse<PaginatedResponse<Pago>>>('/api/cobranza', { params }),
   obtener: (id: number) => api.get<ApiResponse<PagoDetalle>>(`/api/cobranza/${id}`),
-  cuentasPorCobrar: (params?: { clienteId?: number; estado?: EstadoFactura; desde?: string; hasta?: string }) =>
-    api.get<ApiResponse<CuentaPorCobrar[]>>('/api/cobranza/cuentas-por-cobrar', { params }),
+  cuentasPorCobrar: (params?: { clienteId?: number; estado?: EstadoFactura; desde?: string; hasta?: string; page?: number; limit?: number }) =>
+    api.get<ApiResponse<PaginatedResponse<CuentaPorCobrar>>>('/api/cobranza/cuentas-por-cobrar', { params }),
   detalleCuentaPorCobrar: (facturaId: number) =>
     api.get<ApiResponse<CuentaPorCobrarDetalle>>(`/api/cobranza/cuentas-por-cobrar/${facturaId}/detalle`),
   facturasPorCliente: (clienteId: number) =>
@@ -165,8 +189,8 @@ export const cobranzaApi = {
 
 // ─── CAJA ────────────────────────────────────────────────────────────────────
 export const cajaApi = {
-  listar: (params?: { estado?: string; desde?: string; hasta?: string }) =>
-    api.get<ApiResponse<Caja[]>>('/api/caja', { params }),
+  listar: (params?: { estado?: string; desde?: string; hasta?: string; page?: number; limit?: number }) =>
+    api.get<ApiResponse<PaginatedResponse<Caja>>>('/api/caja', { params }),
   obtener: (id: number) => api.get<ApiResponse<Caja>>(`/api/caja/${id}`),
   actual: () => api.get<ApiResponse<Caja | null>>('/api/caja/actual'),
   abrir: (data: { saldoApertura: number; cuentaOrigenId: number; nombre?: string; observaciones?: string }) =>
@@ -179,7 +203,7 @@ export const cajaApi = {
   }) => api.post<ApiResponse<Caja>>(`/api/caja/${id}/movimiento`, data),
   getMovimientos: (id: number, params?: { desde?: string; hasta?: string; tipo?: string }) =>
     api.get<ApiResponse<MovimientosCajaResponse>>(`/api/caja/${id}/movimientos`, { params }),
-  getMovimientosGlobal: (params?: { cajaId?: number; desde?: string; hasta?: string; tipo?: string }) =>
+  getMovimientosGlobal: (params?: { cajaId?: number; desde?: string; hasta?: string; tipo?: string; page?: number; limit?: number }) =>
     api.get<ApiResponse<MovimientosGlobalResponse>>('/api/caja/movimientos', { params }),
   editarMovimiento: (movimientoId: number, data: {
     monto?: number; concepto?: string; fecha?: string; referencia?: string;
@@ -191,8 +215,8 @@ export const cajaApi = {
 
 // ─── GASTOS ───────────────────────────────────────────────────────────────────
 export const gastosApi = {
-  listar: (params?: { vehiculoId?: number; tipoGasto?: TipoGasto; desde?: string; hasta?: string; search?: string }) =>
-    api.get<ApiResponse<Gasto[]>>('/api/gastos', { params }),
+  listar: (params?: { vehiculoId?: number; tipoGasto?: TipoGasto; desde?: string; hasta?: string; search?: string; page?: number; limit?: number }) =>
+    api.get<ApiResponse<PaginatedResponse<Gasto>>>('/api/gastos', { params }),
   obtener: (id: number) => api.get<ApiResponse<Gasto>>(`/api/gastos/${id}`),
   crear: (data: {
     vehiculoId?: number; tipoGasto: TipoGasto; monto: number; descripcion: string;
@@ -338,7 +362,8 @@ export const reportesApi = {
 
 // ─── USUARIOS ────────────────────────────────────────────────────────────────
 export const usuariosApi = {
-  listar: () => api.get<ApiResponse<Usuario[]>>('/api/usuarios'),
+  listar: (params?: { page?: number; limit?: number }) =>
+    api.get<ApiResponse<PaginatedResponse<Usuario>>>('/api/usuarios', { params }),
   obtener: (id: number) => api.get<ApiResponse<Usuario>>(`/api/usuarios/${id}`),
   crear: (data: { nombre: string; email: string; password: string; rol: Rol }) =>
     api.post<ApiResponse<Usuario>>('/api/usuarios', data),
@@ -351,8 +376,8 @@ export const usuariosApi = {
 
 // ─── CONDUCTORES ─────────────────────────────────────────────────────────────
 export const conductoresApi = {
-  listar: (params?: { activo?: boolean; search?: string }) =>
-    api.get<ApiResponse<Conductor[]>>('/api/conductores', { params }),
+  listar: (params?: { activo?: boolean; search?: string; page?: number; limit?: number }) =>
+    api.get<ApiResponse<PaginatedResponse<Conductor>>>('/api/conductores', { params }),
   obtener: (id: number) => api.get<ApiResponse<Conductor>>(`/api/conductores/${id}`),
   crear: (data: Omit<Conductor, 'id' | 'creadoEn'>) =>
     api.post<ApiResponse<Conductor>>('/api/conductores', data),
@@ -363,8 +388,8 @@ export const conductoresApi = {
 
 // ─── VEHÍCULOS ────────────────────────────────────────────────────────────────
 export const vehiculosApi = {
-  listar: (params?: { activo?: boolean; tipo?: string; search?: string }) =>
-    api.get<ApiResponse<Vehiculo[]>>('/api/vehiculos', { params }),
+  listar: (params?: { activo?: boolean; tipo?: string; search?: string; page?: number; limit?: number }) =>
+    api.get<ApiResponse<PaginatedResponse<Vehiculo>>>('/api/vehiculos', { params }),
   obtener: (id: number) => api.get<ApiResponse<Vehiculo>>(`/api/vehiculos/${id}`),
   crear: (data: Omit<Vehiculo, 'id' | 'creadoEn'>) =>
     api.post<ApiResponse<Vehiculo>>('/api/vehiculos', data),
@@ -375,8 +400,8 @@ export const vehiculosApi = {
 
 // ─── LIQUIDACIONES ───────────────────────────────────────────────────────────
 export const liquidacionesApi = {
-  listar: (params?: { conductorId?: number; desde?: string; hasta?: string; sinCombustible?: boolean }) =>
-    api.get<ApiResponse<Liquidacion[]>>('/api/liquidaciones', { params }),
+  listar: (params?: { conductorId?: number; desde?: string; hasta?: string; sinCombustible?: boolean; page?: number; limit?: number }) =>
+    api.get<ApiResponse<PaginatedResponse<Liquidacion>>>('/api/liquidaciones', { params }),
   obtener: (id: number) => api.get<ApiResponse<Liquidacion>>(`/api/liquidaciones/${id}`),
   pedidosDisponibles: () =>
     api.get<ApiResponse<PedidoResumen[]>>('/api/liquidaciones/pedidos-disponibles'),
@@ -417,8 +442,8 @@ export const liquidacionesApi = {
 
 // ─── COMBUSTIBLE ─────────────────────────────────────────────────────────────
 export const combustibleApi = {
-  listar: (params?: { vehiculoId?: number; conductorId?: number; desde?: string; hasta?: string }) =>
-    api.get<ApiResponse<Combustible[]>>('/api/combustible', { params }),
+  listar: (params?: { vehiculoId?: number; conductorId?: number; desde?: string; hasta?: string; page?: number; limit?: number }) =>
+    api.get<ApiResponse<PaginatedResponse<Combustible>>>('/api/combustible', { params }),
   /** P9: detalle de solo lectura — incluye el movimiento financiero generado */
   obtener: (id: number) => api.get<ApiResponse<CombustibleDetalle>>(`/api/combustible/${id}`),
   crear: (data: {
@@ -512,8 +537,8 @@ export const cuentasApi = {
   updateCuenta: (id: number, data: Partial<CuentaDinero>) =>
     api.put<ApiResponse<CuentaDinero>>(`/api/cuentas/cuentas/${id}`, data),
   deleteCuenta: (id: number) => api.delete<ApiResponse<null>>(`/api/cuentas/cuentas/${id}`),
-  getMovimientos: (params?: { cuentaId?: number; tipo?: string; desde?: string; hasta?: string }) =>
-    api.get<ApiResponse<MovimientoCuenta[]>>('/api/cuentas/movimientos', { params }),
+  getMovimientos: (params?: { cuentaId?: number; tipo?: string; desde?: string; hasta?: string; page?: number; limit?: number }) =>
+    api.get<ApiResponse<PaginatedResponse<MovimientoCuenta>>>('/api/cuentas/movimientos', { params }),
   registrarMovimiento: (data: {
     cuentaId: number; tipo: 'INGRESO' | 'EGRESO'; monto: number; monedaId: number;
     tipoPagoId?: number; concepto: string; referencia?: string; fecha?: string;

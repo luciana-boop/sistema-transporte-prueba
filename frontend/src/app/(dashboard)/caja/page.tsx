@@ -163,6 +163,7 @@ export default function CajaPage() {
   const [filtroMovTipo, setFiltroMovTipo] = useState('');
   const [filtroListaDesde, setFiltroListaDesde] = useState('');
   const [filtroListaHasta, setFiltroListaHasta] = useState('');
+  const [cajasPage, setCajasPage] = useState(1);
   const [cuentaSelId, setCuentaSelId] = useState<string>('');
   const [cuentaMovDesde, setCuentaMovDesde] = useState('');
   const [cuentaMovHasta, setCuentaMovHasta] = useState('');
@@ -175,10 +176,14 @@ export default function CajaPage() {
     enabled: !!showMovimientos,
   });
 
-  const { data: cajas = [], isLoading } = useQuery({
-    queryKey: ['cajas', filtroListaDesde, filtroListaHasta],
-    queryFn: () => cajaApi.listar({ desde: filtroListaDesde || undefined, hasta: filtroListaHasta || undefined }).then((r) => r.data.data),
+  const cajasLimit = 20;
+  const { data: cajasData, isLoading } = useQuery({
+    queryKey: ['cajas', filtroListaDesde, filtroListaHasta, cajasPage],
+    queryFn: () => cajaApi.listar({ desde: filtroListaDesde || undefined, hasta: filtroListaHasta || undefined, page: cajasPage, limit: cajasLimit }).then((r) => r.data.data),
   });
+  const cajas = cajasData?.items ?? [];
+  const cajasTotal = cajasData?.total ?? 0;
+  const cajasTotalPages = Math.ceil(cajasTotal / cajasLimit);
 
   const { data: cajaActual } = useQuery({
     queryKey: ['caja-actual'],
@@ -464,14 +469,14 @@ export default function CajaPage() {
             <p className="text-sm font-semibold self-center">Historial de cajas</p>
             <div className="flex flex-col gap-0.5">
               <label className="text-xs text-muted-foreground">Desde</label>
-              <Input type="date" value={filtroListaDesde} onChange={(e) => setFiltroListaDesde(e.target.value)} className="w-36" />
+              <Input type="date" value={filtroListaDesde} onChange={(e) => { setFiltroListaDesde(e.target.value); setCajasPage(1); }} className="w-36" />
             </div>
             <div className="flex flex-col gap-0.5">
               <label className="text-xs text-muted-foreground">Hasta</label>
-              <Input type="date" value={filtroListaHasta} onChange={(e) => setFiltroListaHasta(e.target.value)} className="w-36" />
+              <Input type="date" value={filtroListaHasta} onChange={(e) => { setFiltroListaHasta(e.target.value); setCajasPage(1); }} className="w-36" />
             </div>
             {(filtroListaDesde || filtroListaHasta) && (
-              <Button variant="ghost" size="sm" onClick={() => { setFiltroListaDesde(''); setFiltroListaHasta(''); }}>
+              <Button variant="ghost" size="sm" onClick={() => { setFiltroListaDesde(''); setFiltroListaHasta(''); setCajasPage(1); }}>
                 <X className="w-3.5 h-3.5" /> Limpiar
               </Button>
             )}
@@ -519,6 +524,18 @@ export default function CajaPage() {
                 )) : <tr><td colSpan={8}><EmptyState message="No hay cajas registradas" /></td></tr>}
               </tbody>
             </Table>
+          )}
+
+          {cajasTotalPages > 1 && (
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="secondary" size="sm" disabled={cajasPage <= 1} onClick={() => setCajasPage((p) => p - 1)}>
+                Anterior
+              </Button>
+              <span className="text-sm text-muted-foreground">Página {cajasPage} de {cajasTotalPages}</span>
+              <Button variant="secondary" size="sm" disabled={cajasPage >= cajasTotalPages} onClick={() => setCajasPage((p) => p + 1)}>
+                Siguiente
+              </Button>
+            </div>
           )}
         </>
       )}

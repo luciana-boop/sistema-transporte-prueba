@@ -27,7 +27,7 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, XCircle, Upload, FileText, Download, Trash2, Eye, ExternalLink, AlertCircle } from 'lucide-react';
 import { useRef } from 'react';
-import api, { facturacionApi, clientesApi, pedidosApi, configuracionApi } from '@/services/api';
+import api, { facturacionApi, clientesApi, pedidosApi, configuracionApi, fetchAllPages } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage, ESTADO_FACTURA_LABEL } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -208,6 +208,7 @@ export default function FacturacionPage() {
   const [filtroDesde, setFiltroDesde] = useState(() => new Date().toISOString().split('T')[0]);
   const [filtroHasta, setFiltroHasta] = useState(() => new Date().toISOString().split('T')[0]);
   const [showForm, setShowForm] = useState(false);
+  const [page, setPage] = useState(1);
   const [showXmlMasivo, setShowXmlMasivo] = useState(false);
   // MEJORA 4: detalle de factura (solo visualización — facturas SUNAT no editables)
   const [viewing, setViewing] = useState<any>(null);
@@ -224,11 +225,12 @@ export default function FacturacionPage() {
   // ─── QUERIES ─────────────────────────────────────────────────────────────
   const { data: facturasRaw = [], isLoading } = useQuery({
     queryKey: ['facturas', filtroEstado, filtroDesde, filtroHasta],
-    queryFn: () => facturacionApi.listar({
+    queryFn: () => fetchAllPages((p) => facturacionApi.listar({
       estado: filtroEstado || undefined,
       desde: filtroDesde || undefined,
       hasta: filtroHasta || undefined,
-    }).then((r) => r.data.data),
+      ...p,
+    }).then((r) => r.data.data)),
   });
 
   // Filtro client-side por número de factura y cliente
@@ -242,6 +244,10 @@ export default function FacturacionPage() {
     );
   });
 
+  const limit = 20;
+  const totalPages = Math.ceil(facturas.length / limit);
+  const facturasPagina = facturas.slice((page - 1) * limit, page * limit);
+
   const { data: series = [] } = useQuery({
     queryKey: ['series'],
     queryFn: () => facturacionApi.series().then((r) => r.data.data),
@@ -249,7 +255,7 @@ export default function FacturacionPage() {
 
   const { data: clientes = [] } = useQuery({
     queryKey: ['clientes'],
-    queryFn: () => clientesApi.listar().then((r) => r.data.data),
+    queryFn: () => clientesApi.listar({ limit: 100 }).then((r) => r.data.data.items),
   });
 
   // PARTE 7: unidades de medida desde TablaMaestra
@@ -617,12 +623,12 @@ export default function FacturacionPage() {
             placeholder="Buscar por N° factura o cliente…"
             className="pl-9 w-64"
             value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
+            onChange={(e) => { setSearchText(e.target.value); setPage(1); }}
           />
         </div>
         <Select
           value={filtroEstado}
-          onChange={(e) => setFiltroEstado(e.target.value)}
+          onChange={(e) => { setFiltroEstado(e.target.value); setPage(1); }}
           className="w-44"
         >
           <option value="">Todos los estados</option>
@@ -632,15 +638,15 @@ export default function FacturacionPage() {
         </Select>
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground">Desde</label>
-          <Input type="date" className="w-36" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)} />
+          <Input type="date" className="w-36" value={filtroDesde} onChange={(e) => { setFiltroDesde(e.target.value); setPage(1); }} />
         </div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground">Hasta</label>
-          <Input type="date" className="w-36" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} />
+          <Input type="date" className="w-36" value={filtroHasta} onChange={(e) => { setFiltroHasta(e.target.value); setPage(1); }} />
         </div>
         {(searchText || filtroDesde || filtroHasta) && (
           <button
-            onClick={() => { setSearchText(''); setFiltroDesde(''); setFiltroHasta(''); }}
+            onClick={() => { setSearchText(''); setFiltroDesde(''); setFiltroHasta(''); setPage(1); }}
             className="text-xs text-muted-foreground hover:text-foreground underline"
           >
             Limpiar filtros
@@ -663,8 +669,8 @@ export default function FacturacionPage() {
             </tr>
           </thead>
           <tbody>
-            {facturas.length > 0 ? (
-              facturas.map((f) => (
+            {facturasPagina.length > 0 ? (
+              facturasPagina.map((f) => (
                 <Tr key={f.id}>
                   <Td><span className="font-mono text-xs font-bold">{f.numeroFactura}</span></Td>
                   <Td>
@@ -736,6 +742,18 @@ export default function FacturacionPage() {
             )}
           </tbody>
         </Table>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            Anterior
+          </Button>
+          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
+          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            Siguiente
+          </Button>
+        </div>
       )}
 
       {/* ─── MODAL: NUEVA FACTURA ─────────────────────────────────────────── */}

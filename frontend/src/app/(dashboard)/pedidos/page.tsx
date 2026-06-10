@@ -10,7 +10,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, Edit2, XCircle, Download, Eye, X } from 'lucide-react';
-import { pedidosApi, clientesApi } from '@/services/api';
+import { pedidosApi, clientesApi, fetchAllPages } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage, ESTADO_PEDIDO_LABEL } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -42,16 +42,22 @@ export default function PedidosPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [viewing, setViewing] = useState<any>(null);
+  const [page, setPage] = useState(1);
 
-  const { data: pedidos = [], isLoading } = useQuery({
-    queryKey: ['pedidos', search, filtroEstado, filtroDesde, filtroHasta],
+  const limit = 20;
+  const { data, isLoading } = useQuery({
+    queryKey: ['pedidos', search, filtroEstado, filtroDesde, filtroHasta, page],
     queryFn: () => pedidosApi.listar({
       search: search || undefined,
       estado: filtroEstado as any || undefined,
       desde: filtroDesde || undefined,
       hasta: filtroHasta || undefined,
+      page, limit,
     }).then((r) => r.data.data),
   });
+  const pedidos = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.ceil(total / limit);
 
   const { data: rentabilidad } = useQuery({
     queryKey: ['pedido-rentabilidad', viewing?.id],
@@ -61,7 +67,7 @@ export default function PedidosPage() {
 
   const { data: clientes = [] } = useQuery({
     queryKey: ['clientes'],
-    queryFn: () => clientesApi.listar().then((r) => r.data.data),
+    queryFn: () => clientesApi.listar({ limit: 100 }).then((r) => r.data.data.items),
   });
 
   const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<FormData>({
@@ -103,8 +109,15 @@ export default function PedidosPage() {
     setValue('observaciones', p.observaciones ?? '');
   };
 
-  const exportExcel = () => {
-    const rows = pedidos.map((p) => ({
+  const exportExcel = async () => {
+    const todos = await fetchAllPages((p) => pedidosApi.listar({
+      search: search || undefined,
+      estado: filtroEstado as any || undefined,
+      desde: filtroDesde || undefined,
+      hasta: filtroHasta || undefined,
+      ...p,
+    }).then((r) => r.data.data));
+    const rows = todos.map((p) => ({
       ID: p.id, Cliente: p.cliente?.razonSocial, Origen: p.origen, Destino: p.destino,
       'Tipo carga': p.tipoCarga, 'Tarifa S/': Number(p.tarifa), Estado: p.estado,
       Fecha: formatDate(p.fechaPedido),
@@ -116,7 +129,7 @@ export default function PedidosPage() {
   };
 
   const limpiarFiltros = () => {
-    setSearch(''); setFiltroEstado(''); setFiltroDesde(''); setFiltroHasta('');
+    setSearch(''); setFiltroEstado(''); setFiltroDesde(''); setFiltroHasta(''); setPage(1);
   };
   const hayFiltros = !!(search || filtroEstado || filtroDesde || filtroHasta);
 
@@ -124,7 +137,7 @@ export default function PedidosPage() {
     <div className="page-container">
       <PageHeader
         title="Pedidos"
-        description={`${pedidos.length} pedido${pedidos.length !== 1 ? 's' : ''}`}
+        description={`${total} pedido${total !== 1 ? 's' : ''}`}
         action={
           <div className="flex gap-2">
             <Button variant="secondary" size="sm" onClick={exportExcel}>
@@ -141,9 +154,9 @@ export default function PedidosPage() {
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Buscar..." className="pl-9 w-56" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input placeholder="Buscar..." className="pl-9 w-56" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
         </div>
-        <Select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)} className="w-44">
+        <Select value={filtroEstado} onChange={(e) => { setFiltroEstado(e.target.value); setPage(1); }} className="w-44">
           <option value="">Todos los estados</option>
           {Object.entries(ESTADO_PEDIDO_LABEL).map(([v, l]) => (
             <option key={v} value={v}>{l}</option>
@@ -151,11 +164,11 @@ export default function PedidosPage() {
         </Select>
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground">Desde</label>
-          <Input type="date" className="w-36" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)} />
+          <Input type="date" className="w-36" value={filtroDesde} onChange={(e) => { setFiltroDesde(e.target.value); setPage(1); }} />
         </div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground">Hasta</label>
-          <Input type="date" className="w-36" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} />
+          <Input type="date" className="w-36" value={filtroHasta} onChange={(e) => { setFiltroHasta(e.target.value); setPage(1); }} />
         </div>
         {hayFiltros && (
           <button onClick={limpiarFiltros} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground underline">
@@ -213,6 +226,18 @@ export default function PedidosPage() {
             )) : <tr><td colSpan={8}><EmptyState message="No se encontraron pedidos" /></td></tr>}
           </tbody>
         </Table>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            Anterior
+          </Button>
+          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
+          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            Siguiente
+          </Button>
+        </div>
       )}
 
       {/* MEJORA 4: Modal de detalle */}

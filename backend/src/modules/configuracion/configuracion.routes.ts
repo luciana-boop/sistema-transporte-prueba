@@ -8,24 +8,29 @@
 import { Router } from 'express';
 import { configuracionController } from './configuracion.controller';
 import { verificarToken, soloAdmin } from '../../middleware/auth.middleware';
+import { verificarModulo } from '../../middleware/permisos.middleware';
 
 const router = Router();
 
 // ── Rutas públicas para módulos internos (solo token, no admin) ───────────────
 // Facturación necesita consultar unidades y códigos sin requerir rol ADMIN.
+// Se exige permiso de acceso al módulo facturación, ya que estos datos
+// solo tienen sentido dentro de ese flujo.
 router.get(
   '/facturacion/unidades-medida',
   verificarToken,
+  verificarModulo('facturacion'),
   configuracionController.getUnidadesMedida.bind(configuracionController),
 );
 router.get(
   '/facturacion/codigos-factura',
   verificarToken,
+  verificarModulo('facturacion'),
   configuracionController.getCodigosFactura.bind(configuracionController),
 );
 
 // ── Resto de rutas: solo ADMIN ────────────────────────────────────────────────
-router.use(verificarToken, soloAdmin);
+router.use(verificarToken, soloAdmin, verificarModulo('configuracion'));
 
 // Inicializar defaults
 router.post('/inicializar', configuracionController.inicializar.bind(configuracionController));

@@ -6,6 +6,7 @@
 import prisma from '../../prisma/client';
 import { EstadoFactura } from '../../utils/enums';
 import { contabilidadIntegration } from '../contabilidad/contabilidad.integration';
+import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
@@ -97,7 +98,7 @@ export class FacturacionService {
     });
   }
 
-  async findAll(query: { estado?: string; clienteId?: string; desde?: string; hasta?: string; serie?: string }) {
+  async findAll(query: { estado?: string; clienteId?: string; desde?: string; hasta?: string; serie?: string } & PaginacionQuery) {
     const where: any = {};
     if (query.estado) where.estado = query.estado as EstadoFactura;
     if (query.clienteId) where.clienteId = parseInt(query.clienteId);
@@ -107,17 +108,27 @@ export class FacturacionService {
       if (query.desde) where.fechaEmision.gte = new Date(query.desde);
       if (query.hasta) where.fechaEmision.lte = new Date(query.hasta + 'T23:59:59');
     }
-    return prisma.factura.findMany({
-      where,
-      orderBy: { creadoEn: 'desc' },
-      include: {
-        cliente: { select: { id: true, razonSocial: true, ruc: true } },
-        pedido: { select: { id: true, origen: true, destino: true } },
-        usuario: { select: { id: true, nombre: true } },
-        lineas: { orderBy: { orden: 'asc' } },
-        _count: { select: { pagos: true } },
-      },
-    });
+
+    const { skip, take, page, limit } = paginar(query);
+
+    const [total, items] = await Promise.all([
+      prisma.factura.count({ where }),
+      prisma.factura.findMany({
+        where,
+        orderBy: { creadoEn: 'desc' },
+        skip,
+        take,
+        include: {
+          cliente: { select: { id: true, razonSocial: true, ruc: true } },
+          pedido: { select: { id: true, origen: true, destino: true } },
+          usuario: { select: { id: true, nombre: true } },
+          lineas: { orderBy: { orden: 'asc' } },
+          _count: { select: { pagos: true } },
+        },
+      }),
+    ]);
+
+    return { items, total, page, limit };
   }
 
   async findById(id: number) {
