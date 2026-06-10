@@ -49,7 +49,8 @@ app.use((_req, res, next) => {
 
 // Orígenes permitidos: configurables vía CORS_ORIGIN (lista separada por comas).
 // Además se permiten los preview deployments del proyecto en Vercel
-// (subdominios con prefijo "transportessalvadorr-...-transporte-salva.vercel.app")
+// (subdominios con prefijo "transportessalvadorr-...-transporte-salva.vercel.app"),
+// el dominio de producción "transportessalvadorr.vercel.app",
 // y, fuera de producción, cualquier http://localhost:*.
 const corsOrigins = (process.env.CORS_ORIGIN || '')
   .split(',')
@@ -57,6 +58,7 @@ const corsOrigins = (process.env.CORS_ORIGIN || '')
   .filter(Boolean);
 
 const vercelPreviewPattern = /^https:\/\/transportessalvadorr-[a-z0-9-]+-transporte-salva\.vercel\.app$/;
+const vercelProductionPattern = /^https:\/\/transportessalvadorr\.vercel\.app$/;
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -67,6 +69,7 @@ app.use(cors({
     const permitido =
       corsOrigins.includes(origin) ||
       vercelPreviewPattern.test(origin) ||
+      vercelProductionPattern.test(origin) ||
       (process.env.NODE_ENV !== 'production' && /^http:\/\/localhost(:\d+)?$/.test(origin));
 
     if (permitido) {
