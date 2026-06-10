@@ -12,7 +12,7 @@ import {
   StatCard, StatCardSkeleton, TableSkeleton, EmptyState,
   Table, Th, Td, Tr, PageHeader, Input, Modal, Badge,
 } from '@/components/shared';
-import { DollarSign, TrendingUp, Package, Users, ArrowUpRight, AlertCircle, Trophy, Fuel, Eye } from 'lucide-react';
+import { DollarSign, TrendingUp, Package, Users, ArrowUpRight, AlertCircle, Trophy, Medal, Fuel, Eye } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
@@ -212,12 +212,29 @@ export default function DashboardPage() {
               </div>
               {conductorMes.ranking.length > 1 && (
                 <div className="space-y-1.5">
-                  {conductorMes.ranking.slice(1).map((c, i) => (
-                    <div key={c.conductorId} className="flex items-center justify-between text-xs px-1">
-                      <span className="text-muted-foreground truncate">{i + 2}. {c.nombre}</span>
-                      <span className="text-muted-foreground shrink-0 ml-2">{c.viajes} viajes · {formatCurrency(c.combustiblePromedio)}/viaje</span>
-                    </div>
-                  ))}
+                  {conductorMes.ranking.slice(1).map((c, i) => {
+                    const posicion = i + 2;
+                    const estilos =
+                      posicion === 2
+                        ? { wrap: 'bg-slate-400/10', icon: 'bg-slate-400/20 text-slate-400' }
+                        : posicion === 3
+                        ? { wrap: 'bg-orange-700/10', icon: 'bg-orange-700/20 text-orange-700' }
+                        : { wrap: 'bg-muted/40', icon: 'bg-muted text-muted-foreground' };
+                    return (
+                      <div key={c.conductorId} className={`flex items-center gap-3 rounded-lg p-2.5 ${estilos.wrap}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${estilos.icon}`}>
+                          {posicion <= 3 ? <Medal className="w-4 h-4" /> : posicion}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{c.nombre}</p>
+                          <p className="text-xs text-muted-foreground flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1"><Package className="w-3 h-3" /> {c.viajes} viajes</span>
+                            <span className="inline-flex items-center gap-1"><Fuel className="w-3 h-3" /> {formatCurrency(c.combustiblePromedio)}/viaje</span>
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

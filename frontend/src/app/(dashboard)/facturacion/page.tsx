@@ -104,27 +104,60 @@ function Switch({ checked, onChange }: { checked: boolean; onChange: (v: boolean
   );
 }
 
-// ─── PARSER XML SUNAT (sin cambios) ──────────────────────────────────────────
+// ─── PARSER XML SUNAT ─────────────────────────────────────────────────────────
+// Busca una etiqueta exacta (ignorando namespace, ej. <cbc:ID> o <cac:ID>)
+// dentro de un bloque de texto y devuelve su contenido.
+function getInBlock(block: string, tag: string): string {
+  const m = block.match(new RegExp(`<(?:\\w+:)?${tag}(?:\\s[^>]*)?>([^<]*)<\\/(?:\\w+:)?${tag}>`, 'i'));
+  return m ? m[1].trim() : '';
+}
+
+// Extrae el contenido interno de un bloque (ej. <cac:AccountingCustomerParty>...</cac:AccountingCustomerParty>),
+// ignorando namespace.
+function extractBlock(xmlText: string, blockTag: string): string {
+  const m = xmlText.match(new RegExp(`<(?:\\w+:)?${blockTag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:\\w+:)?${blockTag}>`, 'i'));
+  return m ? m[1] : '';
+}
+
 function parseXmlSunat(xmlText: string): Record<string, unknown> | null {
   try {
     const get = (tag: string) => {
       const m = xmlText.match(new RegExp(`<[^/]*${tag}[^>]*>([^<]+)<`, 'i'));
       return m ? m[1].trim() : '';
     };
-    const serie = get('ID') || get('serie') || '';
-    const correlativoRaw = get('correlativo') || '';
-    const ruc = get('RUC') || get('RegistrationName') || get('ID') || '';
-    const razonSocial = get('RegistrationName') || get('PartyName') || get('razonSocial') || '';
+
+    // Serie y correlativo: del <ID> raíz del comprobante (formato F001-00000123)
+    const idRe = /<(?:\w+:)?ID(?:\s[^>]*)?>([^<]*)<\/(?:\w+:)?ID>/gi;
+    let serie = '';
+    let correlativo = '';
+    for (const m of xmlText.matchAll(idRe)) {
+      const docMatch = m[1].trim().match(/^([A-Z]{1,4}\d{0,3})-(\d+)$/);
+      if (docMatch) {
+        serie = docMatch[1];
+        correlativo = docMatch[2];
+        break;
+      }
+    }
+
+    // Cliente: del bloque AccountingCustomerParty (no del emisor)
+    const customerBlock = extractBlock(xmlText, 'AccountingCustomerParty');
+    const ruc = getInBlock(customerBlock, 'ID');
+    const razonSocial =
+      getInBlock(customerBlock, 'RegistrationName') ||
+      getInBlock(customerBlock, 'Name');
+
+    // Descripción de la primera línea del comprobante
+    const lineBlock = extractBlock(xmlText, 'InvoiceLine');
+    const descripcion = getInBlock(lineBlock, 'Description');
+
     const subtotalRaw = get('TaxExclusiveAmount') || get('subtotal') || '0';
     const igvRaw = get('TaxAmount') || get('igv') || '0';
     const totalRaw = get('PayableAmount') || get('total') || '0';
     const fecha = get('IssueDate') || new Date().toISOString().split('T')[0];
-    const serieMatch = serie.match(/([FBE]\d{3})/);
-    const corrMatch = (serie + correlativoRaw).match(/(\d{8,})/);
+
     return {
-      serie: serieMatch ? serieMatch[1] : serie.substring(0, 4),
-      correlativo: corrMatch ? corrMatch[1] : correlativoRaw,
-      ruc, razonSocial,
+      serie, correlativo,
+      ruc, razonSocial, descripcion,
       subtotal: parseFloat(subtotalRaw) || 0,
       igv: parseFloat(igvRaw) || 0,
       total: parseFloat(totalRaw) || 0,
@@ -253,7 +286,7 @@ export default function FacturacionPage() {
   });
 
   // useFieldArray para el detalle dinámico
-  const { fields, append, remove } = useFieldArray({ control, name: 'lineas' });
+  const { fields, append, remove, replace } = useFieldArray({ control, name: 'lineas' });
 
   const [serieVal, aplicarDetraccionVal, tipoCredito, diasCredito, fechaEmisionVal] =
     watch(['serie', 'aplicarDetraccion', 'tipoCredito', 'diasCredito', 'fechaEmision']);
@@ -443,7 +476,7 @@ export default function FacturacionPage() {
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
-  // ─── HANDLERS XML (sin cambios funcionales) ───────────────────────────────
+  // ─── HANDLERS XML ─────────────────────────────────────────────────────────
   const handleXmlSingle = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -452,7 +485,27 @@ export default function FacturacionPage() {
       const text = ev.target?.result as string;
       const datos = parseXmlSunat(text);
       if (!datos) { toast.error('No se pudo leer el XML'); return; }
+
+      if (datos.serie) setValue('serie', String(datos.serie));
       if (datos.fechaEmision) setValue('fechaEmision', String(datos.fechaEmision));
+
+      const cliente = (clientes as any[]).find((c: any) => c.ruc === datos.ruc);
+      if (cliente) {
+        setValue('clienteId', String(cliente.id));
+      } else {
+        toast.warning('No se encontró un cliente con ese RUC. Selecciónelo manualmente.');
+      }
+
+      const total = String(Number(datos.total) || 0);
+      replace([{
+        cantidad: '1',
+        unidadMedida: 'ZZ',
+        codigo: '00001',
+        descripcion: String(datos.descripcion || ''),
+        valorUnitario: total,
+        importe: total,
+      }]);
+
       toast.success('XML leído — datos autocargados');
       toast.info(`${datos.serie}-${datos.correlativo} | RUC: ${datos.ruc}`);
     };
