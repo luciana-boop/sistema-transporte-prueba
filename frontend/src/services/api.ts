@@ -8,6 +8,7 @@
 // v3: liquidacionesApi añade rendir(); crear() hace detalles opcionales (flujo 2 etapas).
 
 import axios from 'axios';
+import { useAuthStore } from '@/store/auth.store';
 import type {
   ApiResponse, Usuario, Cliente, Pedido, Factura, Pago, Caja,
   Gasto, MetodoPago, Rol, CuentaPorCobrar, Conductor, Vehiculo,
@@ -28,16 +29,10 @@ const api = axios.create({
 
 const METODOS_SEGUROS = new Set(['get', 'head', 'options']);
 
-function getCookie(nombre: string): string | null {
-  if (typeof document === 'undefined') return null;
-  const match = document.cookie.match(new RegExp(`(?:^|; )${nombre}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
 api.interceptors.request.use((config) => {
   const metodo = (config.method ?? 'get').toLowerCase();
   if (!METODOS_SEGUROS.has(metodo)) {
-    const csrfToken = getCookie('csrf_token');
+    const csrfToken = useAuthStore.getState().csrfToken;
     if (csrfToken) config.headers['X-CSRF-Token'] = csrfToken;
   }
   return config;
@@ -79,7 +74,7 @@ export const authApi = {
   login: (email: string, password: string) =>
     api.post<ApiResponse<{ usuario: Usuario; csrfToken: string }>>('/api/auth/login', { email, password }),
   logout: () => api.post<ApiResponse<null>>('/api/auth/logout'),
-  me: () => api.get<ApiResponse<Usuario>>('/api/auth/me'),
+  me: () => api.get<ApiResponse<{ usuario: Usuario; csrfToken: string }>>('/api/auth/me'),
 };
 
 // ─── CLIENTES ─────────────────────────────────────────────────────────────────
@@ -146,7 +141,7 @@ export const facturacionApi = {
     tipoCredito?: string; diasCredito?: number; guiaReferencia?: string; peso?: number; detalle?: string;
     fechaEmision: string; observaciones?: string;
     lineas?: Array<{
-      orden?: number; cantidad: number; unidadMedida?: string; codigo: string;
+      orden?: number; cantidad: number; unidadMedida?: string; codigo?: string;
       descripcion: string; valorUnitario: number; importe: number;
     }>;
   }) => api.post<ApiResponse<Factura>>('/api/facturacion', data),
@@ -575,79 +570,3 @@ export const backupsApi = {
     api.post<ApiResponse<{ message: string; resultados: Record<string, number> }>>('/api/backup/restaurar', backup),
 };
 
-// ─── CONTABILIDAD ─────────────────────────────────────────────────────────────
-import type {
-  CuentaContable, AsientoContable, AsientosResponse, LibroMayor,
-  BalanceComprobacion, EstadoResultados, BalanceGeneral, ConfiguracionContable,
-  DiagnosticoContable, MapeoContable,
-} from '@/types';
-
-export const contabilidadApi = {
-  // Plan de cuentas
-  cuentas: {
-    listar: (params?: { tipo?: string; activa?: string }) =>
-      api.get<ApiResponse<CuentaContable[]>>('/api/contabilidad/cuentas', { params }),
-    arbol: () =>
-      api.get<ApiResponse<CuentaContable[]>>('/api/contabilidad/cuentas/arbol'),
-    obtener: (id: string) =>
-      api.get<ApiResponse<CuentaContable>>(`/api/contabilidad/cuentas/${id}`),
-    crear: (data: { codigo: string; nombre: string; tipo: string; naturaleza: string; padreId?: string }) =>
-      api.post<ApiResponse<CuentaContable>>('/api/contabilidad/cuentas', data),
-    actualizar: (id: string, data: Partial<CuentaContable>) =>
-      api.put<ApiResponse<CuentaContable>>(`/api/contabilidad/cuentas/${id}`, data),
-    eliminar: (id: string) =>
-      api.delete<ApiResponse<null>>(`/api/contabilidad/cuentas/${id}`),
-  },
-
-  // Asientos contables
-  asientos: {
-    listar: (params?: { desde?: string; hasta?: string; tipo?: string; cuentaId?: string; referencia?: string; page?: number; limit?: number }) =>
-      api.get<ApiResponse<AsientosResponse>>('/api/contabilidad/asientos', { params }),
-    obtener: (id: string) =>
-      api.get<ApiResponse<AsientoContable>>(`/api/contabilidad/asientos/${id}`),
-    crear: (data: {
-      fecha: string; descripcion: string; referencia?: string; tipo?: string;
-      lineas: Array<{ cuentaId: string; descripcion?: string; debe: number; haber: number }>;
-    }) => api.post<ApiResponse<AsientoContable>>('/api/contabilidad/asientos', data),
-    eliminar: (id: string) =>
-      api.delete<ApiResponse<null>>(`/api/contabilidad/asientos/${id}`),
-  },
-
-  // Reportes contables
-  reportes: {
-    libroMayor: (cuentaId: string, params?: { desde?: string; hasta?: string }) =>
-      api.get<ApiResponse<LibroMayor>>(`/api/contabilidad/reportes/libro-mayor/${cuentaId}`, { params }),
-    balanceComprobacion: (params?: { desde?: string; hasta?: string }) =>
-      api.get<ApiResponse<BalanceComprobacion>>('/api/contabilidad/reportes/balance-comprobacion', { params }),
-    estadoResultados: (params?: { desde?: string; hasta?: string }) =>
-      api.get<ApiResponse<EstadoResultados>>('/api/contabilidad/reportes/estado-resultados', { params }),
-    balanceGeneral: (params?: { fecha?: string }) =>
-      api.get<ApiResponse<BalanceGeneral>>('/api/contabilidad/reportes/balance-general', { params }),
-  },
-
-  // Configuración contable
-  config: {
-    listar: () =>
-      api.get<ApiResponse<ConfiguracionContable[]>>('/api/contabilidad/configuracion'),
-    set: (clave: string, cuentaId: string) =>
-      api.post<ApiResponse<ConfiguracionContable>>('/api/contabilidad/configuracion', { clave, cuentaId }),
-    eliminar: (clave: string) =>
-      api.delete<ApiResponse<null>>(`/api/contabilidad/configuracion/${clave}`),
-  },
-
-  // Mapeo Categorías → Cuentas Contables
-  mapeos: {
-    listar: () =>
-      api.get<ApiResponse<MapeoContable[]>>('/api/contabilidad/mapeos'),
-    set: (data: { modulo: string; categoriaSlug: string; categoriaNombre: string; cuentaContableId: string }) =>
-      api.post<ApiResponse<MapeoContable>>('/api/contabilidad/mapeos', data),
-  },
-
-  // Sincronización histórica
-  sync: () =>
-    api.post<ApiResponse<{ creados: number }>>('/api/contabilidad/sync'),
-
-  // Diagnóstico
-  diagnostico: () =>
-    api.get<ApiResponse<DiagnosticoContable>>('/api/contabilidad/diagnostico'),
-};

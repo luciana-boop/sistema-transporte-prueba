@@ -1,6 +1,4 @@
 // FILE: backend/src/app.ts
-// CAMBIO: se agregan 2 líneas marcadas con ── NUEVO ──
-// Todo lo demás permanece idéntico.
 
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
@@ -26,7 +24,6 @@ import backupRoutes        from './modules/backup/backup.routes';
 import configuracionRoutes from './modules/configuracion/configuracion.routes';
 import cuentasRoutes       from './modules/configuracion/cuentas.routes';
 import permisosRoutes      from './modules/permisos/permisos.routes';
-import contabilidadRoutes  from './modules/contabilidad/contabilidad.routes';
 import { apiLimiter }      from './middleware/rateLimit.middleware';
 import { verificarCsrf }   from './middleware/csrf.middleware';
 
@@ -113,7 +110,6 @@ app.use('/api/backup',        backupRoutes);
 app.use('/api/configuracion', configuracionRoutes);
 app.use('/api/cuentas',       cuentasRoutes);
 app.use('/api/permisos',      permisosRoutes);
-app.use('/api/contabilidad',  contabilidadRoutes);
 
 app.use((_req: Request, res: Response) => {
   res.status(404).json({ success: false, error: 'Ruta no encontrada' });

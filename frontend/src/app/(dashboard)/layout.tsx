@@ -15,6 +15,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const _hasHydrated     = useAuthStore((s) => s._hasHydrated);
   const isTokenVerified  = useAuthStore((s) => s.isTokenVerified);
   const setTokenVerified = useAuthStore((s) => s.setTokenVerified);
+  const setCsrfToken     = useAuthStore((s) => s.setCsrfToken);
 
   useEffect(() => {
     if (!_hasHydrated) return;
@@ -27,9 +28,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (isTokenVerified) return;
 
     // Token rehidratado desde localStorage pero nunca validado contra el backend.
-    // Una llamada liviana confirma que el token sigue siendo válido.
+    // Una llamada liviana confirma que el token sigue siendo válido y rota el
+    // csrfToken (no se puede leer la cookie csrf_token cross-origin).
     authApi.me()
-      .then(() => setTokenVerified(true))
+      .then((res) => {
+        setCsrfToken(res.data.data.csrfToken);
+        setTokenVerified(true);
+      })
       .catch((err) => {
         // 401 → el interceptor de api.ts limpia localStorage y redirige a /login.
         // Cualquier otro error (red caída, 500) → dejamos pasar al usuario;

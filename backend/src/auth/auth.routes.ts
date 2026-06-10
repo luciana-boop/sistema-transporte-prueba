@@ -17,6 +17,9 @@ router.post('/logout', authController.logout.bind(authController));
 // GET /api/auth/perfil  (sin cambios)
 router.get('/perfil', verificarToken, authController.perfil.bind(authController));
 
+// GET /api/auth/me — valida la sesión y rota el csrf_token (ver auth.controller.ts)
+router.get('/me', verificarToken, authController.me.bind(authController));
+
 // GET /api/auth/mis-permisos
 // Devuelve los módulos y acciones habilitados para el usuario autenticado.
 // El Sidebar del frontend llama a este endpoint al montar.

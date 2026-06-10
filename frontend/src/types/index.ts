@@ -62,13 +62,13 @@ export interface Pedido {
   usuario: { id: number; nombre: string };
 }
 
-// NUEVO: línea de detalle de factura
+// NUEVO: lÃ­nea de detalle de factura
 export interface FacturaDetalle {
   id?: number;
   orden: number;
   cantidad: number;
   unidadMedida: string;
-  codigo: string;
+  codigo?: string;
   descripcion: string;
   valorUnitario: number;
   importe: number;
@@ -121,7 +121,7 @@ export interface Pago {
   usuario: { id: number; nombre: string };
 }
 
-/** P8: detalle enriquecido de un pago — incluye el movimiento financiero generado */
+/** P8: detalle enriquecido de un pago â€” incluye el movimiento financiero generado */
 export interface PagoDetalle extends Pago {
   anulado?: boolean;
   motivoAnulacion?: string;
@@ -133,7 +133,7 @@ export interface PagoDetalle extends Pago {
   } | null;
 }
 
-/** P8: detalle uniforme de una cuenta por cobrar — incluye el último cobro asociado (si existe) */
+/** P8: detalle uniforme de una cuenta por cobrar â€” incluye el Ãºltimo cobro asociado (si existe) */
 export interface CuentaPorCobrarDetalle {
   facturaId: number;
   numeroFactura: string;
@@ -175,10 +175,10 @@ export interface Caja {
   saldoCierre?: number;
   estado: EstadoCaja;
   observaciones?: string;
-  /** Cuenta de la que se retiraron los fondos de apertura (genera egreso automático) */
+  /** Cuenta de la que se retiraron los fondos de apertura (genera egreso automÃ¡tico) */
   cuentaOrigenId?: number;
   cuentaOrigen?: { id: number; nombre: string };
-  /** Cuenta destino donde se devolvió el saldo al cerrar. Si está seteado, la devolución ya fue procesada. */
+  /** Cuenta destino donde se devolviÃ³ el saldo al cerrar. Si estÃ¡ seteado, la devoluciÃ³n ya fue procesada. */
   cuentaDestinoId?: number;
   cuentaDestino?: { id: number; nombre: string };
   aperturaEn: string;
@@ -298,7 +298,7 @@ export interface PaginatedResponse<T> {
   limit: number;
 }
 
-// ─── CONDUCTORES ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ CONDUCTORES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export interface Conductor {
   id: number;
   nombre: string;
@@ -314,7 +314,7 @@ export interface Conductor {
   creadoEn: string;
 }
 
-// ─── VEHÍCULOS ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ VEHÃCULOS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export type TipoVehiculo = 'TRACTO' | 'CARRETA';
 
 export interface Vehiculo {
@@ -336,7 +336,7 @@ export interface Vehiculo {
   creadoEn: string;
 }
 
-// ─── LIQUIDACIONES ───────────────────────────────────────────────────────────
+// â”€â”€â”€ LIQUIDACIONES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export interface LiquidacionDetalle {
   id?: number;
   categoria: 'PEAJE' | 'BALANZA' | 'VIATICO' | 'TOLDO' | 'OTROS';
@@ -369,7 +369,7 @@ export interface LiquidacionPedido {
   };
 }
 
-// Estados del flujo v4: CREADA → PAGADA → RENDIDA → CERRADA
+// Estados del flujo v4: CREADA â†’ PAGADA â†’ RENDIDA â†’ CERRADA
 // (legacy: PENDIENTE_RENDICION, PENDIENTE tratados como CREADA en el backend)
 export type EstadoLiquidacion = 'CREADA' | 'PAGADA' | 'RENDIDA' | 'CERRADA' | 'PENDIENTE_RENDICION' | 'PENDIENTE';
 
@@ -402,7 +402,7 @@ export interface Liquidacion {
   creadoEn: string;
 }
 
-// ─── COMBUSTIBLE ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ COMBUSTIBLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export interface Combustible {
   id: number;
   vehiculoId: number;
@@ -420,7 +420,7 @@ export interface Combustible {
   creadoEn: string;
 }
 
-/** P9: detalle enriquecido de una carga de combustible — incluye el movimiento financiero generado */
+/** P9: detalle enriquecido de una carga de combustible â€” incluye el movimiento financiero generado */
 export interface CombustibleDetalle extends Combustible {
   movimiento?: {
     referencia: string | null;
@@ -431,7 +431,7 @@ export interface CombustibleDetalle extends Combustible {
   } | null;
 }
 
-// ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
+// â”€â”€â”€ CONFIGURACIÃ“N â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export interface ConfigParam {
   id: number;
   clave: string;
@@ -491,7 +491,7 @@ export interface TipoVehiculoConfig {
   activo: boolean;
 }
 
-// ─── CUENTAS / MONEDAS / TIPOS PAGO ──────────────────────────────────────────
+// â”€â”€â”€ CUENTAS / MONEDAS / TIPOS PAGO â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export interface Moneda {
   id: number;
   codigo: string;
@@ -553,223 +553,4 @@ export interface ResumenFinanciero {
   porMoneda: Record<string, { simbolo: string; total: number }>;
   movRecientes: MovimientoCuenta[];
   ultimos30dias: { ingresos: number; egresos: number };
-}
-
-// ─── CONTABILIDAD ─────────────────────────────────────────────────────────────
-
-export type TipoCuenta = 'ACTIVO' | 'PASIVO' | 'PATRIMONIO' | 'INGRESO' | 'GASTO' | 'COSTO';
-export type NaturalezaCuenta = 'DEUDORA' | 'ACREEDORA';
-
-export interface CuentaContable {
-  id: string;
-  codigo: string;
-  nombre: string;
-  tipo: TipoCuenta;
-  naturaleza: NaturalezaCuenta;
-  padreId?: string;
-  padre?: { id: string; codigo: string; nombre: string };
-  hijos?: CuentaContable[];
-  activa: boolean;
-  creadoEn: string;
-  _count?: { hijos: number; lineas: number };
-}
-
-export interface LineaAsiento {
-  id: string;
-  asientoId: string;
-  cuentaId: string;
-  cuenta: { id: string; codigo: string; nombre: string; tipo?: string; naturaleza?: string };
-  descripcion?: string;
-  debe: number;
-  haber: number;
-}
-
-export interface AsientoContable {
-  id: string;
-  numero: number;
-  fecha: string;
-  descripcion: string;
-  referencia?: string;
-  tipo: 'MANUAL' | 'AUTOMATICO';
-  origenTipo?: string;
-  origenId?: string;
-  lineas: LineaAsiento[];
-  creadoEn: string;
-}
-
-export interface AsientosResponse {
-  total: number;
-  page: number;
-  limit: number;
-  items: AsientoContable[];
-}
-
-export interface LibroMayorMovimiento {
-  asientoId: string;
-  numero: number;
-  fecha: string;
-  descripcion: string;
-  referencia?: string;
-  debe: number;
-  haber: number;
-  saldoAcumulado: number;
-}
-
-export interface LibroMayor {
-  cuenta: { id: string; codigo: string; nombre: string; naturaleza: string };
-  movimientos: LibroMayorMovimiento[];
-  saldoFinal: number;
-}
-
-export interface FilaBalanceComprobacion {
-  id: string;
-  codigo: string;
-  nombre: string;
-  tipo: TipoCuenta;
-  naturaleza: NaturalezaCuenta;
-  debe: number;
-  haber: number;
-  saldo: number;
-}
-
-export interface BalanceComprobacion {
-  filas: FilaBalanceComprobacion[];
-  totales: { debe: number; haber: number; balanceado: boolean };
-}
-
-export interface FilaEstadoResultados {
-  id: string;
-  codigo: string;
-  nombre: string;
-  tipo: TipoCuenta;
-  monto: number;
-}
-
-export interface EstadoResultados {
-  ingresos: FilaEstadoResultados[];
-  gastos: FilaEstadoResultados[];
-  totalIngresos: number;
-  totalGastos: number;
-  resultado: number;
-  utilidad: boolean;
-}
-
-export interface BalanceGeneral {
-  activos: Array<{ id: string; codigo: string; nombre: string; saldo: number }>;
-  pasivos: Array<{ id: string; codigo: string; nombre: string; saldo: number }>;
-  patrimonio: Array<{ id: string; codigo: string; nombre: string; saldo: number }>;
-  totales: { ACTIVO: number; PASIVO: number; PATRIMONIO: number };
-  ecuacionBalanceada: boolean;
-  fecha: string;
-}
-
-export interface ConfiguracionContable {
-  id: string;
-  clave: string;
-  cuentaId: string;
-}
-
-export interface MapeoContable {
-  id: string;
-  modulo: string;
-  categoriaSlug: string;
-  categoriaNombre: string;
-  cuentaContableId: string;
-  cuenta: CuentaContable;
-  creadoEn: string;
-}
-
-export type EstadoDiagnostico = 'VERDE' | 'AMARILLO' | 'ROJO';
-
-export interface DiagnosticoConfigItem {
-  clave: string;
-  label: string;
-  configurada: boolean;
-  cuenta: string | null;
-  bloqueante: boolean;
-  estado: EstadoDiagnostico;
-  mensaje: string;
-}
-
-export interface DiagnosticoCategoriaSinMapeo {
-  modulo: string;
-  categoriaSlug: string;
-  categoriaNombre: string;
-  mensaje: string;
-}
-
-export interface DiagnosticoSeccionConfiguracion {
-  estado: EstadoDiagnostico;
-  titulo: string;
-  resumen: string;
-  items: DiagnosticoConfigItem[];
-  categoriasSinMapeo: DiagnosticoCategoriaSinMapeo[];
-}
-
-export interface DiagnosticoAsientoDescuadrado {
-  id: string;
-  numero: number;
-  descripcion: string;
-  referencia: string | null;
-  mensaje: string;
-}
-
-export interface DiagnosticoAsientoPendiente {
-  id: string;
-  origenTipo: string;
-  origenId: string;
-  motivo: string;
-  cuentasFaltantes: string[];
-  creadoEn: string;
-}
-
-export interface DiagnosticoSeccionIntegridad {
-  estado: EstadoDiagnostico;
-  titulo: string;
-  resumen: string;
-  totalAsientos: number;
-  descuadrados: DiagnosticoAsientoDescuadrado[];
-  pendientes: DiagnosticoAsientoPendiente[];
-}
-
-export interface DiagnosticoSaldoCuenta {
-  cuentaId: string;
-  codigo: string;
-  nombre: string;
-  tipo: TipoCuenta;
-  saldo: number;
-  esNormal: boolean;
-  mensaje: string;
-}
-
-export interface DiagnosticoSeccionSaldos {
-  estado: EstadoDiagnostico;
-  titulo: string;
-  resumen: string;
-  cuentas: DiagnosticoSaldoCuenta[];
-}
-
-export interface DiagnosticoSeccionResumen {
-  estado: EstadoDiagnostico;
-  titulo: string;
-  periodo: { desde: string; hasta: string };
-  totalIngresos: number;
-  totalGastos: number;
-  resultado: number;
-  balanceCuadrado: boolean;
-  totalDebe: number;
-  totalHaber: number;
-  liquidacionesPendientes: number;
-  resumen: string;
-}
-
-export interface DiagnosticoContable {
-  estado: EstadoDiagnostico;
-  generadoEn: string;
-  secciones: {
-    configuracion: DiagnosticoSeccionConfiguracion;
-    integridad: DiagnosticoSeccionIntegridad;
-    saldos: DiagnosticoSeccionSaldos;
-    resumen: DiagnosticoSeccionResumen;
-  };
 }

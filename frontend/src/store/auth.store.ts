@@ -8,9 +8,11 @@ interface AuthStore {
   isAuthenticated: boolean;
   _hasHydrated: boolean;
   isTokenVerified: boolean;
+  csrfToken: string | null;
   setHasHydrated: (state: boolean) => void;
   setTokenVerified: (verified: boolean) => void;
-  setAuth: (usuario: Usuario) => void;
+  setCsrfToken: (csrfToken: string) => void;
+  setAuth: (usuario: Usuario, csrfToken: string) => void;
   logout: () => void;
 }
 
@@ -21,15 +23,17 @@ export const useAuthStore = create<AuthStore>()(
       isAuthenticated: false,
       _hasHydrated: false,
       isTokenVerified: false,
+      csrfToken: null,
       setHasHydrated: (state) => set({ _hasHydrated: state }),
       setTokenVerified: (verified) => set({ isTokenVerified: verified }),
+      setCsrfToken: (csrfToken) => set({ csrfToken }),
 
-      setAuth: (usuario) => {
-        set({ usuario, isAuthenticated: true, isTokenVerified: true });
+      setAuth: (usuario, csrfToken) => {
+        set({ usuario, isAuthenticated: true, isTokenVerified: true, csrfToken });
       },
 
       logout: () => {
-        set({ usuario: null, isAuthenticated: false, isTokenVerified: false });
+        set({ usuario: null, isAuthenticated: false, isTokenVerified: false, csrfToken: null });
       },
     }),
     {
@@ -37,6 +41,7 @@ export const useAuthStore = create<AuthStore>()(
       partialize: (state) => ({
         usuario: state.usuario,
         isAuthenticated: state.isAuthenticated,
+        csrfToken: state.csrfToken,
         // _hasHydrated NO se persiste — siempre arranca en false
       }),
       onRehydrateStorage: () => (state) => {

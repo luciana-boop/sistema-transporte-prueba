@@ -166,11 +166,167 @@ function parseXmlSunat(xmlText: string): Record<string, unknown> | null {
   } catch { return null; }
 }
 
+// ─── PARSER XML SUNAT COMPLETO (importación individual) ──────────────────────
+// Extrae todas las apariciones de un bloque repetido (ej. cada <cac:InvoiceLine>),
+// ignorando namespace.
+function extractAllBlocks(xmlText: string, blockTag: string): string[] {
+  const re = new RegExp(`<(?:\\w+:)?${blockTag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:\\w+:)?${blockTag}>`, 'gi');
+  return [...xmlText.matchAll(re)].map((m) => m[1]);
+}
+
+// Extrae el valor de un atributo de la etiqueta de apertura de `tag` dentro de `block`.
+function getAttrInBlock(block: string, tag: string, attr: string): string {
+  const m = block.match(new RegExp(`<(?:\\w+:)?${tag}\\s+[^>]*\\b${attr}="([^"]*)"[^>]*>`, 'i'));
+  return m ? m[1] : '';
+}
+
+// De una lista de bloques (ej. todos los <cac:PaymentTerms>), devuelve el primero
+// cuyo <cbc:ID> interno coincida con `idValue`.
+function findBlockById(blocks: string[], idValue: string): string {
+  return blocks.find((b) => getInBlock(b, 'ID') === idValue) || '';
+}
+
+// Notas (<cbc:Note>) que no sean el detalle "SON: ... SOLES" (languageLocaleID="1000").
+function extractNotesNoLocale1000(xmlText: string): string[] {
+  const re = /<(?:\w+:)?Note([^>]*)>([^<]*)<\/(?:\w+:)?Note>/gi;
+  const notas: string[] = [];
+  for (const m of xmlText.matchAll(re)) {
+    const localeMatch = m[1].match(/languageLocaleID="([^"]*)"/);
+    if (localeMatch && localeMatch[1] === '1000') continue;
+    const contenido = m[2].trim();
+    if (contenido) notas.push(contenido);
+  }
+  return notas;
+}
+
+interface LineaXmlSunat {
+  cantidad: number;
+  unidadMedida: string;
+  descripcion: string;
+  valorUnitario: number;
+  importe: number;
+}
+
+interface DatosXmlSunatCompleto {
+  serie: string;
+  correlativo: string;
+  fechaEmision: string;
+  ruc: string;
+  razonSocial: string;
+  lineas: LineaXmlSunat[];
+  aplicarDetraccion: boolean;
+  porcentajeDetraccion: number;
+  tipoCredito: string;
+  diasCredito: number;
+  guiaReferencia: string;
+  peso: string;
+  observaciones: string;
+}
+
+function parseXmlSunatCompleto(xmlText: string): DatosXmlSunatCompleto | null {
+  try {
+    // Serie y correlativo: del <ID> raíz del comprobante (formato F001-00000123)
+    const idRe = /<(?:\w+:)?ID(?:\s[^>]*)?>([^<]*)<\/(?:\w+:)?ID>/gi;
+    let serie = '';
+    let correlativo = '';
+    for (const m of xmlText.matchAll(idRe)) {
+      const docMatch = m[1].trim().match(/^([A-Z]{1,4}\d{0,3})-(\d+)$/);
+      if (docMatch) {
+        serie = docMatch[1];
+        correlativo = docMatch[2];
+        break;
+      }
+    }
+
+    const fechaEmision = getInBlock(xmlText, 'IssueDate') || new Date().toISOString().split('T')[0];
+
+    // Cliente: del bloque AccountingCustomerParty (no del emisor)
+    const customerBlock = extractBlock(xmlText, 'AccountingCustomerParty');
+    const ruc = getInBlock(customerBlock, 'ID');
+    const razonSocial =
+      getInBlock(customerBlock, 'RegistrationName') ||
+      getInBlock(customerBlock, 'Name');
+
+    // Líneas de detalle: una por cada <cac:InvoiceLine>
+    const lineBlocks = extractAllBlocks(xmlText, 'InvoiceLine');
+    const lineas: LineaXmlSunat[] = lineBlocks.map((lb) => {
+      const cantidad = parseFloat(getInBlock(lb, 'InvoicedQuantity')) || 1;
+      const unidadMedida = getAttrInBlock(lb, 'InvoicedQuantity', 'unitCode') || 'NIU';
+      const lineExtension = parseFloat(getInBlock(lb, 'LineExtensionAmount')) || 0;
+      const percentRaw = parseFloat(getInBlock(lb, 'Percent'));
+      const percent = isFinite(percentRaw) ? percentRaw : 18;
+      const importe = Math.round(lineExtension * (1 + percent / 100) * 100) / 100;
+      const valorUnitario = cantidad > 0 ? Math.round((importe / cantidad) * 100) / 100 : importe;
+      const itemBlock = extractBlock(lb, 'Item');
+      const descripcion = getInBlock(itemBlock, 'Description') || getInBlock(lb, 'Description');
+      return { cantidad, unidadMedida, descripcion, valorUnitario, importe };
+    });
+
+    // Detracción: <cac:PaymentTerms><cbc:ID>Detraccion</cbc:ID>...
+    const paymentTermsBlocks = extractAllBlocks(xmlText, 'PaymentTerms');
+    const detraccionBlock = findBlockById(paymentTermsBlocks, 'Detraccion');
+    const aplicarDetraccion = !!detraccionBlock;
+    const porcentajeDetraccion = detraccionBlock
+      ? (parseFloat(getInBlock(detraccionBlock, 'PaymentPercent')) || 0)
+      : 0;
+
+    // Forma de pago / días de crédito: <cac:PaymentTerms><cbc:ID>FormaPago</cbc:ID>...
+    const formaPagoBlock = findBlockById(paymentTermsBlocks, 'FormaPago');
+    const paymentMeansId = getInBlock(formaPagoBlock, 'PaymentMeansID');
+    let tipoCredito = '';
+    let diasCredito = 0;
+    if (paymentMeansId.toLowerCase() === 'credito') {
+      const cuotaBlocks = paymentTermsBlocks.filter((b) => /^Cuota\d+$/.test(getInBlock(b, 'ID')));
+      const fechasVencimiento = cuotaBlocks.map((b) => getInBlock(b, 'PaymentDueDate')).filter(Boolean).sort();
+      const ultimaFecha = fechasVencimiento[fechasVencimiento.length - 1];
+      if (ultimaFecha && fechaEmision) {
+        const dias = Math.round((new Date(ultimaFecha).getTime() - new Date(fechaEmision).getTime()) / 86400000);
+        if (dias > 0) {
+          if ([7, 15, 30, 45, 60].includes(dias)) {
+            tipoCredito = String(dias);
+          } else {
+            tipoCredito = 'custom';
+            diasCredito = dias;
+          }
+        }
+      }
+    }
+
+    // Guía de referencia
+    const guiaBlock = extractBlock(xmlText, 'DespatchDocumentReference');
+    const guiaReferencia = getInBlock(guiaBlock, 'ID');
+
+    // Peso: heurística "NN.NNN TN" dentro de la descripción de algún ítem (toneladas → kg)
+    let peso = '';
+    for (const lb of lineBlocks) {
+      const itemBlock = extractBlock(lb, 'Item');
+      const desc = getInBlock(itemBlock, 'Description') || getInBlock(lb, 'Description');
+      const pesoMatch = desc.match(/(\d+(?:\.\d+)?)\s*TN/i);
+      if (pesoMatch) {
+        peso = String(Math.round(parseFloat(pesoMatch[1]) * 1000 * 100) / 100);
+        break;
+      }
+    }
+
+    // Observaciones: <cbc:Note> sin languageLocaleID="1000" (que es "SON: ... SOLES")
+    const observaciones = extractNotesNoLocale1000(xmlText).join(' / ');
+
+    return {
+      serie, correlativo, fechaEmision,
+      ruc, razonSocial,
+      lineas,
+      aplicarDetraccion, porcentajeDetraccion,
+      tipoCredito, diasCredito,
+      guiaReferencia, peso, observaciones,
+    };
+  } catch { return null; }
+}
+
 // ─── SCHEMA ZOD ──────────────────────────────────────────────────────────────
 const lineaSchema = z.object({
   cantidad:      z.string().min(1, 'Requerido'),
   unidadMedida:  z.string().min(1, 'Requerido'),
-  codigo:        z.string().min(1, 'Requerido'),
+  codigo:        z.string().optional(),
   descripcion:   z.string().min(1, 'Requerido'),
   valorUnitario: z.string().min(1, 'Requerido'),
   // importe se calcula — lo guardamos como string en el form
@@ -487,33 +643,66 @@ export default function FacturacionPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const text = ev.target?.result as string;
-      const datos = parseXmlSunat(text);
+      const datos = parseXmlSunatCompleto(text);
       if (!datos) { toast.error('No se pudo leer el XML'); return; }
 
-      if (datos.serie) setValue('serie', String(datos.serie));
-      if (datos.fechaEmision) setValue('fechaEmision', String(datos.fechaEmision));
+      // Fecha, guía, peso, observaciones
+      if (datos.fechaEmision) setValue('fechaEmision', datos.fechaEmision);
+      if (datos.guiaReferencia) setValue('guiaReferencia', datos.guiaReferencia);
+      if (datos.peso) setValue('peso', datos.peso);
+      if (datos.observaciones) setValue('observaciones', datos.observaciones);
 
-      const cliente = (clientes as any[]).find((c: any) => c.ruc === datos.ruc);
-      if (cliente) {
-        setValue('clienteId', String(cliente.id));
-      } else {
-        toast.warning('No se encontró un cliente con ese RUC. Selecciónelo manualmente.');
+      // Detracción
+      setValue('aplicarDetraccion', datos.aplicarDetraccion);
+
+      // Forma de pago / días de crédito
+      if (datos.tipoCredito === 'custom') {
+        setValue('tipoCredito', 'custom');
+        setValue('diasCredito', String(datos.diasCredito));
+      } else if (datos.tipoCredito) {
+        setValue('tipoCredito', datos.tipoCredito);
       }
 
-      const total = String(Number(datos.total) || 0);
-      replace([{
-        cantidad: '1',
-        unidadMedida: 'ZZ',
-        codigo: '00001',
-        descripcion: String(datos.descripcion || ''),
-        valorUnitario: total,
-        importe: total,
-      }]);
+      // Serie: validar contra las series existentes en el sistema (no se crea)
+      if (datos.serie) {
+        if (allSeries.includes(datos.serie)) {
+          setValue('serie', datos.serie);
+        } else {
+          toast.error('La serie indicada en el XML no existe en el sistema.');
+        }
+      }
 
-      toast.success('XML leído — datos autocargados');
-      toast.info(`${datos.serie}-${datos.correlativo} | RUC: ${datos.ruc}`);
+      // Cliente: buscar por RUC en la lista cargada y, si no aparece, en el backend (no se crea)
+      let clienteEncontrado = (clientes as any[]).find((c: any) => c.ruc === datos.ruc);
+      if (!clienteEncontrado && datos.ruc) {
+        try {
+          const res = await clientesApi.listar({ search: datos.ruc, limit: 5 });
+          clienteEncontrado = res.data.data.items.find((c: any) => c.ruc === datos.ruc);
+        } catch { /* sin conexión: se valida abajo */ }
+      }
+      if (clienteEncontrado) {
+        setValue('clienteId', String(clienteEncontrado.id));
+      } else {
+        toast.error('El cliente del XML no existe en el sistema.');
+      }
+
+      // Líneas de detalle (todas, no solo la primera)
+      if (datos.lineas.length > 0) {
+        replace(datos.lineas.map((l) => ({
+          cantidad: String(l.cantidad),
+          unidadMedida: l.unidadMedida,
+          codigo: '',
+          descripcion: l.descripcion,
+          valorUnitario: String(l.valorUnitario),
+          importe: String(l.importe),
+        })));
+      }
+
+      toast.success(
+        `XML leído: ${datos.serie}-${datos.correlativo} | RUC: ${datos.ruc} | ${datos.lineas.length} línea(s)`,
+      );
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -968,6 +1157,16 @@ export default function FacturacionPage() {
                             <option value="TNE">TNE</option>
                           </>
                         )}
+                      {/* Código importado del XML que no está en el catálogo (ej. "BG") */}
+                      {(() => {
+                        const valorActual = lineasVal[index]?.unidadMedida;
+                        const opciones = unidadesMedida.length > 0
+                          ? unidadesMedida.map((u) => u.codigo)
+                          : ['NIU', 'ZZ', 'KGM', 'TNE'];
+                        return valorActual && !opciones.includes(valorActual)
+                          ? <option value={valorActual}>{valorActual}</option>
+                          : null;
+                      })()}
                     </Select>
                   </div>
 
@@ -981,7 +1180,7 @@ export default function FacturacionPage() {
                         handleCodigoChange(index, e.target.value);
                       }}
                     >
-                      <option value="">Seleccionar...</option>
+                      <option value="">Manual / Sin código</option>
                       {codigosFactura.length > 0
                         ? codigosFactura.map((c) => (
                             <option key={c.codigo} value={c.codigo}>
@@ -996,9 +1195,6 @@ export default function FacturacionPage() {
                           </>
                         )}
                     </Select>
-                    {errors.lineas?.[index]?.codigo && (
-                      <p className="text-[10px] text-destructive mt-0.5">{errors.lineas[index]?.codigo?.message}</p>
-                    )}
                   </div>
 
                   {/* PARTE 4: Descripción editable (auto-rellenada por el código) */}

@@ -1,6 +1,7 @@
 // FILE: src/auth/auth.controller.ts
 
 import { Request, Response } from 'express';
+import crypto from 'crypto';
 import { authService } from './auth.service';
 import { duracionAMs } from '../utils/duration';
 
@@ -61,6 +62,30 @@ export class AuthController {
       res.json({ success: true, data: perfil });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Error al obtener perfil';
+      res.status(500).json({ success: false, error: message });
+    }
+  }
+
+  // GET /api/auth/me — valida la sesión tras un refresh y rota el csrf_token,
+  // ya que el frontend no puede leer la cookie csrf_token (cross-origin) y
+  // depende de este valor en el body para reconstruir su store persistido.
+  async me(req: Request, res: Response): Promise<void> {
+    try {
+      const usuarioId = (req as any).usuario.id;
+      const usuario = await authService.getProfile(usuarioId);
+
+      const csrfToken = crypto.randomBytes(32).toString('hex');
+      res.cookie('csrf_token', csrfToken, {
+        httpOnly: false,
+        secure: esProduccion,
+        sameSite: esProduccion ? 'none' : 'lax',
+        maxAge: COOKIE_MAX_AGE,
+        path: '/',
+      });
+
+      res.json({ success: true, data: { usuario, csrfToken } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error al validar sesión';
       res.status(500).json({ success: false, error: message });
     }
   }

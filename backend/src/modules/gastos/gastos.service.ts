@@ -7,7 +7,6 @@
 import prisma from '../../prisma/client';
 import { TipoGasto } from '../../utils/enums';
 import { cuentasService } from '../configuracion/cuentas.service';
-import { contabilidadIntegration } from '../contabilidad/contabilidad.integration';
 import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 export interface CreateGastoDto {
@@ -134,15 +133,6 @@ export class GastosService {
       });
 
       return gasto;
-    });
-
-    // Asiento contable automático (fire-and-forget)
-    contabilidadIntegration.registrarGasto({
-      id: result.id,
-      tipoGasto: result.tipoGasto,
-      monto: Number(result.monto),
-      descripcion: result.descripcion,
-      fecha: result.fecha,
     });
 
     return result;

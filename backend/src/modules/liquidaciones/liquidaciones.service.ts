@@ -10,7 +10,6 @@
 // como CREADA en las transiciones de pago.
 
 import prisma from '../../prisma/client';
-import { contabilidadIntegration } from '../contabilidad/contabilidad.integration';
 import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 export interface DetalleDto {
@@ -275,14 +274,6 @@ export class LiquidacionesService {
       });
     });
 
-    // Asiento contable automático (fire-and-forget)
-    contabilidadIntegration.registrarPagoLiquidacion({
-      id: dto.liquidacionId,
-      conductorNombre: liquidacion.conductor.nombre,
-      montoPagado,
-      fecha: fechaPago,
-    });
-
     return updated;
   }
 
@@ -325,14 +316,6 @@ export class LiquidacionesService {
         },
         include: LIQUIDACION_INCLUDE,
       });
-    });
-
-    // Asiento contable automático (fire-and-forget)
-    contabilidadIntegration.registrarRendicionLiquidacion({
-      id,
-      conductorNombre: liq.conductor.nombre,
-      fecha: fechaRendicion,
-      gastos: dto.detalles.map((d) => ({ categoria: d.categoria, descripcion: d.descripcion, monto: d.monto })),
     });
 
     return updated;
@@ -406,17 +389,6 @@ export class LiquidacionesService {
         },
         include: LIQUIDACION_INCLUDE,
       });
-    });
-
-    // Asiento contable automático (fire-and-forget)
-    contabilidadIntegration.registrarCierreLiquidacion({
-      id: dto.liquidacionId,
-      conductorNombre: liquidacion.conductor.nombre,
-      montoPagado,
-      montoRendido,
-      devolucion,
-      reintegro,
-      fecha: fechaCierre,
     });
 
     return closed;

@@ -5,7 +5,6 @@
 
 import prisma from '../../prisma/client';
 import { EstadoFactura } from '../../utils/enums';
-import { contabilidadIntegration } from '../contabilidad/contabilidad.integration';
 import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
@@ -14,7 +13,7 @@ export interface LineaFacturaDto {
   orden?: number;
   cantidad: number;
   unidadMedida?: string;
-  codigo: string;
+  codigo?: string;
   descripcion: string;
   valorUnitario: number;
   importe: number;
@@ -286,7 +285,7 @@ export class FacturacionService {
                 orden: l.orden ?? idx,
                 cantidad: l.cantidad,
                 unidadMedida: l.unidadMedida ?? 'NIU',
-                codigo: l.codigo,
+                codigo: l.codigo || null,
                 descripcion: l.descripcion,
                 valorUnitario: l.valorUnitario,
                 importe: l.importe,
@@ -310,16 +309,6 @@ export class FacturacionService {
       }
 
       return factura;
-    });
-
-    // Asiento contable automático (fire-and-forget)
-    contabilidadIntegration.registrarFactura({
-      id: factura.id,
-      numeroFactura: factura.numeroFactura,
-      total,
-      subtotal,
-      igv,
-      fechaEmision,
     });
 
     return factura;
