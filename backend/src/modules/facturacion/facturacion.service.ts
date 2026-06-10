@@ -5,6 +5,7 @@
 
 import prisma from '../../prisma/client';
 import { EstadoFactura } from '../../utils/enums';
+import { contabilidadIntegration } from '../contabilidad/contabilidad.integration';
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
 
@@ -239,7 +240,7 @@ export class FacturacionService {
     const fechaEmision = dto.fechaEmision ? new Date(dto.fechaEmision) : new Date();
     const fechaVenc = calcularFechaVencimiento(fechaEmision, dto.tipoCredito, dto.diasCredito);
 
-    return prisma.$transaction(async (tx: any) => {
+    const factura = await prisma.$transaction(async (tx: any) => {
       const factura = await tx.factura.create({
         data: {
           pedidoId: dto.pedidoId,
@@ -299,6 +300,18 @@ export class FacturacionService {
 
       return factura;
     });
+
+    // Asiento contable automático (fire-and-forget)
+    contabilidadIntegration.registrarFactura({
+      id: factura.id,
+      numeroFactura: factura.numeroFactura,
+      total,
+      subtotal,
+      igv,
+      fechaEmision,
+    });
+
+    return factura;
   }
 
   async createFromXml(xmlData: {

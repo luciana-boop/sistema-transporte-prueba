@@ -24,7 +24,8 @@ import combustibleRoutes   from './modules/combustible/combustible.routes';
 import backupRoutes        from './modules/backup/backup.routes';
 import configuracionRoutes from './modules/configuracion/configuracion.routes';
 import cuentasRoutes       from './modules/configuracion/cuentas.routes';
-import permisosRoutes      from './modules/permisos/permisos.routes'; // ── NUEVO ──
+import permisosRoutes      from './modules/permisos/permisos.routes';
+import contabilidadRoutes  from './modules/contabilidad/contabilidad.routes';
 
 const app = express();
 
@@ -82,7 +83,8 @@ app.use('/api/combustible',   combustibleRoutes);
 app.use('/api/backup',        backupRoutes);
 app.use('/api/configuracion', configuracionRoutes);
 app.use('/api/cuentas',       cuentasRoutes);
-app.use('/api/permisos',      permisosRoutes);  // ── NUEVO ──
+app.use('/api/permisos',      permisosRoutes);
+app.use('/api/contabilidad',  contabilidadRoutes);
 
 app.use((_req: Request, res: Response) => {
   res.status(404).json({ success: false, error: 'Ruta no encontrada' });

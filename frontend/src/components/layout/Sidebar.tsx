@@ -8,12 +8,15 @@
 
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Package, FileText, DollarSign,
   Wallet, Receipt, BarChart3, UserCog, Truck, LogOut, ChevronRight,
   UserCheck, Car, ClipboardList, Fuel, Archive, Settings2,
+  BookOpen, ChevronDown, List, BookMarked, Scale, TrendingUp, Building2,
+  Stethoscope,
 } from 'lucide-react';
 import { useAuthStore }      from '@/store/auth.store';
 import { usePermisosStore }  from '@/store/permisos.store';
@@ -24,12 +27,10 @@ import { cn }                from '@/lib/utils';
 import { toast }             from 'sonner';
 import type { ModuloKey }    from '@/config/permisos.config';
 
-// ── navItems: se reemplaza 'roles' por 'moduloKey' ──────────────────────────
-// La key debe coincidir exactamente con los valores de MODULOS en permisos.config.ts
 const navItems: { href: string; label: string; icon: React.ElementType; moduloKey: ModuloKey }[] = [
   { href: '/dashboard',     label: 'Dashboard',     icon: LayoutDashboard, moduloKey: 'dashboard'     },
   { href: '/clientes',      label: 'Clientes',      icon: Users,           moduloKey: 'clientes'      },
-  { href: '/pedidos',       label: 'Pedidos',        icon: Package,         moduloKey: 'pedidos'       },
+  { href: '/pedidos',       label: 'Pedidos',       icon: Package,         moduloKey: 'pedidos'       },
   { href: '/conductores',   label: 'Conductores',   icon: UserCheck,       moduloKey: 'conductores'   },
   { href: '/vehiculos',     label: 'Vehículos',     icon: Car,             moduloKey: 'vehiculos'     },
   { href: '/facturacion',   label: 'Facturación',   icon: FileText,        moduloKey: 'facturacion'   },
@@ -42,6 +43,18 @@ const navItems: { href: string; label: string; icon: React.ElementType; moduloKe
   { href: '/configuracion', label: 'Configuración', icon: Settings2,       moduloKey: 'configuracion' },
   { href: '/backups',       label: 'Backups',       icon: Archive,         moduloKey: 'backups'       },
   { href: '/usuarios',      label: 'Usuarios',      icon: UserCog,         moduloKey: 'usuarios'      },
+];
+
+const contabilidadSubItems = [
+  { href: '/contabilidad',                      label: 'Resumen',              icon: BookOpen    },
+  { href: '/contabilidad/plan-de-cuentas',      label: 'Plan de Cuentas',      icon: List        },
+  { href: '/contabilidad/libro-diario',         label: 'Libro Diario',         icon: BookMarked  },
+  { href: '/contabilidad/libro-mayor',          label: 'Libro Mayor',          icon: BarChart3   },
+  { href: '/contabilidad/balance',              label: 'Bal. Comprobación',    icon: Scale       },
+  { href: '/contabilidad/resultados',           label: 'Estado Resultados',    icon: TrendingUp  },
+  { href: '/contabilidad/balance-general',      label: 'Balance General',      icon: Building2   },
+  { href: '/contabilidad/configuracion',        label: 'Config. Contable',     icon: Settings2   },
+  { href: '/contabilidad/diagnostico',          label: 'Diagnóstico',          icon: Stethoscope },
 ];
 
 export function Sidebar() {
@@ -57,7 +70,9 @@ export function Sidebar() {
   const tieneModulo   = usePermisosStore((s) => s.tieneModulo);
   const resetPermisos = usePermisosStore((s) => s.resetPermisos);
 
-  // Carga los permisos desde la API al montar (solo una vez por sesión)
+  const isContabilidadActive = pathname.startsWith('/contabilidad');
+  const [contabilidadOpen, setContabilidadOpen] = useState(isContabilidadActive);
+
   usePermisos();
 
   const handleLogout = () => {
@@ -133,6 +148,51 @@ export function Sidebar() {
             </Link>
           );
         })}
+
+        {/* Contabilidad — collapsible group */}
+        {!permistosCargando && tieneModulo('contabilidad') && (
+          <div>
+            <button
+              onClick={() => setContabilidadOpen((o) => !o)}
+              className={cn(
+                'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all group',
+                isContabilidadActive
+                  ? 'bg-primary/10 text-primary font-medium'
+                  : 'text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent'
+              )}
+            >
+              <BookOpen className={cn(
+                'w-4 h-4 shrink-0',
+                isContabilidadActive ? 'text-primary' : 'text-sidebar-foreground/50 group-hover:text-sidebar-foreground'
+              )} />
+              <span className="flex-1 text-left">Contabilidad</span>
+              <ChevronDown className={cn('w-3 h-3 transition-transform', contabilidadOpen && 'rotate-180')} />
+            </button>
+
+            {contabilidadOpen && (
+              <div className="ml-3 mt-0.5 flex flex-col gap-0.5 border-l border-sidebar-border pl-3">
+                {contabilidadSubItems.map((sub) => {
+                  const subActive = pathname === sub.href || (sub.href !== '/contabilidad' && pathname.startsWith(sub.href));
+                  return (
+                    <Link
+                      key={sub.href}
+                      href={sub.href}
+                      className={cn(
+                        'flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-all group',
+                        subActive
+                          ? 'bg-primary text-white font-medium'
+                          : 'text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent'
+                      )}
+                    >
+                      <sub.icon className={cn('w-3.5 h-3.5 shrink-0', subActive ? 'text-white' : 'text-sidebar-foreground/40')} />
+                      {sub.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
       </nav>
 

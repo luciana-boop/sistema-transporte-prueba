@@ -23,6 +23,7 @@ export const MODULOS = {
   CONFIGURACION:  'configuracion',
   BACKUPS:        'backups',
   USUARIOS:       'usuarios',
+  CONTABILIDAD:   'contabilidad',
 } as const;
 
 export type ModuloKey = typeof MODULOS[keyof typeof MODULOS];
@@ -59,6 +60,7 @@ export const MODULOS_META: Record<ModuloKey, { label: string; descripcion: strin
   configuracion:  { label: 'Configuración',  descripcion: 'Configuración del sistema' },
   backups:        { label: 'Backups',        descripcion: 'Respaldo de base de datos' },
   usuarios:       { label: 'Usuarios',       descripcion: 'Gestión de usuarios del sistema' },
+  contabilidad:   { label: 'Contabilidad',   descripcion: 'Plan de cuentas, asientos y reportes contables' },
 };
 
 export const ACCIONES_META: Record<AccionKey, { label: string; descripcion: string; modulo: ModuloKey }> = {

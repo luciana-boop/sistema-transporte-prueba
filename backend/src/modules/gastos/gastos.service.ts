@@ -7,6 +7,7 @@
 import prisma from '../../prisma/client';
 import { TipoGasto } from '../../utils/enums';
 import { cuentasService } from '../configuracion/cuentas.service';
+import { contabilidadIntegration } from '../contabilidad/contabilidad.integration';
 
 export interface CreateGastoDto {
   vehiculoId?: number;
@@ -91,7 +92,7 @@ export class GastosService {
       if (!vehiculo) throw new Error('Vehículo no encontrado');
     }
 
-    return prisma.$transaction(async (tx: any) => {
+    const result = await prisma.$transaction(async (tx: any) => {
       // 1. Crear el gasto operativo
       const gasto = await tx.gasto.create({
         data: {
@@ -124,6 +125,17 @@ export class GastosService {
 
       return gasto;
     });
+
+    // Asiento contable automático (fire-and-forget)
+    contabilidadIntegration.registrarGasto({
+      id: result.id,
+      tipoGasto: result.tipoGasto,
+      monto: Number(result.monto),
+      descripcion: result.descripcion,
+      fecha: result.fecha,
+    });
+
+    return result;
   }
 
   async update(id: number, dto: UpdateGastoDto) {

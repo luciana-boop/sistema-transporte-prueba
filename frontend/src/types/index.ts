@@ -359,6 +359,10 @@ export interface LiquidacionPedido {
   };
 }
 
+// Estados del flujo v4: CREADA → PAGADA → RENDIDA → CERRADA
+// (legacy: PENDIENTE_RENDICION, PENDIENTE tratados como CREADA en el backend)
+export type EstadoLiquidacion = 'CREADA' | 'PAGADA' | 'RENDIDA' | 'CERRADA' | 'PENDIENTE_RENDICION' | 'PENDIENTE';
+
 export interface Liquidacion {
   id: number;
   conductorId: number;
@@ -373,7 +377,15 @@ export interface Liquidacion {
   totalGastos: number;
   devolucion: number;
   reintegro: number;
-  estado: string;
+  estado: EstadoLiquidacion | string;
+  // Campos del flujo v4
+  fechaPago?: string;
+  montoPagado?: number;
+  fechaRendicion?: string;
+  montoRendido?: number;
+  fechaCierre?: string;
+  montoDevolucion?: number;
+  tipoAjuste?: 'DEVOLUCION' | 'REINTEGRO' | null;
   conductor: { id: number; nombre: string };
   detalles: LiquidacionDetalle[];
   pedidos: LiquidacionPedido[];
@@ -531,4 +543,223 @@ export interface ResumenFinanciero {
   porMoneda: Record<string, { simbolo: string; total: number }>;
   movRecientes: MovimientoCuenta[];
   ultimos30dias: { ingresos: number; egresos: number };
+}
+
+// ─── CONTABILIDAD ─────────────────────────────────────────────────────────────
+
+export type TipoCuenta = 'ACTIVO' | 'PASIVO' | 'PATRIMONIO' | 'INGRESO' | 'GASTO' | 'COSTO';
+export type NaturalezaCuenta = 'DEUDORA' | 'ACREEDORA';
+
+export interface CuentaContable {
+  id: string;
+  codigo: string;
+  nombre: string;
+  tipo: TipoCuenta;
+  naturaleza: NaturalezaCuenta;
+  padreId?: string;
+  padre?: { id: string; codigo: string; nombre: string };
+  hijos?: CuentaContable[];
+  activa: boolean;
+  creadoEn: string;
+  _count?: { hijos: number; lineas: number };
+}
+
+export interface LineaAsiento {
+  id: string;
+  asientoId: string;
+  cuentaId: string;
+  cuenta: { id: string; codigo: string; nombre: string; tipo?: string; naturaleza?: string };
+  descripcion?: string;
+  debe: number;
+  haber: number;
+}
+
+export interface AsientoContable {
+  id: string;
+  numero: number;
+  fecha: string;
+  descripcion: string;
+  referencia?: string;
+  tipo: 'MANUAL' | 'AUTOMATICO';
+  origenTipo?: string;
+  origenId?: string;
+  lineas: LineaAsiento[];
+  creadoEn: string;
+}
+
+export interface AsientosResponse {
+  total: number;
+  page: number;
+  limit: number;
+  items: AsientoContable[];
+}
+
+export interface LibroMayorMovimiento {
+  asientoId: string;
+  numero: number;
+  fecha: string;
+  descripcion: string;
+  referencia?: string;
+  debe: number;
+  haber: number;
+  saldoAcumulado: number;
+}
+
+export interface LibroMayor {
+  cuenta: { id: string; codigo: string; nombre: string; naturaleza: string };
+  movimientos: LibroMayorMovimiento[];
+  saldoFinal: number;
+}
+
+export interface FilaBalanceComprobacion {
+  id: string;
+  codigo: string;
+  nombre: string;
+  tipo: TipoCuenta;
+  naturaleza: NaturalezaCuenta;
+  debe: number;
+  haber: number;
+  saldo: number;
+}
+
+export interface BalanceComprobacion {
+  filas: FilaBalanceComprobacion[];
+  totales: { debe: number; haber: number; balanceado: boolean };
+}
+
+export interface FilaEstadoResultados {
+  id: string;
+  codigo: string;
+  nombre: string;
+  tipo: TipoCuenta;
+  monto: number;
+}
+
+export interface EstadoResultados {
+  ingresos: FilaEstadoResultados[];
+  gastos: FilaEstadoResultados[];
+  totalIngresos: number;
+  totalGastos: number;
+  resultado: number;
+  utilidad: boolean;
+}
+
+export interface BalanceGeneral {
+  activos: Array<{ id: string; codigo: string; nombre: string; saldo: number }>;
+  pasivos: Array<{ id: string; codigo: string; nombre: string; saldo: number }>;
+  patrimonio: Array<{ id: string; codigo: string; nombre: string; saldo: number }>;
+  totales: { ACTIVO: number; PASIVO: number; PATRIMONIO: number };
+  ecuacionBalanceada: boolean;
+  fecha: string;
+}
+
+export interface ConfiguracionContable {
+  id: string;
+  clave: string;
+  cuentaId: string;
+}
+
+export interface MapeoContable {
+  id: string;
+  modulo: string;
+  categoriaSlug: string;
+  categoriaNombre: string;
+  cuentaContableId: string;
+  cuenta: CuentaContable;
+  creadoEn: string;
+}
+
+export type EstadoDiagnostico = 'VERDE' | 'AMARILLO' | 'ROJO';
+
+export interface DiagnosticoConfigItem {
+  clave: string;
+  label: string;
+  configurada: boolean;
+  cuenta: string | null;
+  bloqueante: boolean;
+  estado: EstadoDiagnostico;
+  mensaje: string;
+}
+
+export interface DiagnosticoCategoriaSinMapeo {
+  modulo: string;
+  categoriaSlug: string;
+  categoriaNombre: string;
+  mensaje: string;
+}
+
+export interface DiagnosticoSeccionConfiguracion {
+  estado: EstadoDiagnostico;
+  titulo: string;
+  resumen: string;
+  items: DiagnosticoConfigItem[];
+  categoriasSinMapeo: DiagnosticoCategoriaSinMapeo[];
+}
+
+export interface DiagnosticoAsientoDescuadrado {
+  id: string;
+  numero: number;
+  descripcion: string;
+  referencia: string | null;
+  mensaje: string;
+}
+
+export interface DiagnosticoAsientoPendiente {
+  id: string;
+  origenTipo: string;
+  origenId: string;
+  motivo: string;
+  cuentasFaltantes: string[];
+  creadoEn: string;
+}
+
+export interface DiagnosticoSeccionIntegridad {
+  estado: EstadoDiagnostico;
+  titulo: string;
+  resumen: string;
+  totalAsientos: number;
+  descuadrados: DiagnosticoAsientoDescuadrado[];
+  pendientes: DiagnosticoAsientoPendiente[];
+}
+
+export interface DiagnosticoSaldoCuenta {
+  cuentaId: string;
+  codigo: string;
+  nombre: string;
+  tipo: TipoCuenta;
+  saldo: number;
+  esNormal: boolean;
+  mensaje: string;
+}
+
+export interface DiagnosticoSeccionSaldos {
+  estado: EstadoDiagnostico;
+  titulo: string;
+  resumen: string;
+  cuentas: DiagnosticoSaldoCuenta[];
+}
+
+export interface DiagnosticoSeccionResumen {
+  estado: EstadoDiagnostico;
+  titulo: string;
+  periodo: { desde: string; hasta: string };
+  totalIngresos: number;
+  totalGastos: number;
+  resultado: number;
+  balanceCuadrado: boolean;
+  totalDebe: number;
+  totalHaber: number;
+  liquidacionesPendientes: number;
+  resumen: string;
+}
+
+export interface DiagnosticoContable {
+  estado: EstadoDiagnostico;
+  generadoEn: string;
+  secciones: {
+    configuracion: DiagnosticoSeccionConfiguracion;
+    integridad: DiagnosticoSeccionIntegridad;
+    saldos: DiagnosticoSeccionSaldos;
+    resumen: DiagnosticoSeccionResumen;
+  };
 }

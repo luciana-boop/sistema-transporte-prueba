@@ -372,7 +372,17 @@ model Liquidacion {
   totalGastos    Decimal             @default(0) @map("total_gastos") @db.Decimal(10, 2)
   devolucion     Decimal             @default(0) @db.Decimal(10, 2)
   reintegro      Decimal             @default(0) @db.Decimal(10, 2)
-  estado         String              @default("PENDIENTE")
+  // Flujo: CREADA → PAGADA → RENDIDA → CERRADA
+  // (legacy: PENDIENTE_RENDICION, PENDIENTE mapeados a CREADA en la lógica de servicio)
+  estado         String              @default("CREADA")
+  // Campos del nuevo flujo
+  fechaPago      DateTime?           @map("fecha_pago")
+  montoPagado    Decimal?            @map("monto_pagado") @db.Decimal(10, 2)
+  fechaRendicion DateTime?           @map("fecha_rendicion")
+  montoRendido   Decimal?            @map("monto_rendido") @db.Decimal(10, 2)
+  fechaCierre    DateTime?           @map("fecha_cierre")
+  montoDevolucion Decimal?           @map("monto_devolucion") @db.Decimal(10, 2)
+  tipoAjuste     String?             @map("tipo_ajuste")
   creadoEn       DateTime            @default(now()) @map("creado_en")
   actualizadoEn  DateTime            @updatedAt @map("actualizado_en")
 
@@ -678,4 +688,92 @@ model PagoV2 {
   usuario       Usuario  @relation(fields: [usuarioId], references: [id])
 
   @@map("pagos_v2")
+}
+
+// ─── CONTABILIDAD ─────────────────────────────────────────────────────────────
+
+model CuentaContable {
+  id         String   @id @default(cuid())
+  codigo     String   @unique
+  nombre     String
+  tipo       String   // ACTIVO | PASIVO | PATRIMONIO | INGRESO | GASTO | COSTO
+  naturaleza String   // DEUDORA | ACREEDORA
+  padreId    String?  @map("padre_id")
+  padre      CuentaContable?  @relation("CuentaHijos", fields: [padreId], references: [id])
+  hijos      CuentaContable[] @relation("CuentaHijos")
+  activa     Boolean  @default(true)
+  lineas     LineaAsiento[]
+  mapeos     MapeoContable[]
+  creadoEn   DateTime @default(now()) @map("creado_en")
+
+  @@map("cuentas_contables")
+}
+
+// Mapea categorías operativas (tipos de gasto, categorías de gasto rendido,
+// categorías de ingreso) a una cuenta contable, para que el sistema genere
+// asientos automáticos sin requerir conocimientos contables del usuario.
+model MapeoContable {
+  id               String         @id @default(cuid())
+  modulo           String         // GASTO | LIQUIDACION_GASTO | INGRESO
+  categoriaSlug    String         @map("categoria_slug")   // valor exacto usado por el sistema (p.ej. "COMBUSTIBLE")
+  categoriaNombre  String         @map("categoria_nombre") // nombre legible (p.ej. "Combustible")
+  cuentaContableId String         @map("cuenta_contable_id")
+  cuenta           CuentaContable @relation(fields: [cuentaContableId], references: [id])
+  creadoEn         DateTime       @default(now()) @map("creado_en")
+
+  @@unique([modulo, categoriaSlug])
+  @@map("mapeo_contable")
+}
+
+model AsientoContable {
+  id          String   @id @default(cuid())
+  numero      Int      @unique @default(autoincrement())
+  fecha       DateTime
+  descripcion String
+  referencia  String?
+  tipo        String   // MANUAL | AUTOMATICO
+  origenTipo  String?  @map("origen_tipo")
+  origenId    String?  @map("origen_id")
+  lineas      LineaAsiento[]
+  creadoEn    DateTime @default(now()) @map("creado_en")
+
+  @@map("asientos_contables")
+}
+
+model LineaAsiento {
+  id          String          @id @default(cuid())
+  asientoId   String          @map("asiento_id")
+  asiento     AsientoContable @relation(fields: [asientoId], references: [id], onDelete: Cascade)
+  cuentaId    String          @map("cuenta_id")
+  cuenta      CuentaContable  @relation(fields: [cuentaId], references: [id])
+  descripcion String?
+  debe        Decimal         @default(0) @db.Decimal(12, 2)
+  haber       Decimal         @default(0) @db.Decimal(12, 2)
+
+  @@map("lineas_asiento")
+}
+
+model ConfiguracionContable {
+  id       String @id @default(cuid())
+  clave    String @unique
+  cuentaId String @map("cuenta_id")
+
+  @@map("configuracion_contable")
+}
+
+// Registra operaciones que debían generar un asiento contable automático
+// pero no se pudo porque falta configurar alguna cuenta en ConfiguracionContable.
+// Permite reintentarlas (vía /contabilidad/sync) una vez completada la configuración.
+model AsientoPendiente {
+  id               String    @id @default(cuid())
+  origenTipo       String    @map("origen_tipo")  // LIQUIDACION_PAGO | LIQUIDACION_RENDICION | LIQUIDACION_DEVOLUCION | LIQUIDACION_REINTEGRO | FACTURA | GASTO
+  origenId         String    @map("origen_id")
+  motivo           String
+  cuentasFaltantes String[]  @map("cuentas_faltantes")
+  resuelto         Boolean   @default(false)
+  creadoEn         DateTime  @default(now()) @map("creado_en")
+  resueltoEn       DateTime? @map("resuelto_en")
+
+  @@unique([origenTipo, origenId])
+  @@map("asientos_pendientes")
 }

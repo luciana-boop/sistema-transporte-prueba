@@ -380,27 +380,26 @@ export const liquidacionesApi = {
   obtener: (id: number) => api.get<ApiResponse<Liquidacion>>(`/api/liquidaciones/${id}`),
   pedidosDisponibles: () =>
     api.get<ApiResponse<PedidoResumen[]>>('/api/liquidaciones/pedidos-disponibles'),
-
-  // P3: cajas abiertas para selector de pago (solo CAJA, no cuentas bancarias)
   cajasAbiertas: () =>
     api.get<ApiResponse<Array<{ id: number; nombre: string | null; saldoActual: number; usuario: { nombre: string } }>>>('/api/liquidaciones/cajas-abiertas'),
 
-  // P3: pago total de la liquidación desde caja abierta
-  pagar: (id: number, data: { cajaId: number; observaciones?: string }) =>
-    api.post<ApiResponse<{ liquidacion: Liquidacion }>>(`/api/liquidaciones/${id}/pagar`, data),
+  // v4 — Paso 2: pagar (CREADA→PAGADA)
+  pagar: (id: number, data: { cajaId: number; montoPagado?: number; fechaPago?: string }) =>
+    api.post<ApiResponse<Liquidacion>>(`/api/liquidaciones/${id}/pagar`, data),
 
-  // P3: reintegro — conductor devuelve exceso a caja
-  reintegro: (id: number, data: { cajaId: number; monto: number; concepto?: string }) =>
-    api.post<ApiResponse<unknown>>(`/api/liquidaciones/${id}/reintegro`, data),
+  // v4 — Paso 3: rendir gastos (PAGADA→RENDIDA)
+  rendir: (id: number, data: {
+    detalles: Array<{ categoria: LiquidacionDetalle['categoria']; descripcion: string; monto: number }>;
+    observaciones?: string;
+  }) => api.post<ApiResponse<Liquidacion>>(`/api/liquidaciones/${id}/rendir`, data),
 
-  // P3: devolución — empresa paga deuda al conductor desde caja
-  devolucion: (id: number, data: { cajaId: number; monto: number; concepto?: string }) =>
-    api.post<ApiResponse<unknown>>(`/api/liquidaciones/${id}/devolucion`, data),
+  // v4 — Paso 4: cerrar (RENDIDA→CERRADA, registra devolución o reintegro)
+  cerrar: (id: number, data: { cajaId: number; fecha?: string }) =>
+    api.post<ApiResponse<Liquidacion>>(`/api/liquidaciones/${id}/cerrar`, data),
 
-  // P3: historial financiero de la liquidación
   historialFinanciero: (id: number) =>
     api.get<ApiResponse<{
-      liquidacion: { id: number; estado: string; montoEntregado: number; totalGastos: number; reintegro: number; devolucion: number; conductor: { nombre: string } };
+      liquidacion: { id: number; estado: string; montoEntregado: number; montoPagado: number | null; totalGastos: number; montoRendido: number | null; reintegro: number; devolucion: number; tipoAjuste: string | null; conductor: { nombre: string } };
       movimientos: Array<{ id: number; tipo: string; monto: number; concepto: string; referencia: string; fecha: string; caja: { id: number; nombre: string | null } }>;
     }>>(`/api/liquidaciones/${id}/historial-financiero`),
 
@@ -408,15 +407,8 @@ export const liquidacionesApi = {
     conductorId: number; placaTracto: string; placaCarreta?: string;
     montoEntregado: number; reciboAnticipo?: string; fecha: string;
     guiaReferencia?: string; observaciones?: string;
-    detalles?: Array<{ categoria: LiquidacionDetalle['categoria']; descripcion: string; monto: number }>;
     pedidoIds?: number[];
   }) => api.post<ApiResponse<Liquidacion>>('/api/liquidaciones', data),
-
-  // v3: registra/reemplaza gastos reales del viaje, recalcula totales, pasa a PENDIENTE
-  rendir: (id: number, data: {
-    detalles: Array<{ categoria: LiquidacionDetalle['categoria']; descripcion: string; monto: number }>;
-    observaciones?: string;
-  }) => api.post<ApiResponse<Liquidacion>>(`/api/liquidaciones/${id}/rendir`, data),
 
   actualizar: (id: number, data: Partial<Liquidacion> & { pedidoIds?: number[] }) =>
     api.put<ApiResponse<Liquidacion>>(`/api/liquidaciones/${id}`, data),
@@ -550,12 +542,87 @@ export const permisosApi = {
 
 // ─── BACKUPS ──────────────────────────────────────────────────────────────────
 export const backupsApi = {
-  // Descarga el backup completo como archivo JSON (responseType: 'blob' porque
-  // el backend lo envía con Content-Disposition: attachment, igual que el PDF).
   exportarJson: () =>
     api.get<Blob>('/api/backup/json', { responseType: 'blob' }),
   exportarExcel: (modulo: string) =>
     api.get<ApiResponse<unknown[]>>(`/api/backup/excel/${modulo}`),
   restaurarJson: (backup: { version: string; data: Record<string, unknown> }) =>
     api.post<ApiResponse<{ message: string; resultados: Record<string, number> }>>('/api/backup/restaurar', backup),
+};
+
+// ─── CONTABILIDAD ─────────────────────────────────────────────────────────────
+import type {
+  CuentaContable, AsientoContable, AsientosResponse, LibroMayor,
+  BalanceComprobacion, EstadoResultados, BalanceGeneral, ConfiguracionContable,
+  DiagnosticoContable, MapeoContable,
+} from '@/types';
+
+export const contabilidadApi = {
+  // Plan de cuentas
+  cuentas: {
+    listar: (params?: { tipo?: string; activa?: string }) =>
+      api.get<ApiResponse<CuentaContable[]>>('/api/contabilidad/cuentas', { params }),
+    arbol: () =>
+      api.get<ApiResponse<CuentaContable[]>>('/api/contabilidad/cuentas/arbol'),
+    obtener: (id: string) =>
+      api.get<ApiResponse<CuentaContable>>(`/api/contabilidad/cuentas/${id}`),
+    crear: (data: { codigo: string; nombre: string; tipo: string; naturaleza: string; padreId?: string }) =>
+      api.post<ApiResponse<CuentaContable>>('/api/contabilidad/cuentas', data),
+    actualizar: (id: string, data: Partial<CuentaContable>) =>
+      api.put<ApiResponse<CuentaContable>>(`/api/contabilidad/cuentas/${id}`, data),
+    eliminar: (id: string) =>
+      api.delete<ApiResponse<null>>(`/api/contabilidad/cuentas/${id}`),
+  },
+
+  // Asientos contables
+  asientos: {
+    listar: (params?: { desde?: string; hasta?: string; tipo?: string; cuentaId?: string; referencia?: string; page?: number; limit?: number }) =>
+      api.get<ApiResponse<AsientosResponse>>('/api/contabilidad/asientos', { params }),
+    obtener: (id: string) =>
+      api.get<ApiResponse<AsientoContable>>(`/api/contabilidad/asientos/${id}`),
+    crear: (data: {
+      fecha: string; descripcion: string; referencia?: string; tipo?: string;
+      lineas: Array<{ cuentaId: string; descripcion?: string; debe: number; haber: number }>;
+    }) => api.post<ApiResponse<AsientoContable>>('/api/contabilidad/asientos', data),
+    eliminar: (id: string) =>
+      api.delete<ApiResponse<null>>(`/api/contabilidad/asientos/${id}`),
+  },
+
+  // Reportes contables
+  reportes: {
+    libroMayor: (cuentaId: string, params?: { desde?: string; hasta?: string }) =>
+      api.get<ApiResponse<LibroMayor>>(`/api/contabilidad/reportes/libro-mayor/${cuentaId}`, { params }),
+    balanceComprobacion: (params?: { desde?: string; hasta?: string }) =>
+      api.get<ApiResponse<BalanceComprobacion>>('/api/contabilidad/reportes/balance-comprobacion', { params }),
+    estadoResultados: (params?: { desde?: string; hasta?: string }) =>
+      api.get<ApiResponse<EstadoResultados>>('/api/contabilidad/reportes/estado-resultados', { params }),
+    balanceGeneral: (params?: { fecha?: string }) =>
+      api.get<ApiResponse<BalanceGeneral>>('/api/contabilidad/reportes/balance-general', { params }),
+  },
+
+  // Configuración contable
+  config: {
+    listar: () =>
+      api.get<ApiResponse<ConfiguracionContable[]>>('/api/contabilidad/configuracion'),
+    set: (clave: string, cuentaId: string) =>
+      api.post<ApiResponse<ConfiguracionContable>>('/api/contabilidad/configuracion', { clave, cuentaId }),
+    eliminar: (clave: string) =>
+      api.delete<ApiResponse<null>>(`/api/contabilidad/configuracion/${clave}`),
+  },
+
+  // Mapeo Categorías → Cuentas Contables
+  mapeos: {
+    listar: () =>
+      api.get<ApiResponse<MapeoContable[]>>('/api/contabilidad/mapeos'),
+    set: (data: { modulo: string; categoriaSlug: string; categoriaNombre: string; cuentaContableId: string }) =>
+      api.post<ApiResponse<MapeoContable>>('/api/contabilidad/mapeos', data),
+  },
+
+  // Sincronización histórica
+  sync: () =>
+    api.post<ApiResponse<{ creados: number }>>('/api/contabilidad/sync'),
+
+  // Diagnóstico
+  diagnostico: () =>
+    api.get<ApiResponse<DiagnosticoContable>>('/api/contabilidad/diagnostico'),
 };

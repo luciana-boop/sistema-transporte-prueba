@@ -1,26 +1,16 @@
 // FILE: src/modules/liquidaciones/liquidaciones.service.ts
-// CAMBIOS v2 (P3):
-//   - pagarLiquidacion(): pago total desde caja abierta (NO cuentas bancarias)
-//   - registrarReintegro(): la empresa entrega dinero adicional al conductor (egreso en caja)
-//   - registrarDevolucion(): el conductor devuelve dinero sobrante a la empresa (ingreso en caja)
-//   - getHistorialFinanciero(): movimientos financieros de una liquidación
-//   - getEstados(): devuelve cajas abiertas disponibles para pago
+// FLUJO v4: CREADA → PAGADA → RENDIDA → CERRADA
 //
-// CAMBIOS v3 (FLUJO 2 ETAPAS):
-//   - create(): detalles opcionales; sin detalles → estado PENDIENTE_RENDICION
-//   - rendir(): agrega/reemplaza gastos, recalcula totales, pasa a PENDIENTE
+//   1. create()   → estado CREADA  (monto entregado registrado, aún no pagado)
+//   2. pagar()    → CREADA→PAGADA  (conductor recibió pago; egreso en caja)
+//   3. rendir()   → PAGADA→RENDIDA (gastos rendidos post-pago)
+//   4. cerrar()   → RENDIDA→CERRADA (devolución o reintegro calculado y registrado)
 //
-// REGLA CLAVE: Al registrar el pago, SOLO se aceptan cajas abiertas (no cuentas bancarias).
-// NO se permiten pagos parciales. El monto siempre es montoEntregado.
-//
-// FLUJO:
-//   1. Liquidación creada (solo cabecera) → estado PENDIENTE_RENDICION
-//      O Liquidación creada con detalles    → estado PENDIENTE (flujo legado)
-//   2. Se rinden gastos (rendir())          → estado PENDIENTE
-//   3. Se paga completamente               → estado PAGADA (egreso en caja)
-//   4. Opcionalmente: reintegro / devolución
+// Compatibilidad con estados legacy: PENDIENTE_RENDICION / PENDIENTE se tratan
+// como CREADA en las transiciones de pago.
 
 import prisma from '../../prisma/client';
+import { contabilidadIntegration } from '../contabilidad/contabilidad.integration';
 
 export interface DetalleDto {
   categoria: 'PEAJE' | 'BALANZA' | 'VIATICO' | 'TOLDO' | 'OTROS';
@@ -38,8 +28,15 @@ export interface CreateLiquidacionDto {
   guiaReferencia?: string;
   observaciones?: string;
   toldo?: number;
-  detalles?: DetalleDto[];   // opcional — si vacío/ausente → PENDIENTE_RENDICION
+  detalles?: DetalleDto[];
   pedidoIds?: number[];
+}
+
+export interface PagarLiquidacionDto {
+  liquidacionId: number;
+  cajaId: number;
+  montoPagado?: number;
+  fechaPago?: string;
 }
 
 export interface RendirLiquidacionDto {
@@ -47,10 +44,10 @@ export interface RendirLiquidacionDto {
   observaciones?: string;
 }
 
-export interface PagarLiquidacionDto {
+export interface CerrarLiquidacionDto {
   liquidacionId: number;
-  cajaId: number;          // ID de la caja abierta (NO cuenta bancaria)
-  observaciones?: string;
+  cajaId: number;
+  fecha?: string;
 }
 
 export interface RegistrarMovimientoLiquidacionDto {
@@ -61,7 +58,8 @@ export interface RegistrarMovimientoLiquidacionDto {
   observaciones?: string;
 }
 
-// Include reutilizable para queries de liquidación
+const ESTADOS_NO_PAGADOS = ['CREADA', 'PENDIENTE_RENDICION', 'PENDIENTE'];
+
 const LIQUIDACION_INCLUDE = {
   conductor: { select: { id: true, nombre: true } },
   detalles: true,
@@ -130,10 +128,6 @@ export class LiquidacionesService {
       if (query.desde) where.fecha.gte = new Date(query.desde);
       if (query.hasta) where.fecha.lte = new Date(query.hasta + 'T23:59:59');
     }
-    // P4: una liquidación ya asociada a una carga de combustible no debe volver
-    // a aparecer como disponible para nuevas cargas (evita doble asociación);
-    // solo vuelve a estar disponible si esa asociación se anula/revierte
-    // (Combustible.liquidacionId pasa a null o el registro se elimina).
     if (query.sinCombustible === 'true') where.combustibles = { none: {} };
     return prisma.liquidacion.findMany({
       where,
@@ -171,7 +165,6 @@ export class LiquidacionesService {
     });
   }
 
-  // ── P3: devuelve cajas ABIERTAS disponibles para pago ────────────────────────
   async getCajasAbiertas() {
     const cajas = await prisma.caja.findMany({
       where: { estado: 'ABIERTA' },
@@ -195,160 +188,233 @@ export class LiquidacionesService {
     });
   }
 
-  // ── P3: pago total desde caja abierta ────────────────────────────────────────
-  async pagarLiquidacion(dto: PagarLiquidacionDto, usuarioId: number) {
+  // ── PASO 1: crear liquidación → estado CREADA ────────────────────────────────
+  async create(dto: CreateLiquidacionDto) {
+    const conductor = await prisma.conductor.findUnique({ where: { id: dto.conductorId } });
+    if (!conductor) throw new Error('Conductor no encontrado');
+
+    const pedidoIds = dto.pedidoIds ?? [];
+    await this.validarPedidosDisponibles(pedidoIds);
+
+    return prisma.liquidacion.create({
+      data: {
+        conductorId: dto.conductorId,
+        placaTracto: dto.placaTracto,
+        placaCarreta: dto.placaCarreta,
+        montoEntregado: dto.montoEntregado,
+        reciboAnticipo: dto.reciboAnticipo,
+        fecha: new Date(dto.fecha),
+        guiaReferencia: dto.guiaReferencia,
+        observaciones: dto.observaciones,
+        toldo: 0,
+        totalGastos: 0,
+        devolucion: 0,
+        reintegro: 0,
+        estado: 'CREADA',
+        pedidos: pedidoIds.length
+          ? { create: pedidoIds.map((pedidoId) => ({ pedidoId })) }
+          : undefined,
+      },
+      include: LIQUIDACION_INCLUDE,
+    });
+  }
+
+  // ── PASO 2: pagar → CREADA→PAGADA (egreso en caja) ──────────────────────────
+  async pagar(dto: PagarLiquidacionDto, usuarioId: number) {
     const liquidacion = await prisma.liquidacion.findUnique({
       where: { id: dto.liquidacionId },
       include: { conductor: { select: { nombre: true } } },
     });
     if (!liquidacion) throw new Error('Liquidación no encontrada');
-    if (liquidacion.estado === 'PAGADA') throw new Error('La liquidación ya fue pagada');
-    if (liquidacion.estado === 'PENDIENTE_RENDICION') {
-      throw new Error('Debe rendir los gastos del viaje antes de registrar el pago');
+
+    if (!ESTADOS_NO_PAGADOS.includes(liquidacion.estado)) {
+      if (liquidacion.estado === 'PAGADA') throw new Error('La liquidación ya fue pagada');
+      if (liquidacion.estado === 'RENDIDA') throw new Error('La liquidación ya fue pagada y rendida');
+      if (liquidacion.estado === 'CERRADA') throw new Error('La liquidación ya está cerrada');
     }
 
-    // Verificar que la caja existe y está ABIERTA
     const caja = await prisma.caja.findUnique({ where: { id: dto.cajaId } });
     if (!caja) throw new Error('Caja no encontrada');
     if (caja.estado !== 'ABIERTA') throw new Error('La caja seleccionada está cerrada');
 
-    const monto = Number(liquidacion.montoEntregado);
-    if (monto <= 0) throw new Error('El monto de la liquidación debe ser mayor a 0');
+    const montoPagado = dto.montoPagado ?? Number(liquidacion.montoEntregado);
+    if (montoPagado <= 0) throw new Error('El monto de pago debe ser mayor a 0');
 
+    const fechaPago = dto.fechaPago ? new Date(dto.fechaPago) : new Date();
     const concepto = `Pago liquidación — ${liquidacion.conductor.nombre}`;
     const referencia = `LIQUIDACION-${dto.liquidacionId}`;
 
-    return prisma.$transaction(async (tx: any) => {
-      // Registrar EGRESO en la caja (se entrega dinero al conductor)
+    const updated = await prisma.$transaction(async (tx: any) => {
       await tx.movimientoCaja.create({
         data: {
           cajaId: dto.cajaId,
           tipo: 'EGRESO',
-          monto,
+          monto: montoPagado,
           concepto,
           referencia,
-          fecha: new Date(),
+          fecha: fechaPago,
         },
       });
 
-      // Marcar liquidación como PAGADA
-      const liquidacionActualizada = await tx.liquidacion.update({
+      return tx.liquidacion.update({
         where: { id: dto.liquidacionId },
-        data: { estado: 'PAGADA' },
-        include: { conductor: { select: { id: true, nombre: true } }, detalles: true },
+        data: {
+          estado: 'PAGADA',
+          montoPagado,
+          fechaPago,
+        },
+        include: LIQUIDACION_INCLUDE,
       });
-
-      return { liquidacion: liquidacionActualizada };
     });
+
+    // Asiento contable automático (fire-and-forget)
+    contabilidadIntegration.registrarPagoLiquidacion({
+      id: dto.liquidacionId,
+      conductorNombre: liquidacion.conductor.nombre,
+      montoPagado,
+      fecha: fechaPago,
+    });
+
+    return updated;
   }
 
-  // ── P3: reintegro — la empresa entrega dinero adicional al conductor ─────────
-  // (el conductor gastó más de lo que se le entregó; la empresa cubre el
-  // faltante → sale dinero de caja → EGRESO)
-  async registrarReintegro(dto: RegistrarMovimientoLiquidacionDto, usuarioId: number) {
+  // ── PASO 3: rendir → PAGADA→RENDIDA (gastos reales post-pago) ───────────────
+  async rendir(id: number, dto: RendirLiquidacionDto) {
+    const liq = await this.findById(id);
+
+    if (liq.estado !== 'PAGADA') {
+      if (ESTADOS_NO_PAGADOS.includes(liq.estado)) {
+        throw new Error('Debe pagar la liquidación antes de rendir los gastos');
+      }
+      if (liq.estado === 'RENDIDA') throw new Error('Los gastos de esta liquidación ya fueron rendidos');
+      if (liq.estado === 'CERRADA') throw new Error('La liquidación está cerrada');
+    }
+    if (!dto.detalles || dto.detalles.length === 0) {
+      throw new Error('Debe registrar al menos un gasto para rendir la liquidación');
+    }
+
+    const totalGastos = dto.detalles.reduce((s, d) => s + d.monto, 0);
+    const fechaRendicion = new Date();
+
+    const updated = await prisma.$transaction(async (tx: any) => {
+      await tx.liquidacionDetalle.deleteMany({ where: { liquidacionId: id } });
+
+      return tx.liquidacion.update({
+        where: { id },
+        data: {
+          totalGastos,
+          montoRendido: totalGastos,
+          fechaRendicion,
+          estado: 'RENDIDA',
+          ...(dto.observaciones !== undefined && { observaciones: dto.observaciones }),
+          detalles: {
+            create: dto.detalles.map((d) => ({
+              categoria: d.categoria as any,
+              descripcion: d.descripcion,
+              monto: d.monto,
+            })),
+          },
+        },
+        include: LIQUIDACION_INCLUDE,
+      });
+    });
+
+    // Asiento contable automático (fire-and-forget)
+    contabilidadIntegration.registrarRendicionLiquidacion({
+      id,
+      conductorNombre: liq.conductor.nombre,
+      fecha: fechaRendicion,
+      gastos: dto.detalles.map((d) => ({ categoria: d.categoria, descripcion: d.descripcion, monto: d.monto })),
+    });
+
+    return updated;
+  }
+
+  // ── PASO 4: cerrar → RENDIDA→CERRADA (devolución o reintegro) ───────────────
+  async cerrar(dto: CerrarLiquidacionDto, usuarioId: number) {
     const liquidacion = await prisma.liquidacion.findUnique({
       where: { id: dto.liquidacionId },
       include: { conductor: { select: { nombre: true } } },
     });
     if (!liquidacion) throw new Error('Liquidación no encontrada');
-    if (liquidacion.estado !== 'PAGADA') {
-      throw new Error('Solo se puede registrar un reintegro sobre una liquidación pagada');
-    }
-    if (Number(liquidacion.reintegro) <= 0) {
-      throw new Error('Esta liquidación no tiene monto de reintegro calculado');
-    }
-    if (dto.monto <= 0) throw new Error('El monto debe ser mayor a 0');
-
-    const referencia = `REINTEGRO-LIQ-${dto.liquidacionId}`;
-
-    // Bloquear registros duplicados: una vez que el saldo pendiente de reintegro
-    // de esta liquidación ya fue cubierto por movimientos activos previos, no se
-    // permite registrar nuevos reintegros sobre la misma liquidación.
-    const { _sum } = await prisma.movimientoCaja.aggregate({
-      where: { referencia, anulado: false },
-      _sum: { monto: true },
-    });
-    const yaRegistrado = Number(_sum.monto || 0);
-    const pendiente = Math.round((Number(liquidacion.reintegro) - yaRegistrado) * 100) / 100;
-    if (pendiente <= 0) {
-      throw new Error('El reintegro de esta liquidación ya fue registrado en su totalidad. No se pueden registrar reintegros adicionales.');
-    }
-    if (dto.monto > pendiente + 0.01) {
-      throw new Error(`El monto excede el saldo pendiente de reintegro de esta liquidación (S/ ${pendiente.toFixed(2)})`);
+    if (liquidacion.estado !== 'RENDIDA') {
+      if (liquidacion.estado === 'CERRADA') throw new Error('La liquidación ya está cerrada');
+      throw new Error('Debe rendir los gastos antes de cerrar la liquidación');
     }
 
     const caja = await prisma.caja.findUnique({ where: { id: dto.cajaId } });
     if (!caja) throw new Error('Caja no encontrada');
     if (caja.estado !== 'ABIERTA') throw new Error('La caja seleccionada está cerrada');
 
-    const concepto = dto.concepto || `Reintegro liquidación — ${liquidacion.conductor.nombre}`;
+    const montoPagado = Number(liquidacion.montoPagado ?? liquidacion.montoEntregado);
+    const montoRendido = Number(liquidacion.montoRendido ?? liquidacion.totalGastos);
+    const diferencia = montoPagado - montoRendido;
 
-    return prisma.movimientoCaja.create({
-      data: {
-        cajaId: dto.cajaId,
-        tipo: 'EGRESO',
-        monto: dto.monto,
-        concepto,
-        referencia,
-        fecha: new Date(),
-      },
+    const devolucion = diferencia > 0 ? diferencia : 0;
+    const reintegro = diferencia < 0 ? Math.abs(diferencia) : 0;
+    const montoDevolucion = diferencia; // positivo=devolución, negativo=reintegro
+    const tipoAjuste = diferencia > 0 ? 'DEVOLUCION' : diferencia < 0 ? 'REINTEGRO' : null;
+    const fechaCierre = dto.fecha ? new Date(dto.fecha) : new Date();
+
+    const closed = await prisma.$transaction(async (tx: any) => {
+      // Solo crear movimiento de caja si hay diferencia
+      if (Math.abs(diferencia) > 0.005) {
+        if (diferencia > 0) {
+          // Devolución: conductor devuelve dinero → INGRESO en caja
+          await tx.movimientoCaja.create({
+            data: {
+              cajaId: dto.cajaId,
+              tipo: 'INGRESO',
+              monto: devolucion,
+              concepto: `Devolución liquidación — ${liquidacion.conductor.nombre}`,
+              referencia: `DEVOLUCION-LIQ-${dto.liquidacionId}`,
+              fecha: fechaCierre,
+            },
+          });
+        } else {
+          // Reintegro: empresa paga adicional al conductor → EGRESO en caja
+          await tx.movimientoCaja.create({
+            data: {
+              cajaId: dto.cajaId,
+              tipo: 'EGRESO',
+              monto: reintegro,
+              concepto: `Reintegro liquidación — ${liquidacion.conductor.nombre}`,
+              referencia: `REINTEGRO-LIQ-${dto.liquidacionId}`,
+              fecha: fechaCierre,
+            },
+          });
+        }
+      }
+
+      return tx.liquidacion.update({
+        where: { id: dto.liquidacionId },
+        data: {
+          estado: 'CERRADA',
+          devolucion,
+          reintegro,
+          montoDevolucion,
+          tipoAjuste,
+          fechaCierre,
+        },
+        include: LIQUIDACION_INCLUDE,
+      });
     });
+
+    // Asiento contable automático (fire-and-forget)
+    contabilidadIntegration.registrarCierreLiquidacion({
+      id: dto.liquidacionId,
+      conductorNombre: liquidacion.conductor.nombre,
+      montoPagado,
+      montoRendido,
+      devolucion,
+      reintegro,
+      fecha: fechaCierre,
+    });
+
+    return closed;
   }
 
-  // ── P3: devolución — el conductor devuelve dinero sobrante a la empresa ──────
-  // (al conductor le sobró dinero del anticipo; lo regresa a la empresa →
-  // entra dinero a caja → INGRESO)
-  async registrarDevolucion(dto: RegistrarMovimientoLiquidacionDto, usuarioId: number) {
-    const liquidacion = await prisma.liquidacion.findUnique({
-      where: { id: dto.liquidacionId },
-      include: { conductor: { select: { nombre: true } } },
-    });
-    if (!liquidacion) throw new Error('Liquidación no encontrada');
-    if (liquidacion.estado !== 'PAGADA') {
-      throw new Error('Solo se puede registrar una devolución sobre una liquidación pagada');
-    }
-    if (Number(liquidacion.devolucion) <= 0) {
-      throw new Error('Esta liquidación no tiene monto de devolución calculado');
-    }
-    if (dto.monto <= 0) throw new Error('El monto debe ser mayor a 0');
-
-    const referencia = `DEVOLUCION-LIQ-${dto.liquidacionId}`;
-
-    // Bloquear registros duplicados: una vez que el saldo pendiente de devolución
-    // de esta liquidación ya fue cubierto por movimientos activos previos, no se
-    // permite registrar nuevas devoluciones sobre la misma liquidación.
-    const { _sum } = await prisma.movimientoCaja.aggregate({
-      where: { referencia, anulado: false },
-      _sum: { monto: true },
-    });
-    const yaRegistrado = Number(_sum.monto || 0);
-    const pendiente = Math.round((Number(liquidacion.devolucion) - yaRegistrado) * 100) / 100;
-    if (pendiente <= 0) {
-      throw new Error('La devolución de esta liquidación ya fue registrada en su totalidad. No se pueden registrar devoluciones adicionales.');
-    }
-    if (dto.monto > pendiente + 0.01) {
-      throw new Error(`El monto excede el saldo pendiente de devolución de esta liquidación (S/ ${pendiente.toFixed(2)})`);
-    }
-
-    const caja = await prisma.caja.findUnique({ where: { id: dto.cajaId } });
-    if (!caja) throw new Error('Caja no encontrada');
-    if (caja.estado !== 'ABIERTA') throw new Error('La caja seleccionada está cerrada');
-
-    const concepto = dto.concepto || `Devolución liquidación — ${liquidacion.conductor.nombre}`;
-
-    return prisma.movimientoCaja.create({
-      data: {
-        cajaId: dto.cajaId,
-        tipo: 'INGRESO',
-        monto: dto.monto,
-        concepto,
-        referencia,
-        fecha: new Date(),
-      },
-    });
-  }
-
-  // ── P3: historial financiero de una liquidación ──────────────────────────────
+  // ── historial financiero ─────────────────────────────────────────────────────
   async getHistorialFinanciero(liquidacionId: number) {
     const liquidacion = await prisma.liquidacion.findUnique({
       where: { id: liquidacionId },
@@ -356,19 +422,19 @@ export class LiquidacionesService {
     });
     if (!liquidacion) throw new Error('Liquidación no encontrada');
 
-    const ref = `LIQUIDACION-${liquidacionId}`;
-    const refReintegro = `REINTEGRO-LIQ-${liquidacionId}`;
-    const refDevolucion = `DEVOLUCION-LIQ-${liquidacionId}`;
-
     const movimientos = await prisma.movimientoCaja.findMany({
       where: {
-        referencia: { in: [ref, refReintegro, refDevolucion] },
+        referencia: {
+          in: [
+            `LIQUIDACION-${liquidacionId}`,
+            `REINTEGRO-LIQ-${liquidacionId}`,
+            `DEVOLUCION-LIQ-${liquidacionId}`,
+          ],
+        },
         anulado: false,
       },
       orderBy: { fecha: 'asc' },
-      include: {
-        caja: { select: { id: true, nombre: true } },
-      },
+      include: { caja: { select: { id: true, nombre: true } } },
     });
 
     return {
@@ -376,9 +442,12 @@ export class LiquidacionesService {
         id: liquidacion.id,
         estado: liquidacion.estado,
         montoEntregado: Number(liquidacion.montoEntregado),
+        montoPagado: liquidacion.montoPagado ? Number(liquidacion.montoPagado) : null,
         totalGastos: Number(liquidacion.totalGastos),
+        montoRendido: liquidacion.montoRendido ? Number(liquidacion.montoRendido) : null,
         reintegro: Number(liquidacion.reintegro),
         devolucion: Number(liquidacion.devolucion),
+        tipoAjuste: liquidacion.tipoAjuste,
         conductor: liquidacion.conductor,
       },
       movimientos: movimientos.map((m: any) => ({
@@ -393,101 +462,11 @@ export class LiquidacionesService {
     };
   }
 
-  async create(dto: CreateLiquidacionDto) {
-    const conductor = await prisma.conductor.findUnique({ where: { id: dto.conductorId } });
-    if (!conductor) throw new Error('Conductor no encontrado');
-
-    const pedidoIds = dto.pedidoIds ?? [];
-    await this.validarPedidosDisponibles(pedidoIds);
-
-    const detalles = dto.detalles ?? [];
-    const conGastos = detalles.length > 0;
-
-    const totalGastos = detalles.reduce((s, d) => s + d.monto, 0);
-    const diferencia = dto.montoEntregado - totalGastos;
-    const devolucion = diferencia > 0 ? diferencia : 0;
-    const reintegro = diferencia < 0 ? Math.abs(diferencia) : 0;
-
-    // Sin gastos → el conductor aún no rindió; con gastos → listo para pagar
-    const estado = conGastos ? 'PENDIENTE' : 'PENDIENTE_RENDICION';
-
-    return prisma.liquidacion.create({
-      data: {
-        conductorId: dto.conductorId,
-        placaTracto: dto.placaTracto,
-        placaCarreta: dto.placaCarreta,
-        montoEntregado: dto.montoEntregado,
-        reciboAnticipo: dto.reciboAnticipo,
-        fecha: new Date(dto.fecha),
-        guiaReferencia: dto.guiaReferencia,
-        observaciones: dto.observaciones,
-        toldo: 0,
-        totalGastos,
-        devolucion,
-        reintegro,
-        estado,
-        detalles: conGastos
-          ? {
-              create: detalles.map((d) => ({
-                categoria: d.categoria as any,
-                descripcion: d.descripcion,
-                monto: d.monto,
-              })),
-            }
-          : undefined,
-        pedidos: pedidoIds.length
-          ? { create: pedidoIds.map((pedidoId) => ({ pedidoId })) }
-          : undefined,
-      },
-      include: LIQUIDACION_INCLUDE,
-    });
-  }
-
-  // ── v3: rendir — registra/reemplaza gastos reales, recalcula totales ─────────
-  // Funciona tanto para PENDIENTE_RENDICION (primera vez) como para PENDIENTE
-  // (re-edición antes del pago). Bloquea si ya está PAGADA.
-  async rendir(id: number, dto: RendirLiquidacionDto) {
-    const liq = await this.findById(id);
-    if (liq.estado === 'PAGADA') {
-      throw new Error('No se pueden modificar los gastos de una liquidación ya pagada');
-    }
-    if (!dto.detalles || dto.detalles.length === 0) {
-      throw new Error('Debe registrar al menos un gasto para rendir la liquidación');
-    }
-
-    const totalGastos = dto.detalles.reduce((s, d) => s + d.monto, 0);
-    const diferencia = Number(liq.montoEntregado) - totalGastos;
-    const devolucion = diferencia > 0 ? diferencia : 0;
-    const reintegro = diferencia < 0 ? Math.abs(diferencia) : 0;
-
-    return prisma.$transaction(async (tx: any) => {
-      // Reemplazar detalles existentes
-      await tx.liquidacionDetalle.deleteMany({ where: { liquidacionId: id } });
-
-      return tx.liquidacion.update({
-        where: { id },
-        data: {
-          totalGastos,
-          devolucion,
-          reintegro,
-          estado: 'PENDIENTE',
-          ...(dto.observaciones !== undefined && { observaciones: dto.observaciones }),
-          detalles: {
-            create: dto.detalles.map((d) => ({
-              categoria: d.categoria as any,
-              descripcion: d.descripcion,
-              monto: d.monto,
-            })),
-          },
-        },
-        include: LIQUIDACION_INCLUDE,
-      });
-    });
-  }
-
   async update(id: number, dto: Partial<CreateLiquidacionDto>) {
     const liq = await this.findById(id);
-    if (liq.estado === 'PAGADA') throw new Error('No se puede editar una liquidación ya pagada');
+    if (!ESTADOS_NO_PAGADOS.includes(liq.estado) && liq.estado !== 'CREADA') {
+      throw new Error('No se puede editar una liquidación que ya fue pagada');
+    }
 
     const pedidoIds = dto.pedidoIds;
 
@@ -535,7 +514,9 @@ export class LiquidacionesService {
 
   async remove(id: number) {
     const liq = await this.findById(id);
-    if (liq.estado === 'PAGADA') throw new Error('No se puede eliminar una liquidación pagada');
+    if (!ESTADOS_NO_PAGADOS.includes(liq.estado) && liq.estado !== 'CREADA') {
+      throw new Error('No se puede eliminar una liquidación que ya fue pagada');
+    }
     return prisma.liquidacion.delete({ where: { id } });
   }
 }
