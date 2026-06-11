@@ -108,7 +108,12 @@ function Switch({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 // Busca una etiqueta exacta (ignorando namespace, ej. <cbc:ID> o <cac:ID>)
 // dentro de un bloque de texto y devuelve su contenido.
 function getInBlock(block: string, tag: string): string {
-  const m = block.match(new RegExp(`<(?:\\w+:)?${tag}(?:\\s[^>]*)?>([^<]*)<\\/(?:\\w+:)?${tag}>`, 'i'));
+  // Soporta tanto texto plano como contenido envuelto en <![CDATA[ ... ]]>
+  // (frecuente en <cbc:Description> de XMLs SUNAT, donde el regex anterior
+  // ([^<]*) no podía cruzar el "<" de apertura del CDATA y devolvía vacío).
+  const m = block.match(
+    new RegExp(`<(?:\\w+:)?${tag}(?:\\s[^>]*)?>(?:\\s*<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>\\s*)?<\\/(?:\\w+:)?${tag}>`, 'i'),
+  );
   return m ? m[1].trim() : '';
 }
 
@@ -188,7 +193,7 @@ function findBlockById(blocks: string[], idValue: string): string {
 
 // Notas (<cbc:Note>) que no sean el detalle "SON: ... SOLES" (languageLocaleID="1000").
 function extractNotesNoLocale1000(xmlText: string): string[] {
-  const re = /<(?:\w+:)?Note([^>]*)>([^<]*)<\/(?:\w+:)?Note>/gi;
+  const re = /<(?:\w+:)?Note([^>]*)>(?:\s*<!\[CDATA\[)?([\s\S]*?)(?:\]\]>\s*)?<\/(?:\w+:)?Note>/gi;
   const notas: string[] = [];
   for (const m of xmlText.matchAll(re)) {
     const localeMatch = m[1].match(/languageLocaleID="([^"]*)"/);
@@ -366,6 +371,9 @@ export default function FacturacionPage() {
   const [showForm, setShowForm] = useState(false);
   const [page, setPage] = useState(1);
   const [showXmlMasivo, setShowXmlMasivo] = useState(false);
+  // % de detracción tomado del XML importado (cuando difiere del de Configuración),
+  // para que el monto de detracción calculado coincida con el del comprobante original.
+  const [xmlDetraccionPct, setXmlDetraccionPct] = useState<number | null>(null);
   // MEJORA 4: detalle de factura (solo visualización — facturas SUNAT no editables)
   const [viewing, setViewing] = useState<any>(null);
   // P1: estado de PDF para el modal de detalle
@@ -457,7 +465,10 @@ export default function FacturacionPage() {
   // de Configuración, y el % de detracción solo se aplica (también desde
   // Configuración) cuando el switch "Aplicar detracción" está activo.
   const pctIgvConfig = config.igvPorcentaje || 18;
-  const pctDetraccionConfig = config.detraccionDefault || 0;
+  // Si se importó un XML con detracción, se usa el % indicado en el propio
+  // comprobante (puede diferir del default de Configuración) para que el
+  // monto calculado coincida exactamente con el del XML.
+  const pctDetraccionConfig = xmlDetraccionPct ?? (config.detraccionDefault || 0);
 
   const clienteIdVal = watch('clienteId');
   const clienteIdNum = parseInt(clienteIdVal || '0');
@@ -565,6 +576,7 @@ export default function FacturacionPage() {
       toast.success('Factura emitida');
       setShowForm(false);
       reset();
+      setXmlDetraccionPct(null);
       invalidate();
       qc.invalidateQueries({ queryKey: ['pedidos', 'disponibles'] });
     },
@@ -648,14 +660,24 @@ export default function FacturacionPage() {
       const datos = parseXmlSunatCompleto(text);
       if (!datos) { toast.error('No se pudo leer el XML'); return; }
 
-      // Fecha, guía, peso, observaciones
+      // Fecha, guía, peso, observaciones (se antepone el N° de comprobante
+      // original del XML, aunque su serie no corresponda a la numeración
+      // de este sistema, para mantener trazabilidad)
       if (datos.fechaEmision) setValue('fechaEmision', datos.fechaEmision);
       if (datos.guiaReferencia) setValue('guiaReferencia', datos.guiaReferencia);
       if (datos.peso) setValue('peso', datos.peso);
-      if (datos.observaciones) setValue('observaciones', datos.observaciones);
+      const numeroOriginal = datos.serie && datos.correlativo ? `${datos.serie}-${datos.correlativo}` : '';
+      const observacionesConOrigen = [
+        numeroOriginal ? `Comprobante original: ${numeroOriginal}` : '',
+        datos.observaciones,
+      ].filter(Boolean).join(' / ');
+      if (observacionesConOrigen) setValue('observaciones', observacionesConOrigen);
 
-      // Detracción
+      // Detracción: se activa el switch y se usa el % indicado en el XML
+      // (puede diferir del default de Configuración) para que el monto
+      // calculado coincida exactamente con el del comprobante.
       setValue('aplicarDetraccion', datos.aplicarDetraccion);
+      setXmlDetraccionPct(datos.aplicarDetraccion ? datos.porcentajeDetraccion : null);
 
       // Forma de pago / días de crédito
       if (datos.tipoCredito === 'custom') {
@@ -948,7 +970,7 @@ export default function FacturacionPage() {
       {/* ─── MODAL: NUEVA FACTURA ─────────────────────────────────────────── */}
       <Modal
         open={showForm}
-        onClose={() => { setShowForm(false); reset(); }}
+        onClose={() => { setShowForm(false); reset(); setXmlDetraccionPct(null); }}
         title="Nueva factura"
         maxWidth="max-w-4xl"
       >
@@ -1315,7 +1337,7 @@ export default function FacturacionPage() {
             <Button
               variant="secondary"
               type="button"
-              onClick={() => { setShowForm(false); reset(); }}
+              onClick={() => { setShowForm(false); reset(); setXmlDetraccionPct(null); }}
             >
               Cancelar
             </Button>
