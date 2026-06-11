@@ -25,7 +25,7 @@ import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Search, XCircle, Upload, FileText, Download, Trash2, Eye, ExternalLink, AlertCircle } from 'lucide-react';
+import { Plus, Search, XCircle, Upload, FileText, Download, Trash2, Eye, ExternalLink, AlertCircle, Pencil } from 'lucide-react';
 import { useRef } from 'react';
 import api, { facturacionApi, clientesApi, pedidosApi, configuracionApi, fetchAllPages } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage, ESTADO_FACTURA_LABEL } from '@/lib/utils';
@@ -353,6 +353,10 @@ const schema = z.object({
   guiaReferencia:       z.string().optional(),
   peso:                 z.string().optional(),
   observaciones:        z.string().optional(),
+  // Correlativo del comprobante original (tomado del XML SUNAT importado).
+  // Si se completa, la factura se guarda con este número en lugar del
+  // siguiente correlativo automático de la serie.
+  correlativo:          z.string().optional(),
   // PARTE 3: líneas de detalle (al menos 1)
   lineas: z.array(lineaSchema).min(1, 'Debe agregar al menos una línea'),
 });
@@ -374,8 +378,10 @@ export default function FacturacionPage() {
   // % de detracción tomado del XML importado (cuando difiere del de Configuración),
   // para que el monto de detracción calculado coincida con el del comprobante original.
   const [xmlDetraccionPct, setXmlDetraccionPct] = useState<number | null>(null);
-  // MEJORA 4: detalle de factura (solo visualización — facturas SUNAT no editables)
+  // Detalle de factura (solo visualización)
   const [viewing, setViewing] = useState<any>(null);
+  // Factura siendo editada (null = formulario en modo creación)
+  const [editingFactura, setEditingFactura] = useState<any>(null);
   // P1: estado de PDF para el modal de detalle
   const [pdfInfo, setPdfInfo] = useState<{ tienePdf: boolean; archivoExiste: boolean; esUrl: boolean } | null>(null);
   const [loadingPdf, setLoadingPdf] = useState(false);
@@ -558,6 +564,7 @@ export default function FacturacionPage() {
         clienteId:            parseInt(d.clienteId),
         pedidoId:             d.pedidoId ? parseInt(d.pedidoId) : undefined,
         serie:                d.serie,
+        correlativo:          d.correlativo ? parseInt(d.correlativo, 10) : undefined,
         subtotal:             subtotalLineas,
         porcentajeIgv:        pctIgvConfig,
         porcentajeDetraccion: d.aplicarDetraccion ? pctDetraccionConfig : undefined,
@@ -582,6 +589,72 @@ export default function FacturacionPage() {
     },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, d }: { id: number; d: FormData }) => {
+      const lineasPayload = d.lineas.map((l, idx) => ({
+        orden: idx,
+        cantidad: parseFloat(l.cantidad),
+        unidadMedida: l.unidadMedida,
+        codigo: l.codigo,
+        descripcion: l.descripcion,
+        valorUnitario: parseFloat(l.valorUnitario),
+        importe: importesLineas[idx] ?? 0,
+      }));
+
+      return facturacionApi.actualizar(id, {
+        clienteId:            parseInt(d.clienteId),
+        porcentajeIgv:        pctIgvConfig,
+        porcentajeDetraccion: d.aplicarDetraccion ? pctDetraccionConfig : 0,
+        tipoCredito:          d.tipoCredito || undefined,
+        diasCredito:          d.diasCredito ? parseInt(d.diasCredito) : undefined,
+        guiaReferencia:       d.guiaReferencia,
+        peso:                 d.peso ? parseFloat(d.peso) : undefined,
+        detalle:              lineasPayload.map((l) => l.descripcion).join(' / ').substring(0, 200),
+        fechaEmision:         d.fechaEmision,
+        observaciones:        d.observaciones,
+        lineas:               lineasPayload,
+      });
+    },
+    onSuccess: () => {
+      toast.success('Factura actualizada');
+      setShowForm(false);
+      setEditingFactura(null);
+      reset();
+      setXmlDetraccionPct(null);
+      invalidate();
+    },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  // Carga los datos de una factura existente en el formulario para editarla.
+  const handleEditar = (f: any) => {
+    setEditingFactura(f);
+    setXmlDetraccionPct(f.porcentajeDetraccion != null ? Number(f.porcentajeDetraccion) : null);
+    reset({
+      clienteId: String(f.clienteId ?? f.cliente?.id ?? ''),
+      pedidoId: f.pedidoId ? String(f.pedidoId) : '',
+      serie: f.serie,
+      fechaEmision: (f.fechaEmision ?? '').split('T')[0],
+      aplicarDetraccion: f.porcentajeDetraccion != null && Number(f.porcentajeDetraccion) > 0,
+      tipoCredito: f.tipoCredito ?? '',
+      diasCredito: f.diasCredito ? String(f.diasCredito) : '',
+      guiaReferencia: f.guiaReferencia ?? '',
+      peso: f.peso != null ? String(f.peso) : '',
+      observaciones: f.observaciones ?? '',
+      lineas: (f.lineas ?? []).length > 0
+        ? f.lineas.map((l: any) => ({
+            cantidad: String(l.cantidad),
+            unidadMedida: l.unidadMedida,
+            codigo: l.codigo ?? '',
+            descripcion: l.descripcion,
+            valorUnitario: String(l.valorUnitario),
+            importe: String(l.importe),
+          }))
+        : [{ cantidad: '1', unidadMedida: 'NIU', codigo: '', descripcion: '', valorUnitario: '', importe: '0' }],
+    });
+    setShowForm(true);
+  };
 
   const anularMutation = useMutation({
     mutationFn: (id: number) => facturacionApi.anular(id),
@@ -694,6 +767,13 @@ export default function FacturacionPage() {
         } else {
           toast.error('La serie indicada en el XML no existe en el sistema.');
         }
+      }
+
+      // Correlativo: se guarda con el mismo número que indica el XML (ej.
+      // F001-2342), salvo que ese número ya esté registrado en el sistema
+      // (el backend rechazará la creación en ese caso).
+      if (datos.correlativo) {
+        setValue('correlativo', String(parseInt(datos.correlativo, 10)));
       }
 
       // Cliente: buscar por RUC en la lista cargada y, si no aparece, en el backend (no se crea)
@@ -926,20 +1006,30 @@ export default function FacturacionPage() {
                   </Td>
                   {usuario?.rol === 'ADMIN' && (
                     <Td>
-                      {f.estado !== 'ANULADA' && f.estado !== 'PAGADA' && (
-                        <button
-                          onClick={() => {
-                            // P2: advertencia extra para facturas con pago parcial
-                            const msg = f.estado === 'PARCIAL'
-                              ? '⚠️ Esta factura tiene pagos parciales registrados.\n\nSolo podrá anularse si primero anula todos los pagos asociados desde el módulo de Cobranza.\n\n¿Desea intentarlo de todas formas?'
-                              : '¿Anular factura?';
-                            if (confirm(msg)) anularMutation.mutate(f.id);
-                          }}
-                          className="flex items-center gap-1 text-xs text-destructive hover:underline"
-                        >
-                          <XCircle className="w-3 h-3" /> Anular
-                        </button>
-                      )}
+                      <div className="flex items-center gap-3">
+                        {f.estado !== 'ANULADA' && (
+                          <button
+                            onClick={() => handleEditar(f)}
+                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
+                          >
+                            <Pencil className="w-3 h-3" /> Editar
+                          </button>
+                        )}
+                        {f.estado !== 'ANULADA' && f.estado !== 'PAGADA' && (
+                          <button
+                            onClick={() => {
+                              // P2: advertencia extra para facturas con pago parcial
+                              const msg = f.estado === 'PARCIAL'
+                                ? '⚠️ Esta factura tiene pagos parciales registrados.\n\nSolo podrá anularse si primero anula todos los pagos asociados desde el módulo de Cobranza.\n\n¿Desea intentarlo de todas formas?'
+                                : '¿Anular factura?';
+                              if (confirm(msg)) anularMutation.mutate(f.id);
+                            }}
+                            className="flex items-center gap-1 text-xs text-destructive hover:underline"
+                          >
+                            <XCircle className="w-3 h-3" /> Anular
+                          </button>
+                        )}
+                      </div>
                     </Td>
                   )}
                 </Tr>
@@ -967,26 +1057,35 @@ export default function FacturacionPage() {
         </div>
       )}
 
-      {/* ─── MODAL: NUEVA FACTURA ─────────────────────────────────────────── */}
+      {/* ─── MODAL: NUEVA FACTURA / EDITAR FACTURA ────────────────────────── */}
       <Modal
         open={showForm}
-        onClose={() => { setShowForm(false); reset(); setXmlDetraccionPct(null); }}
-        title="Nueva factura"
+        onClose={() => { setShowForm(false); setEditingFactura(null); reset(); setXmlDetraccionPct(null); }}
+        title={editingFactura ? `Editar factura ${editingFactura.numeroFactura}` : 'Nueva factura'}
         maxWidth="max-w-4xl"
       >
-        <form onSubmit={handleSubmit((d) => createMutation.mutate(d))} className="flex flex-col gap-5">
+        <form
+          onSubmit={handleSubmit((d) =>
+            editingFactura
+              ? updateMutation.mutate({ id: editingFactura.id, d })
+              : createMutation.mutate(d)
+          )}
+          className="flex flex-col gap-5"
+        >
 
-          {/* XML single import */}
-          <div className="flex items-center gap-2 p-3 bg-muted/40 rounded-lg border border-dashed border-border">
-            <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
-            <p className="text-xs text-muted-foreground flex-1">
-              Importar desde XML SUNAT para autocompletar
-            </p>
-            <input ref={xmlSingleRef} type="file" accept=".xml" className="hidden" onChange={handleXmlSingle} />
-            <Button type="button" variant="secondary" size="sm" onClick={() => xmlSingleRef.current?.click()}>
-              <Upload className="w-3 h-3" /> Subir XML
-            </Button>
-          </div>
+          {/* XML single import (solo al crear) */}
+          {!editingFactura && (
+            <div className="flex items-center gap-2 p-3 bg-muted/40 rounded-lg border border-dashed border-border">
+              <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+              <p className="text-xs text-muted-foreground flex-1">
+                Importar desde XML SUNAT para autocompletar
+              </p>
+              <input ref={xmlSingleRef} type="file" accept=".xml" className="hidden" onChange={handleXmlSingle} />
+              <Button type="button" variant="secondary" size="sm" onClick={() => xmlSingleRef.current?.click()}>
+                <Upload className="w-3 h-3" /> Subir XML
+              </Button>
+            </div>
+          )}
 
           {/* ── SECCIÓN 1: Cabecera ── */}
           <div className="grid grid-cols-3 gap-3">
@@ -1004,15 +1103,23 @@ export default function FacturacionPage() {
                 </Select>
               </FormField>
             </div>
-            <FormField label="Serie" required error={errors.serie?.message}>
-              <Select {...register('serie')} onChange={(e) => setValue('serie', e.target.value)}>
-                {allSeries.map((s) => <option key={s} value={s}>{s}</option>)}
-                <option value="_nueva">+ Nueva serie</option>
-              </Select>
-            </FormField>
+            {editingFactura ? (
+              <FormField label="N° Factura">
+                <div className="h-9 px-3 flex items-center rounded-md border border-border bg-muted text-sm font-mono font-bold">
+                  {editingFactura.numeroFactura}
+                </div>
+              </FormField>
+            ) : (
+              <FormField label="Serie" required error={errors.serie?.message}>
+                <Select {...register('serie')} onChange={(e) => setValue('serie', e.target.value)}>
+                  {allSeries.map((s) => <option key={s} value={s}>{s}</option>)}
+                  <option value="_nueva">+ Nueva serie</option>
+                </Select>
+              </FormField>
+            )}
           </div>
 
-          {serieVal === '_nueva' && (
+          {!editingFactura && serieVal === '_nueva' && (
             <FormField label="Ingresar nueva serie (ej: F003)">
               <Input
                 placeholder="F003"
@@ -1024,23 +1131,25 @@ export default function FacturacionPage() {
 
           {/* Pedido + Guía */}
           <div className="grid grid-cols-2 gap-3">
-            <FormField label="Pedido relacionado">
-              {clienteIdNum > 0 ? (
-                <Select {...register('pedidoId')} disabled={loadingPedidos}>
-                  <option value="">{loadingPedidos ? 'Cargando...' : 'Sin pedido'}</option>
-                  {pedidosDisponibles.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      #{p.id} — {p.origen} → {p.destino}
-                    </option>
-                  ))}
-                  {!loadingPedidos && pedidosDisponibles.length === 0 && (
-                    <option value="" disabled>Sin pedidos disponibles</option>
-                  )}
-                </Select>
-              ) : (
-                <Select disabled><option value="">Primero seleccione un cliente</option></Select>
-              )}
-            </FormField>
+            {!editingFactura && (
+              <FormField label="Pedido relacionado">
+                {clienteIdNum > 0 ? (
+                  <Select {...register('pedidoId')} disabled={loadingPedidos}>
+                    <option value="">{loadingPedidos ? 'Cargando...' : 'Sin pedido'}</option>
+                    {pedidosDisponibles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        #{p.id} — {p.origen} → {p.destino}
+                      </option>
+                    ))}
+                    {!loadingPedidos && pedidosDisponibles.length === 0 && (
+                      <option value="" disabled>Sin pedidos disponibles</option>
+                    )}
+                  </Select>
+                ) : (
+                  <Select disabled><option value="">Primero seleccione un cliente</option></Select>
+                )}
+              </FormField>
+            )}
             <FormField label="Guía de referencia" error={errors.guiaReferencia?.message}>
               <Input placeholder="Número de guía" {...register('guiaReferencia')} />
             </FormField>
@@ -1337,12 +1446,12 @@ export default function FacturacionPage() {
             <Button
               variant="secondary"
               type="button"
-              onClick={() => { setShowForm(false); reset(); setXmlDetraccionPct(null); }}
+              onClick={() => { setShowForm(false); setEditingFactura(null); reset(); setXmlDetraccionPct(null); }}
             >
               Cancelar
             </Button>
-            <Button type="submit" loading={isSubmitting || createMutation.isPending}>
-              Emitir factura
+            <Button type="submit" loading={isSubmitting || createMutation.isPending || updateMutation.isPending}>
+              {editingFactura ? 'Guardar cambios' : 'Emitir factura'}
             </Button>
           </div>
         </form>
@@ -1598,10 +1707,15 @@ export default function FacturacionPage() {
               )}
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-border">
-              <p className="text-xs text-muted-foreground italic">
-                Las facturas emitidas no son editables (vinculadas a SUNAT)
-              </p>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              {usuario?.rol === 'ADMIN' && viewing.estado !== 'ANULADA' && (
+                <Button
+                  variant="secondary"
+                  onClick={() => { handleEditar(viewing); setViewing(null); }}
+                >
+                  <Pencil className="w-3.5 h-3.5" /> Editar
+                </Button>
+              )}
               <Button variant="secondary" onClick={() => setViewing(null)}>Cerrar</Button>
             </div>
           </div>

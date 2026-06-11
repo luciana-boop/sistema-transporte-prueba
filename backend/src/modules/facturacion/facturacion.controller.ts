@@ -181,6 +181,7 @@ export class FacturacionController {
           ...req.body,
           clienteId: parseInt(clienteId),
           pedidoId: req.body.pedidoId ? parseInt(req.body.pedidoId) : undefined,
+          correlativo: req.body.correlativo ? parseInt(req.body.correlativo) : undefined,
           subtotal: parseFloat(subtotal),
           porcentajeIgv: req.body.porcentajeIgv ? parseFloat(req.body.porcentajeIgv) : undefined,
           diasCredito: req.body.diasCredito ? parseInt(req.body.diasCredito) : undefined,
@@ -245,11 +246,21 @@ export class FacturacionController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      R.ok(res, await facturacionService.update(id, req.body), 'Factura actualizada');
+      const data = await facturacionService.update(id, {
+        ...req.body,
+        clienteId: req.body.clienteId !== undefined ? parseInt(req.body.clienteId) : undefined,
+        subtotal: req.body.subtotal !== undefined ? parseFloat(req.body.subtotal) : undefined,
+        porcentajeIgv: req.body.porcentajeIgv !== undefined ? parseFloat(req.body.porcentajeIgv) : undefined,
+        diasCredito: req.body.diasCredito !== undefined ? parseInt(req.body.diasCredito) : undefined,
+        porcentajeDetraccion: req.body.porcentajeDetraccion !== undefined ? parseFloat(req.body.porcentajeDetraccion) : undefined,
+        peso: req.body.peso !== undefined ? parseFloat(req.body.peso) : undefined,
+        lineas: Array.isArray(req.body.lineas) ? req.body.lineas : undefined,
+      });
+      R.ok(res, data, 'Factura actualizada');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Factura no encontrada') R.notFound(res, msg);
-      else if (msg.includes('anulada')) R.badRequest(res, msg);
+      else if (msg.includes('anulada') || msg.includes('no encontrado') || msg.includes('ya existe')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }

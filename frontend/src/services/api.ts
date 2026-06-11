@@ -136,7 +136,7 @@ export const facturacionApi = {
     api.get<ApiResponse<{ tienePdf: boolean; pdfPath: string | null; esUrl: boolean; archivoExiste: boolean }>>(`/api/facturacion/${id}/pdf-info`),
 
   crear: (data: {
-    clienteId: number; pedidoId?: number; serie?: string; subtotal: number;
+    clienteId: number; pedidoId?: number; serie?: string; correlativo?: number; subtotal: number;
     porcentajeIgv?: number; detraccion?: number; porcentajeDetraccion?: number;
     tipoCredito?: string; diasCredito?: number; guiaReferencia?: string; peso?: number; detalle?: string;
     fechaEmision: string; observaciones?: string;
@@ -149,8 +149,16 @@ export const facturacionApi = {
     api.post<ApiResponse<Factura>>('/api/facturacion/desde-xml', data),
   importacionMasivaXml: (facturas: Record<string, unknown>[]) =>
     api.post<ApiResponse<{ creadas: number; duplicadas: number; errores: string[] }>>('/api/facturacion/importacion-masiva-xml', { facturas }),
-  actualizar: (id: number, data: { observaciones?: string; fechaVencimiento?: string; detalle?: string; estadoSunat?: string }) =>
-    api.put<ApiResponse<Factura>>(`/api/facturacion/${id}`, data),
+  actualizar: (id: number, data: {
+    clienteId?: number; subtotal?: number; porcentajeIgv?: number; detraccion?: number;
+    porcentajeDetraccion?: number; tipoCredito?: string; diasCredito?: number;
+    guiaReferencia?: string; peso?: number; detalle?: string; fechaEmision?: string;
+    fechaVencimiento?: string; observaciones?: string; estadoSunat?: string;
+    lineas?: Array<{
+      orden?: number; cantidad: number; unidadMedida?: string; codigo?: string;
+      descripcion: string; valorUnitario: number; importe: number;
+    }>;
+  }) => api.put<ApiResponse<Factura>>(`/api/facturacion/${id}`, data),
   anular: (id: number) => api.patch<ApiResponse<Factura>>(`/api/facturacion/${id}/anular`, {}),
   eliminar: (id: number) => api.delete<ApiResponse<null>>(`/api/facturacion/${id}`),
 };

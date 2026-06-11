@@ -23,6 +23,10 @@ export interface CreateFacturaDto {
   pedidoId?: number;
   clienteId: number;
   serie?: string;
+  // Correlativo explícito (ej. tomado del XML SUNAT importado). Si se indica
+  // y no está registrado, se usa tal cual; si ya existe, se rechaza la
+  // creación (ver create()). Si no se indica, se asigna automáticamente.
+  correlativo?: number;
   subtotal: number;
   porcentajeIgv?: number;
   detraccion?: number;
@@ -42,13 +46,24 @@ export interface CreateFacturaDto {
 }
 
 export interface UpdateFacturaDto {
+  clienteId?: number;
+  subtotal?: number;
+  porcentajeIgv?: number;
+  detraccion?: number;
+  porcentajeDetraccion?: number;
+  tipoCredito?: string;
+  diasCredito?: number;
+  guiaReferencia?: string;
+  peso?: number;
   observaciones?: string;
+  fechaEmision?: string;
   fechaVencimiento?: string;
   detalle?: string;
   xmlPath?: string;
   pdfPath?: string;
   estadoSunat?: string;
   cdrPath?: string;
+  lineas?: LineaFacturaDto[];
 }
 
 // ─── MAPEO TIPO CRÉDITO → DÍAS ────────────────────────────────────────────────
@@ -221,7 +236,10 @@ export class FacturacionService {
     }
 
     const serie = (dto.serie || 'F001').toUpperCase();
-    const correlativo = await this.getNextCorrelativo(serie);
+    // Si se indica un correlativo explícito (ej. desde un XML importado), se
+    // respeta ese número en vez de asignar el siguiente de la secuencia.
+    const correlativoManual = dto.correlativo != null;
+    const correlativo = correlativoManual ? dto.correlativo! : await this.getNextCorrelativo(serie);
     const numeroFactura = `${serie}-${String(correlativo).padStart(5, '0')}`;
 
     const existe = await prisma.factura.findUnique({ where: { numeroFactura } });
@@ -296,10 +314,14 @@ export class FacturacionService {
         include: { lineas: true },
       });
 
-      await tx.serieFacturacion.updateMany({
-        where: { serie },
-        data: { correlativoActual: { increment: 1 } },
-      });
+      // El correlativo manual (importado desde XML) no consume la secuencia
+      // automática de la serie.
+      if (!correlativoManual) {
+        await tx.serieFacturacion.updateMany({
+          where: { serie },
+          data: { correlativoActual: { increment: 1 } },
+        });
+      }
 
       if (dto.pedidoId) {
         await tx.pedido.update({
@@ -358,15 +380,105 @@ export class FacturacionService {
     });
   }
 
+  // Las facturas no anuladas son editables: no hay integración con SUNAT que
+  // las "bloquee" una vez emitidas (ver comentario en getPdfPath).
   async update(id: number, dto: UpdateFacturaDto) {
     const factura = await this.findById(id);
     if (factura.estado === EstadoFactura.ANULADA) throw new Error('No se puede modificar una factura anulada');
-    return prisma.factura.update({
-      where: { id },
-      data: {
-        ...dto,
-        fechaVencimiento: dto.fechaVencimiento ? new Date(dto.fechaVencimiento) : undefined,
-      },
+
+    if (dto.clienteId) {
+      const cliente = await prisma.cliente.findUnique({ where: { id: dto.clienteId } });
+      if (!cliente) throw new Error('Cliente no encontrado');
+    }
+
+    const data: any = {
+      clienteId: dto.clienteId,
+      observaciones: dto.observaciones,
+      detalle: dto.detalle,
+      xmlPath: dto.xmlPath,
+      pdfPath: dto.pdfPath,
+      estadoSunat: dto.estadoSunat,
+      cdrPath: dto.cdrPath,
+      guiaReferencia: dto.guiaReferencia,
+      peso: dto.peso,
+      tipoCredito: dto.tipoCredito,
+      diasCredito: dto.diasCredito,
+    };
+
+    const fechaEmision = dto.fechaEmision ? new Date(dto.fechaEmision) : undefined;
+    if (fechaEmision) data.fechaEmision = fechaEmision;
+
+    if (dto.fechaVencimiento) {
+      data.fechaVencimiento = new Date(dto.fechaVencimiento);
+    } else if (fechaEmision || dto.tipoCredito !== undefined || dto.diasCredito !== undefined) {
+      data.fechaVencimiento = calcularFechaVencimiento(
+        fechaEmision ?? factura.fechaEmision,
+        dto.tipoCredito ?? factura.tipoCredito ?? undefined,
+        dto.diasCredito ?? factura.diasCredito ?? undefined,
+      );
+    }
+
+    // Recalcular montos si cambian las líneas, el % de IGV o la detracción
+    let lineas: LineaFacturaDto[] | undefined;
+    if (dto.lineas !== undefined || dto.porcentajeIgv !== undefined || dto.porcentajeDetraccion !== undefined || dto.subtotal !== undefined) {
+      lineas = dto.lineas ?? factura.lineas.map((l: any) => ({
+        orden: l.orden,
+        cantidad: Number(l.cantidad),
+        unidadMedida: l.unidadMedida,
+        codigo: l.codigo ?? undefined,
+        descripcion: l.descripcion,
+        valorUnitario: Number(l.valorUnitario),
+        importe: Number(l.importe),
+      }));
+
+      const porcentaje = dto.porcentajeIgv ?? Number(factura.porcentajeIgv);
+      const total = lineas.length > 0
+        ? Math.round(lineas.reduce((s, l) => s + l.importe, 0) * 100) / 100
+        : Math.round((dto.subtotal ?? Number(factura.subtotal)) * 100) / 100;
+      const divisorIgv = 1 + porcentaje / 100;
+      const subtotal = Math.round((total / divisorIgv) * 100) / 100;
+      const igv = Math.round((total - subtotal) * 100) / 100;
+
+      data.porcentajeIgv = porcentaje;
+      data.subtotal = subtotal;
+      data.igv = igv;
+      data.total = total;
+
+      const porcentajeDetraccion = dto.porcentajeDetraccion ?? (factura.porcentajeDetraccion != null ? Number(factura.porcentajeDetraccion) : undefined);
+      if (porcentajeDetraccion && total > 0) {
+        data.porcentajeDetraccion = porcentajeDetraccion;
+        data.montoDetraccion = Math.round(total * porcentajeDetraccion / 100 * 100) / 100;
+      } else {
+        data.porcentajeDetraccion = null;
+        data.montoDetraccion = null;
+      }
+    }
+    if (dto.detraccion !== undefined) data.detraccion = dto.detraccion;
+
+    return prisma.$transaction(async (tx: any) => {
+      if (lineas) {
+        await tx.facturaDetalle.deleteMany({ where: { facturaId: id } });
+      }
+      return tx.factura.update({
+        where: { id },
+        data: {
+          ...data,
+          lineas: lineas ? {
+            createMany: {
+              data: lineas.map((l, idx) => ({
+                orden: l.orden ?? idx,
+                cantidad: l.cantidad,
+                unidadMedida: l.unidadMedida ?? 'NIU',
+                codigo: l.codigo || null,
+                descripcion: l.descripcion,
+                valorUnitario: l.valorUnitario,
+                importe: l.importe,
+              })),
+            },
+          } : undefined,
+        },
+        include: { lineas: true },
+      });
     });
   }
 
