@@ -2,13 +2,19 @@
 
 const apiOrigin = process.env.NEXT_PUBLIC_API_URL || 'https://sistema-transporte-prueba-production.up.railway.app';
 
+// Nota sobre 'unsafe-inline' en script-src/style-src:
+// Next.js (App Router) con renderizado estático embebe scripts de hidratación
+// inline (__next_f) en el HTML pre-generado. Una CSP basada en nonce requiere
+// que TODAS las rutas se rendericen dinámicamente (force-dynamic), lo que
+// eliminaría el cacheo estático de página completa en Vercel para todo el
+// sitio. Se acepta 'unsafe-inline' para script-src/style-src como riesgo
+// residual documentado; no se ejecuta JS de terceros (no hay scripts de
+// analytics/ads) y la API solo acepta el origen propio (connect-src).
 const csp = [
   "default-src 'self'",
-  // 'unsafe-inline' requerido por estilos/scripts inline de Next.js;
-  // 'unsafe-eval' solo en desarrollo (Fast Refresh).
-  `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV !== 'production' ? " 'unsafe-eval'" : ''}`,
+  "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https:",
+  "img-src 'self' data:",
   "font-src 'self' data:",
   `connect-src 'self' ${apiOrigin}`,
   "frame-ancestors 'none'",
