@@ -38,6 +38,11 @@ export const useAuthStore = create<AuthStore>()(
     }),
     {
       name: 'auth-storage',
+      // Nota de seguridad: el JWT de sesión NUNCA se persiste aquí, vive
+      // únicamente en una cookie httpOnly. csrfToken no es un secreto de
+      // autenticación (ver backend/src/middleware/csrf.middleware.ts,
+      // patrón double-submit cookie), por lo que es seguro guardarlo en
+      // localStorage junto con el perfil del usuario.
       partialize: (state) => ({
         usuario: state.usuario,
         isAuthenticated: state.isAuthenticated,

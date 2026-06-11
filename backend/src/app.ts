@@ -29,6 +29,9 @@ import { verificarCsrf }   from './middleware/csrf.middleware';
 
 const app = express();
 
+// No revelar el framework subyacente (mitiga reconocimiento por parte de un atacante).
+app.disable('x-powered-by');
+
 // ── Seguridad: headers HTTP defensivos ──────────────────────────────────────
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -41,6 +44,12 @@ app.use((_req, res, next) => {
   );
   // HSTS: fuerza HTTPS por 1 año (solo relevante si el servidor usa TLS)
   res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  // CSP: el backend solo sirve JSON (no HTML de usuario), por lo que se
+  // puede aplicar la política más restrictiva posible.
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+  );
   next();
 });
 
@@ -75,7 +84,9 @@ app.use(cors({
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
 }));
 
 app.use(express.json({ limit: '20mb' }));

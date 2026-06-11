@@ -20,6 +20,10 @@ export class AuthController {
 
       const { token, csrfToken, usuario } = await authService.login({ email, password });
 
+      // SameSite=None es necesario porque frontend (Vercel) y backend (Railway)
+      // son dominios distintos (cookie cross-site). Esto desactiva las
+      // protecciones CSRF nativas del navegador, por lo que la mitigación
+      // recae en el middleware `verificarCsrf` (patrón double-submit cookie).
       res.cookie('token', token, {
         httpOnly: true,
         secure: esProduccion,
@@ -28,8 +32,10 @@ export class AuthController {
         path: '/',
       });
 
-      // Cookie legible por JS: el frontend la reenvía como header X-CSRF-Token
-      // en mutaciones (patrón double-submit cookie).
+      // Cookie legible por JS (httpOnly: false es INTENCIONAL): el frontend la
+      // reenvía como header X-CSRF-Token en mutaciones (patrón double-submit
+      // cookie). No es un secreto de autenticación — su única función es
+      // probar same-origin, ya que un sitio atacante no puede leerla.
       res.cookie('csrf_token', csrfToken, {
         httpOnly: false,
         secure: esProduccion,
