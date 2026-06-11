@@ -47,6 +47,9 @@ export interface CreateFacturaDto {
 
 export interface UpdateFacturaDto {
   clienteId?: number;
+  // Pedido relacionado: number para asociar/cambiar, null para quitar.
+  // undefined = no modificar el pedido actual.
+  pedidoId?: number | null;
   subtotal?: number;
   porcentajeIgv?: number;
   detraccion?: number;
@@ -391,6 +394,33 @@ export class FacturacionService {
       if (!cliente) throw new Error('Cliente no encontrado');
     }
 
+    // Cambio de pedido relacionado: validar el nuevo pedido y preparar el
+    // ajuste de estados (ACTIVO ↔ FACTURADO) dentro de la transacción.
+    let pedidoChange: { oldPedidoId: number | null; newPedidoId: number | null } | undefined;
+    if (dto.pedidoId !== undefined && dto.pedidoId !== factura.pedidoId) {
+      const targetClienteId = dto.clienteId ?? factura.clienteId;
+      if (dto.pedidoId) {
+        const pedido = await prisma.pedido.findUnique({
+          where: { id: dto.pedidoId },
+          include: {
+            facturas: {
+              where: { estado: { not: 'ANULADA' }, id: { not: id } },
+              select: { id: true, numeroFactura: true },
+            },
+          },
+        });
+        if (!pedido) throw new Error('El pedido indicado no existe');
+        if (pedido.clienteId !== targetClienteId) {
+          throw new Error('El pedido no pertenece al cliente seleccionado');
+        }
+        if (pedido.estado === 'ANULADO') throw new Error('No se puede facturar un pedido anulado');
+        if (pedido.facturas.length > 0) {
+          throw new Error(`El pedido ya está facturado (${pedido.facturas[0].numeroFactura}).`);
+        }
+      }
+      pedidoChange = { oldPedidoId: factura.pedidoId, newPedidoId: dto.pedidoId };
+    }
+
     const data: any = {
       clienteId: dto.clienteId,
       observaciones: dto.observaciones,
@@ -454,11 +484,26 @@ export class FacturacionService {
       }
     }
     if (dto.detraccion !== undefined) data.detraccion = dto.detraccion;
+    if (pedidoChange) data.pedidoId = pedidoChange.newPedidoId;
 
     return prisma.$transaction(async (tx: any) => {
       if (lineas) {
         await tx.facturaDetalle.deleteMany({ where: { facturaId: id } });
       }
+
+      if (pedidoChange?.oldPedidoId) {
+        await tx.pedido.updateMany({
+          where: { id: pedidoChange.oldPedidoId, estado: 'FACTURADO' },
+          data: { estado: 'ACTIVO' },
+        });
+      }
+      if (pedidoChange?.newPedidoId) {
+        await tx.pedido.update({
+          where: { id: pedidoChange.newPedidoId },
+          data: { estado: 'FACTURADO' },
+        });
+      }
+
       return tx.factura.update({
         where: { id },
         data: {

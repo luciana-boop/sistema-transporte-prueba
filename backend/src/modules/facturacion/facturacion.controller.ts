@@ -249,6 +249,7 @@ export class FacturacionController {
       const data = await facturacionService.update(id, {
         ...req.body,
         clienteId: req.body.clienteId !== undefined ? parseInt(req.body.clienteId) : undefined,
+        pedidoId: req.body.pedidoId !== undefined ? (req.body.pedidoId ? parseInt(req.body.pedidoId) : null) : undefined,
         subtotal: req.body.subtotal !== undefined ? parseFloat(req.body.subtotal) : undefined,
         porcentajeIgv: req.body.porcentajeIgv !== undefined ? parseFloat(req.body.porcentajeIgv) : undefined,
         diasCredito: req.body.diasCredito !== undefined ? parseInt(req.body.diasCredito) : undefined,
@@ -260,7 +261,10 @@ export class FacturacionController {
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Factura no encontrada') R.notFound(res, msg);
-      else if (msg.includes('anulada') || msg.includes('no encontrado') || msg.includes('ya existe')) R.badRequest(res, msg);
+      else if (
+        msg.includes('anulada') || msg.includes('no encontrado') || msg.includes('ya existe') ||
+        msg.includes('no existe') || msg.includes('no pertenece') || msg.includes('facturado')
+      ) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }

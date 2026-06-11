@@ -150,7 +150,7 @@ export const facturacionApi = {
   importacionMasivaXml: (facturas: Record<string, unknown>[]) =>
     api.post<ApiResponse<{ creadas: number; duplicadas: number; errores: string[] }>>('/api/facturacion/importacion-masiva-xml', { facturas }),
   actualizar: (id: number, data: {
-    clienteId?: number; subtotal?: number; porcentajeIgv?: number; detraccion?: number;
+    clienteId?: number; pedidoId?: number | null; subtotal?: number; porcentajeIgv?: number; detraccion?: number;
     porcentajeDetraccion?: number; tipoCredito?: string; diasCredito?: number;
     guiaReferencia?: string; peso?: number; detalle?: string; fechaEmision?: string;
     fechaVencimiento?: string; observaciones?: string; estadoSunat?: string;

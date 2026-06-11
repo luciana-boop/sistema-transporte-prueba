@@ -391,6 +391,9 @@ export default function FacturacionPage() {
   } | null>(null);
   const xmlMasivoRef = useRef<HTMLInputElement>(null);
   const xmlSingleRef = useRef<HTMLInputElement>(null);
+  // Evita que el efecto de "limpiar pedido al cambiar cliente" borre los
+  // valores recién cargados al abrir el formulario de edición (ver más abajo).
+  const skipClienteEffectRef = useRef(false);
 
   // ─── QUERIES ─────────────────────────────────────────────────────────────
   const { data: facturasRaw = [], isLoading } = useQuery({
@@ -490,10 +493,28 @@ export default function FacturacionPage() {
     enabled: clienteIdNum > 0,
   });
 
+  // Al editar, el pedido ya vinculado a esta factura no aparece en
+  // "disponibles" (está FACTURADO), así que se agrega a la lista para que
+  // siga siendo seleccionable (p.ej. para no perder la asociación).
+  const pedidosParaSelect = (() => {
+    const pedidoActual = editingFactura?.pedido;
+    if (!pedidoActual || pedidosDisponibles.some((p) => p.id === pedidoActual.id)) {
+      return pedidosDisponibles;
+    }
+    return [pedidoActual, ...pedidosDisponibles];
+  })();
+
   // Limpiar pedido al cambiar cliente + heredar días de crédito del cliente
   // (el cliente guarda su condición de pago como enum condicionPago, que se
   // traduce a la opción "Tipo crédito" — de ahí se derivan los días).
+  // Al abrir el formulario de edición se llama a reset() con el clienteId de
+  // la factura, lo que también dispara este efecto — skipClienteEffectRef
+  // evita que se borren pedidoId/tipoCredito recién cargados en ese caso.
   useEffect(() => {
+    if (skipClienteEffectRef.current) {
+      skipClienteEffectRef.current = false;
+      return;
+    }
     setValue('pedidoId', '', { shouldValidate: false });
     if (clienteIdVal) {
       const cliente = (clientes as any[]).find((c: any) => String(c.id) === clienteIdVal);
@@ -604,6 +625,7 @@ export default function FacturacionPage() {
 
       return facturacionApi.actualizar(id, {
         clienteId:            parseInt(d.clienteId),
+        pedidoId:             d.pedidoId ? parseInt(d.pedidoId) : null,
         porcentajeIgv:        pctIgvConfig,
         porcentajeDetraccion: d.aplicarDetraccion ? pctDetraccionConfig : 0,
         tipoCredito:          d.tipoCredito || undefined,
@@ -623,6 +645,7 @@ export default function FacturacionPage() {
       reset();
       setXmlDetraccionPct(null);
       invalidate();
+      qc.invalidateQueries({ queryKey: ['pedidos', 'disponibles'] });
     },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
@@ -630,6 +653,7 @@ export default function FacturacionPage() {
   // Carga los datos de una factura existente en el formulario para editarla.
   const handleEditar = (f: any) => {
     setEditingFactura(f);
+    skipClienteEffectRef.current = true;
     setXmlDetraccionPct(f.porcentajeDetraccion != null ? Number(f.porcentajeDetraccion) : null);
     reset({
       clienteId: String(f.clienteId ?? f.cliente?.id ?? ''),
@@ -1131,25 +1155,23 @@ export default function FacturacionPage() {
 
           {/* Pedido + Guía */}
           <div className="grid grid-cols-2 gap-3">
-            {!editingFactura && (
-              <FormField label="Pedido relacionado">
-                {clienteIdNum > 0 ? (
-                  <Select {...register('pedidoId')} disabled={loadingPedidos}>
-                    <option value="">{loadingPedidos ? 'Cargando...' : 'Sin pedido'}</option>
-                    {pedidosDisponibles.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        #{p.id} — {p.origen} → {p.destino}
-                      </option>
-                    ))}
-                    {!loadingPedidos && pedidosDisponibles.length === 0 && (
-                      <option value="" disabled>Sin pedidos disponibles</option>
-                    )}
-                  </Select>
-                ) : (
-                  <Select disabled><option value="">Primero seleccione un cliente</option></Select>
-                )}
-              </FormField>
-            )}
+            <FormField label="Pedido relacionado">
+              {clienteIdNum > 0 ? (
+                <Select {...register('pedidoId')} disabled={loadingPedidos}>
+                  <option value="">{loadingPedidos ? 'Cargando...' : 'Sin pedido'}</option>
+                  {pedidosParaSelect.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      #{p.id} — {p.origen} → {p.destino}
+                    </option>
+                  ))}
+                  {!loadingPedidos && pedidosParaSelect.length === 0 && (
+                    <option value="" disabled>Sin pedidos disponibles</option>
+                  )}
+                </Select>
+              ) : (
+                <Select disabled><option value="">Primero seleccione un cliente</option></Select>
+              )}
+            </FormField>
             <FormField label="Guía de referencia" error={errors.guiaReferencia?.message}>
               <Input placeholder="Número de guía" {...register('guiaReferencia')} />
             </FormField>
