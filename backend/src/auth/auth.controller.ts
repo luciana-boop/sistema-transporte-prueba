@@ -20,7 +20,7 @@ export class AuthController {
 
       const { token, csrfToken, usuario } = await authService.login({ email, password });
 
-      // SameSite=None es necesario porque frontend (Vercel) y backend (Railway)
+      // SameSite=None es necesario porque frontend (Vercel) y backend (Render)
       // son dominios distintos (cookie cross-site). Esto desactiva las
       // protecciones CSRF nativas del navegador, por lo que la mitigación
       // recae en el middleware `verificarCsrf` (patrón double-submit cookie).

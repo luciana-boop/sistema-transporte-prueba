@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 
-const apiOrigin = process.env.NEXT_PUBLIC_API_URL || 'https://sistema-transporte-prueba-production.up.railway.app';
+const apiOrigin = process.env.NEXT_PUBLIC_API_URL || 'https://sistema-transporte-prueba.onrender.com';
 
 // Nota sobre 'unsafe-inline' en script-src/style-src:
 // Next.js (App Router) con renderizado estático embebe scripts de hidratación
