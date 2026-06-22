@@ -30,7 +30,8 @@ export const verificarModulo = (moduloKey: ModuloKey) => {
       }
 
       next();
-    } catch {
+    } catch (error) {
+      console.error('[verificarModulo]', error);
       res.status(500).json({ success: false, error: 'Error al verificar permisos' });
     }
   };
@@ -61,7 +62,8 @@ export const verificarAccion = (accionKey: AccionKey) => {
       }
 
       next();
-    } catch {
+    } catch (error) {
+      console.error('[verificarAccion]', error);
       res.status(500).json({ success: false, error: 'Error al verificar permisos' });
     }
   };
