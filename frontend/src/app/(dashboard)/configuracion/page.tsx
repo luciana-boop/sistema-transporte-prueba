@@ -346,7 +346,7 @@ export default function ConfiguracionPage() {
     setShowModal(modal);
   };
 
-  if (usuario?.rol !== 'ADMIN') return null;
+  if (usuario?.rol !== 'ADMIN' && (modulos === null || !tieneModulo('configuracion'))) return null;
 
   return (
     <div className="page-container">
