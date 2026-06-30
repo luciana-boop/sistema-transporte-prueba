@@ -48,8 +48,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Zustand todavía leyendo localStorage, O token válido aún no confirmado.
   if (!_hasHydrated || (isAuthenticated && !isTokenVerified)) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900">
-        <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
