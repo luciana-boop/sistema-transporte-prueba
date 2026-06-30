@@ -25,6 +25,7 @@ import {
   TableSkeleton, EmptyState,
 } from '@/components/shared';
 import { useAuthStore } from '@/store/auth.store';
+import { usePermisosStore } from '@/store/permisos.store';
 import type {
   ConfigParam, SerieFacturacion, CategoriaGasto,
   ConfigAlerta, TablaMaestra, TipoVehiculoConfig,
@@ -130,6 +131,8 @@ export default function ConfiguracionPage() {
   const qc = useQueryClient();
   const router = useRouter();
   const { usuario } = useAuthStore();
+  const modulos = usePermisosStore((s) => s.modulos);
+  const tieneModulo = usePermisosStore((s) => s.tieneModulo);
   const [tab, setTab] = useState('empresa');
   const [tipoTabla, setTipoTabla] = useState('banco');
   const [showModal, setShowModal] = useState<string | null>(null);
@@ -137,8 +140,10 @@ export default function ConfiguracionPage() {
   const [formData, setFormData] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (usuario?.rol !== 'ADMIN') router.replace('/dashboard');
-  }, [usuario, router]);
+    if (usuario?.rol === 'ADMIN') return;
+    if (modulos === null) return; // esperar a que carguen los permisos
+    if (!tieneModulo('configuracion')) router.replace('/dashboard');
+  }, [usuario, modulos, tieneModulo, router]);
 
   // ── Queries ──────────────────────────────────────────────────────────────────
   const { data: parametros, isLoading: loadParams } = useQuery({

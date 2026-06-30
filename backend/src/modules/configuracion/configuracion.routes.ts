@@ -7,7 +7,7 @@
 
 import { Router } from 'express';
 import { configuracionController } from './configuracion.controller';
-import { verificarToken, soloAdmin } from '../../middleware/auth.middleware';
+import { verificarToken } from '../../middleware/auth.middleware';
 import { verificarModulo } from '../../middleware/permisos.middleware';
 
 const router = Router();
@@ -29,8 +29,8 @@ router.get(
   configuracionController.getCodigosFactura.bind(configuracionController),
 );
 
-// ── Resto de rutas: solo ADMIN ────────────────────────────────────────────────
-router.use(verificarToken, soloAdmin, verificarModulo('configuracion'));
+// ── Resto de rutas: requiere permiso de módulo (ADMIN siempre pasa) ────────────
+router.use(verificarToken, verificarModulo('configuracion'));
 
 // Inicializar defaults
 router.post('/inicializar', configuracionController.inicializar.bind(configuracionController));
