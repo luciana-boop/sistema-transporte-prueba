@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  Upload, Plus, Eye, XCircle, Link2, Unlink, FileSpreadsheet, AlertTriangle,
+  Upload, Plus, Eye, XCircle, Link2, Unlink, FileSpreadsheet, AlertTriangle, Pencil,
 } from 'lucide-react';
 import { movimientosApi, cuentasApi, clientesApi } from '@/services/api';
 import { CuentaSelector, MonedaSelector, TipoPagoSelector } from '@/components/shared/FinancialSelectors';
@@ -86,6 +86,7 @@ export default function MovimientosPage() {
       concepto: formRegistrar.concepto,
       referencia: formRegistrar.referencia || undefined,
       fecha: formRegistrar.fecha || undefined,
+      notaEgreso: tab === 'EGRESO' ? (formRegistrar.notaEgreso || undefined) : undefined,
     }),
     onSuccess: () => { toast.success('Movimiento registrado'); setShowRegistrar(false); setFormRegistrar({}); inv(); },
     onError: (e) => toast.error(getErrorMessage(e)),
@@ -95,6 +96,20 @@ export default function MovimientosPage() {
   const anularMutation = useMutation({
     mutationFn: (id: number) => movimientosApi.anular(id),
     onSuccess: () => { toast.success('Movimiento anulado'); inv(); },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  // ── Editar movimiento (N° Operación y, solo en egreso, Referencia) ───────
+  const [editandoMov, setEditandoMov] = useState<MovimientoCuenta | null>(null);
+  const [formReferencia, setFormReferencia] = useState('');
+  const [formNotaEgreso, setFormNotaEgreso] = useState('');
+  const cerrarEdicion = () => { setEditandoMov(null); setFormReferencia(''); setFormNotaEgreso(''); };
+  const editarMovimientoMutation = useMutation({
+    mutationFn: () => movimientosApi.actualizar(editandoMov!.id, {
+      referencia: formReferencia,
+      ...(editandoMov!.tipo === 'EGRESO' ? { notaEgreso: formNotaEgreso } : {}),
+    }),
+    onSuccess: () => { toast.success('Movimiento actualizado'); cerrarEdicion(); inv(); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
@@ -120,23 +135,50 @@ export default function MovimientosPage() {
   const filasValidas = filas.filter((f) => !f.error);
   const filasConError = filas.filter((f) => f.error);
 
+  const cerrarImportar = () => { setShowImportar(false); setFilas([]); setImportCuentaId(''); };
+
+  const formatoAdvertencia = (a: { motivo: string; existente?: { fecha: string; monto: number; concepto: string } }) =>
+    `• ${a.motivo}${a.existente ? ` (movimiento existente: ${formatDate(a.existente.fecha)} — ${formatCurrency(a.existente.monto)} — ${a.existente.concepto})` : ''}`;
+
   const importarMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: (vars: { filas: typeof filasValidas; confirmarDuplicados?: boolean }) => {
       if (!cuentaImport) throw new Error('Selecciona una cuenta válida');
       return movimientosApi.importarExcel({
         cuentaId: parseInt(importCuentaId),
         monedaId: cuentaImport.monedaId,
-        filas: filasValidas.map((f) => ({ fecha: f.fecha, descripcion: f.descripcion, monto: f.monto, tipo: f.tipo, referencia: f.referencia })),
+        filas: vars.filas.map((f) => ({ fecha: f.fecha, descripcion: f.descripcion, monto: f.monto, tipo: f.tipo, referencia: f.referencia })),
+        confirmarDuplicados: vars.confirmarDuplicados,
       });
     },
-    onSuccess: (r) => {
-      const { creados, errores } = r.data.data;
-      if (errores.length > 0) {
-        toast.warning(`${creados} movimiento(s) importado(s). ${errores.length} fila(s) con error.`);
-      } else {
-        toast.success(`${creados} movimiento(s) importado(s) correctamente`);
+    onSuccess: (r, vars) => {
+      const { creados, errores, bloqueados, advertencias } = r.data.data;
+
+      if (bloqueados.length > 0) {
+        toast.error(
+          `${bloqueados.length} fila(s) no se importaron por N° de operación duplicado el mismo día:\n${bloqueados.map(formatoAdvertencia).join('\n')}`,
+          { duration: 10000 },
+        );
       }
-      setShowImportar(false); setFilas([]); setImportCuentaId('');
+      if (errores.length > 0) {
+        toast.warning(`${errores.length} fila(s) con error, no se importaron.`);
+      }
+
+      if (advertencias.length > 0 && !vars.confirmarDuplicados) {
+        const mensaje =
+          `Los siguientes N° de operación ya existen pero en otra fecha (esto puede ser válido si el banco reutiliza números):\n\n` +
+          advertencias.map(formatoAdvertencia).join('\n') +
+          `\n\n¿Confirmas que quieres importarlos de todas formas?`;
+        if (confirm(mensaje)) {
+          const filasAdvertencia = advertencias.map((a) => vars.filas[a.fila - 1]);
+          importarMutation.mutate({ filas: filasAdvertencia, confirmarDuplicados: true });
+        }
+      }
+
+      if (creados > 0) toast.success(`${creados} movimiento(s) importado(s) correctamente`);
+
+      if (advertencias.length === 0 || vars.confirmarDuplicados) {
+        cerrarImportar();
+      }
       inv();
     },
     onError: (e) => toast.error(getErrorMessage(e)),
@@ -237,12 +279,14 @@ export default function MovimientosPage() {
       </div>
 
       {/* Tabla */}
-      {isLoading ? <TableSkeleton rows={8} cols={tab === 'INGRESO' ? 6 : 5} /> : (
+      {isLoading ? <TableSkeleton rows={8} cols={7} /> : (
         <Table>
           <thead>
             <tr>
               <Th>Fecha</Th>
               <Th>Concepto</Th>
+              <Th>N° Operación</Th>
+              {tab === 'EGRESO' && <Th>Referencia</Th>}
               <Th>Cuenta</Th>
               <Th className="text-right">Monto</Th>
               {tab === 'INGRESO' && <Th>Cobranza</Th>}
@@ -254,6 +298,8 @@ export default function MovimientosPage() {
               <Tr key={m.id}>
                 <Td><span className="text-sm">{formatDate(m.fecha)}</span></Td>
                 <Td><span className="text-sm font-medium">{m.concepto}</span>{m.anulado && <Badge value="ANULADA" label="Anulado" />}</Td>
+                <Td><span className="text-xs text-muted-foreground">{m.referencia || '—'}</span></Td>
+                {tab === 'EGRESO' && <Td><span className="text-xs text-muted-foreground">{m.notaEgreso || '—'}</span></Td>}
                 <Td><span className="text-xs text-muted-foreground">{m.cuenta?.nombre}</span></Td>
                 <Td className="text-right">
                   <span className={`font-semibold ${tab === 'INGRESO' ? 'text-emerald-500' : 'text-destructive'}`}>
@@ -283,6 +329,14 @@ export default function MovimientosPage() {
                     <button onClick={() => setViewingId(m.id)} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all">
                       <Eye className="w-3.5 h-3.5" />
                     </button>
+                    {!m.anulado && (
+                      <button
+                        onClick={() => { setEditandoMov(m); setFormReferencia(m.referencia ?? ''); setFormNotaEgreso(m.notaEgreso ?? ''); }}
+                        className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     {esAdmin && !m.anulado && (
                       <button
                         onClick={() => { if (confirm('¿Anular este movimiento? Se revertirá el saldo de la cuenta.')) anularMutation.mutate(m.id); }}
@@ -294,7 +348,7 @@ export default function MovimientosPage() {
                   </div>
                 </Td>
               </Tr>
-            )) : <tr><td colSpan={6}><EmptyState message={`Sin ${tab === 'INGRESO' ? 'ingresos' : 'egresos'} en el período`} /></td></tr>}
+            )) : <tr><td colSpan={7}><EmptyState message={`Sin ${tab === 'INGRESO' ? 'ingresos' : 'egresos'} en el período`} /></td></tr>}
           </tbody>
         </Table>
       )}
@@ -324,7 +378,14 @@ export default function MovimientosPage() {
           <FormField label="Método de pago">
             <TipoPagoSelector placeholder="Opcional" value={formRegistrar.tipoPagoId ?? ''} onChange={(e) => setFormRegistrar((p) => ({ ...p, tipoPagoId: e.target.value }))} />
           </FormField>
-          <FormField label="Referencia"><Input value={formRegistrar.referencia ?? ''} onChange={(e) => setFormRegistrar((p) => ({ ...p, referencia: e.target.value }))} /></FormField>
+          <FormField label="N° Operación" hint="Número de operación del banco (si aplica)">
+            <Input value={formRegistrar.referencia ?? ''} onChange={(e) => setFormRegistrar((p) => ({ ...p, referencia: e.target.value }))} />
+          </FormField>
+          {tab === 'EGRESO' && (
+            <FormField label="Referencia" hint="En qué se usó el gasto">
+              <Input value={formRegistrar.notaEgreso ?? ''} onChange={(e) => setFormRegistrar((p) => ({ ...p, notaEgreso: e.target.value }))} />
+            </FormField>
+          )}
           <FormField label="Fecha"><Input type="date" value={formRegistrar.fecha ?? ''} onChange={(e) => setFormRegistrar((p) => ({ ...p, fecha: e.target.value }))} /></FormField>
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="secondary" onClick={() => { setShowRegistrar(false); setFormRegistrar({}); }}>Cancelar</Button>
@@ -350,7 +411,7 @@ export default function MovimientosPage() {
           <FormField label="Cuenta bancaria" required hint="Los movimientos importados se aplicarán a esta cuenta">
             <CuentaSelector placeholder="Selecciona una cuenta" value={importCuentaId} onChange={(e) => setImportCuentaId(e.target.value)} />
           </FormField>
-          <FormField label="Archivo Excel" required hint="Columnas esperadas: Fecha, Descripción, Monto, Tipo (INGRESO/EGRESO)">
+          <FormField label="Archivo Excel" required hint="Extracto bancario o plantilla simple: Fecha, Descripción, Monto (el signo o una columna Tipo definen ingreso/egreso)">
             <input
               type="file"
               accept=".xlsx,.xls"
@@ -394,16 +455,37 @@ export default function MovimientosPage() {
           )}
 
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
-            <Button variant="secondary" onClick={() => { setShowImportar(false); setFilas([]); setImportCuentaId(''); }}>Cancelar</Button>
+            <Button variant="secondary" onClick={cerrarImportar}>Cancelar</Button>
             <Button
               loading={importarMutation.isPending}
               disabled={!importCuentaId || filasValidas.length === 0}
-              onClick={() => importarMutation.mutate()}
+              onClick={() => importarMutation.mutate({ filas: filasValidas })}
             >
               <FileSpreadsheet className="w-4 h-4" /> Importar {filasValidas.length || ''} movimiento(s)
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Modal: Editar movimiento */}
+      <Modal open={!!editandoMov} onClose={cerrarEdicion} title="Editar movimiento">
+        {editandoMov && (
+          <div className="flex flex-col gap-4">
+            <div className="bg-muted/50 rounded-lg p-3 text-sm text-muted-foreground">{editandoMov.concepto}</div>
+            <FormField label="N° Operación" hint="Número de operación del banco">
+              <Input value={formReferencia} onChange={(e) => setFormReferencia(e.target.value)} placeholder="Sin número de operación" />
+            </FormField>
+            {editandoMov.tipo === 'EGRESO' && (
+              <FormField label="Referencia" hint="En qué se usó el gasto (no modifica el N° de operación)">
+                <Input value={formNotaEgreso} onChange={(e) => setFormNotaEgreso(e.target.value)} placeholder="Sin referencia" />
+              </FormField>
+            )}
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
+              <Button variant="secondary" onClick={cerrarEdicion}>Cancelar</Button>
+              <Button loading={editarMovimientoMutation.isPending} onClick={() => editarMovimientoMutation.mutate()}>Guardar</Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Modal: Vincular cobranza */}
@@ -476,7 +558,8 @@ export default function MovimientosPage() {
             <Detalle label="Moneda" value={viewing.moneda?.simbolo} />
             <Detalle label="Monto" value={formatCurrency(Number(viewing.monto))} />
             <Detalle label="Método de pago" value={viewing.tipoPago?.nombre ?? '—'} />
-            <Detalle label="Referencia" value={viewing.referencia ?? '—'} />
+            <Detalle label="N° Operación" value={viewing.referencia ?? '—'} />
+            {viewing.tipo === 'EGRESO' && <Detalle label="Referencia" value={viewing.notaEgreso ?? '—'} />}
             <Detalle label="Registrado por" value={viewing.usuario?.nombre} />
             <Detalle label="Origen" value={viewing.origen} />
             <Detalle label="Estado" value={viewing.anulado ? 'Anulado' : 'Activo'} />

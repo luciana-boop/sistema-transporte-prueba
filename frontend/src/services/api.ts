@@ -171,9 +171,9 @@ export const movimientosApi = {
     api.get<ApiResponse<MovimientoCuentaDetalle & { cobranza: MovimientoCobranza | null }>>(`/api/movimientos/${id}`),
   crear: (data: {
     cuentaId: number; tipo: 'INGRESO' | 'EGRESO'; monto: number; monedaId: number;
-    tipoPagoId?: number; concepto: string; referencia?: string; fecha?: string;
+    tipoPagoId?: number; concepto: string; referencia?: string; fecha?: string; notaEgreso?: string;
   }) => api.post<ApiResponse<MovimientoCuenta>>('/api/movimientos', data),
-  actualizar: (id: number, data: { concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null }) =>
+  actualizar: (id: number, data: { concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null; notaEgreso?: string | null }) =>
     api.put<ApiResponse<MovimientoCuenta>>(`/api/movimientos/${id}`, data),
   anular: (id: number) => api.patch<ApiResponse<MovimientoCuenta>>(`/api/movimientos/${id}/anular`),
   resumen: (params?: { desde?: string; hasta?: string; cuentaId?: number }) =>
@@ -181,7 +181,13 @@ export const movimientosApi = {
   importarExcel: (data: {
     cuentaId: number; monedaId: number;
     filas: Array<{ fecha: string; descripcion: string; monto: number; tipo: 'INGRESO' | 'EGRESO'; referencia?: string }>;
-  }) => api.post<ApiResponse<{ creados: number; errores: Array<{ fila: number; motivo: string }> }>>('/api/movimientos/importar', data),
+    confirmarDuplicados?: boolean;
+  }) => api.post<ApiResponse<{
+    creados: number;
+    errores: Array<{ fila: number; motivo: string }>;
+    bloqueados: Array<{ fila: number; motivo: string; existente?: { fecha: string; monto: number; concepto: string } }>;
+    advertencias: Array<{ fila: number; motivo: string; existente?: { fecha: string; monto: number; concepto: string } }>;
+  }>>('/api/movimientos/importar', data, { timeout: 60000 }),
   facturasPorCliente: (clienteId: number) =>
     api.get<ApiResponse<Array<{
       id: number; numeroFactura: string; total: number; pagado: number;

@@ -462,7 +462,10 @@ export interface MovimientoCuenta {
   monedaId: number;
   tipoPagoId?: number;
   concepto: string;
+  /** N° de operación del banco (no confundir con `notaEgreso`) */
   referencia?: string;
+  /** Módulo Movimientos: nota libre solo para egresos — en qué se usó el gasto */
+  notaEgreso?: string | null;
   fecha: string;
   anulado: boolean;
   cuenta: { id: number; nombre: string; tipoCuenta: string };

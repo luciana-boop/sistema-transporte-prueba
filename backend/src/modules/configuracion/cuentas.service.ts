@@ -40,6 +40,8 @@ export interface MovimientoInternoDto {
   fecha?: string;
   liquidacionId?: number;
   origen?: string;
+  /** Solo aplica a egresos: nota libre de en qué se usó el gasto (no confundir con `referencia`, el N° de operación bancario) */
+  notaEgreso?: string;
 }
 
 export class CuentasService {
@@ -288,12 +290,15 @@ export class CuentasService {
 
   // ── P7: edición controlada (no afecta saldo: monto/tipo/cuenta no editables) ─
   async actualizarMovimiento(id: number, dto: {
-    concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null;
+    concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null; notaEgreso?: string | null;
   }) {
     const mov = await prisma.movimientoCuentaV2.findUnique({ where: { id } });
     if (!mov) throw new Error('Movimiento no encontrado');
     if (mov.anulado) throw new Error('No se puede editar un movimiento anulado');
     if (mov.referencia?.startsWith('REV-MOV-')) throw new Error('No se puede editar un movimiento de reverso');
+    if (dto.notaEgreso !== undefined && mov.tipo !== 'EGRESO') {
+      throw new Error('La referencia (nota del gasto) solo aplica a egresos');
+    }
 
     return prisma.movimientoCuentaV2.update({
       where: { id },
@@ -302,6 +307,7 @@ export class CuentasService {
         ...(dto.referencia !== undefined && { referencia: dto.referencia || null }),
         ...(dto.fecha !== undefined && { fecha: new Date(dto.fecha) }),
         ...(dto.tipoPagoId !== undefined && { tipoPagoId: dto.tipoPagoId || null }),
+        ...(dto.notaEgreso !== undefined && { notaEgreso: dto.notaEgreso || null }),
       },
       include: {
         cuenta: { select: { id: true, nombre: true, tipoCuenta: true } },
@@ -359,6 +365,7 @@ export class CuentasService {
         usuarioId: dto.usuarioId,
         liquidacionId: dto.liquidacionId ?? null,
         origen: dto.origen ?? 'MANUAL',
+        notaEgreso: dto.tipo === 'EGRESO' ? (dto.notaEgreso ?? null) : null,
         fecha: dto.fecha ? new Date(dto.fecha) : new Date(),
       },
     });
@@ -428,7 +435,7 @@ export class CuentasService {
     cuentaId: number; tipo: 'INGRESO' | 'EGRESO';
     monto: number; monedaId: number; tipoPagoId?: number;
     concepto: string; referencia?: string;
-    usuarioId: number; fecha?: string; origen?: string;
+    usuarioId: number; fecha?: string; origen?: string; notaEgreso?: string;
   }) {
     const cuenta = await prisma.cuentaDinero.findUnique({ where: { id: dto.cuentaId } });
     if (!cuenta) throw new Error('Cuenta no encontrada');

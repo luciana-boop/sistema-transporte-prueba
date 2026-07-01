@@ -581,6 +581,9 @@ model MovimientoCuentaV2 {
   anulado          Boolean  @default(false)
   // Módulo Movimientos: distingue movimientos creados a mano de los importados de un Excel bancario
   origen           String   @default("MANUAL") // MANUAL | EXCEL
+  // Módulo Movimientos: nota libre solo para egresos — describe en qué se usó el
+  // gasto, independiente de `referencia` (N° de operación bancario, no se toca).
+  notaEgreso       String?  @map("nota_egreso")
   fecha            DateTime @default(now())
   creadoEn         DateTime @default(now()) @map("creado_en")
 

@@ -26,7 +26,7 @@ export class MovimientosController {
 
   async crear(req: Request, res: Response): Promise<void> {
     try {
-      const { cuentaId, tipo, monto, monedaId, tipoPagoId, concepto, referencia, fecha } = req.body;
+      const { cuentaId, tipo, monto, monedaId, tipoPagoId, concepto, referencia, fecha, notaEgreso } = req.body;
       if (!cuentaId || !tipo || !monto || !monedaId || !concepto) {
         R.badRequest(res, 'cuentaId, tipo, monto, monedaId y concepto son requeridos'); return;
       }
@@ -42,6 +42,7 @@ export class MovimientosController {
         concepto,
         referencia,
         fecha,
+        notaEgreso: tipo === 'EGRESO' ? notaEgreso : undefined,
       }, req.usuario!.id);
       R.created(res, data, 'Movimiento registrado');
     } catch (e) {
@@ -55,12 +56,12 @@ export class MovimientosController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      const { concepto, referencia, fecha, tipoPagoId } = req.body;
-      R.ok(res, await movimientosService.actualizar(id, { concepto, referencia, fecha, tipoPagoId }), 'Movimiento actualizado');
+      const { concepto, referencia, fecha, tipoPagoId, notaEgreso } = req.body;
+      R.ok(res, await movimientosService.actualizar(id, { concepto, referencia, fecha, tipoPagoId, notaEgreso }), 'Movimiento actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Movimiento no encontrado') R.notFound(res, msg);
-      else if (msg.includes('anulado') || msg.includes('reverso')) R.badRequest(res, msg);
+      else if (msg.includes('anulado') || msg.includes('reverso') || msg.includes('solo aplica')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }
@@ -87,7 +88,7 @@ export class MovimientosController {
 
   async importar(req: Request, res: Response): Promise<void> {
     try {
-      const { cuentaId, monedaId, filas } = req.body;
+      const { cuentaId, monedaId, filas, confirmarDuplicados } = req.body;
       if (!cuentaId || !monedaId || !Array.isArray(filas) || filas.length === 0) {
         R.badRequest(res, 'cuentaId, monedaId y filas (no vacío) son requeridos'); return;
       }
@@ -95,6 +96,7 @@ export class MovimientosController {
         cuentaId: parseInt(cuentaId),
         monedaId: parseInt(monedaId),
         filas,
+        confirmarDuplicados: confirmarDuplicados === true,
       }, req.usuario!.id);
       R.created(res, data, `Importación completada: ${data.creados} movimiento(s) creado(s)`);
     } catch (e) { R.serverError(res, e); }

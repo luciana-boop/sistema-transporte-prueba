@@ -18,20 +18,23 @@ const crearValidations = [
   body('monedaId').isInt({ gt: 0 }).withMessage('monedaId inválido'),
   body('tipoPagoId').optional({ values: 'falsy' }).isInt({ gt: 0 }).withMessage('tipoPagoId inválido'),
   body('concepto').isString().trim().isLength({ min: 1, max: 255 }).withMessage('concepto debe tener entre 1 y 255 caracteres'),
-  body('referencia').optional({ values: 'falsy' }).isString().isLength({ max: 255 }).withMessage('referencia inválida'),
+  body('referencia').optional({ values: 'falsy' }).isString().isLength({ max: 255 }).withMessage('N° de operación inválido'),
   body('fecha').optional({ values: 'falsy' }).isISO8601().withMessage('fecha inválida'),
+  body('notaEgreso').optional({ values: 'falsy' }).isString().isLength({ max: 500 }).withMessage('referencia inválida'),
 ];
 
 const actualizarValidations = [
   body('concepto').optional().isString().trim().isLength({ min: 1, max: 255 }).withMessage('concepto debe tener entre 1 y 255 caracteres'),
-  body('referencia').optional({ values: 'falsy' }).isString().isLength({ max: 255 }).withMessage('referencia inválida'),
+  body('referencia').optional({ values: 'falsy' }).isString().isLength({ max: 255 }).withMessage('N° de operación inválido'),
   body('fecha').optional({ values: 'falsy' }).isISO8601().withMessage('fecha inválida'),
+  body('notaEgreso').optional({ nullable: true }).isString().isLength({ max: 500 }).withMessage('referencia inválida'),
 ];
 
 const importarValidations = [
   body('cuentaId').isInt({ gt: 0 }).withMessage('cuentaId inválido'),
   body('monedaId').isInt({ gt: 0 }).withMessage('monedaId inválido'),
   body('filas').isArray({ min: 1 }).withMessage('filas debe ser un arreglo no vacío'),
+  body('confirmarDuplicados').optional().isBoolean().withMessage('confirmarDuplicados inválido'),
 ];
 
 const vincularCobranzaValidations = [
