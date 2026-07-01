@@ -33,13 +33,6 @@ enum EstadoFactura {
   ANULADA
 }
 
-enum MetodoPago {
-  EFECTIVO
-  TRANSFERENCIA
-  TARJETA
-  CHEQUE
-}
-
 enum EstadoCaja {
   ABIERTA
   CERRADA
@@ -48,14 +41,6 @@ enum EstadoCaja {
 enum TipoMovimientoCaja {
   INGRESO
   EGRESO
-}
-
-enum TipoGasto {
-  COMBUSTIBLE
-  VIATICOS
-  PEAJE
-  MANTENIMIENTO
-  OTROS
 }
 
 enum CondicionPago {
@@ -80,9 +65,7 @@ model Usuario {
 
   pedidos        Pedido[]
   facturas       Factura[]
-  pagos          Pago[]
   cajas          Caja[]
-  gastos         Gasto[]
   logs           LogActividad[]
 
   permisosModulos  PermisoModulo[]
@@ -107,7 +90,7 @@ model Cliente {
 
   pedidos        Pedido[]
   facturas       Factura[]
-  pagos          Pago[]
+  pagosV2        PagoV2[]
 
   @@map("clientes")
 }
@@ -171,7 +154,7 @@ model Factura {
   pedido         Pedido?         @relation(fields: [pedidoId], references: [id])
   cliente        Cliente         @relation(fields: [clienteId], references: [id])
   usuario        Usuario         @relation(fields: [usuarioId], references: [id])
-  pagos          Pago[]
+  pagosV2        PagoV2[]
   lineas         FacturaDetalle[]
 
   @@map("facturas")
@@ -192,30 +175,6 @@ model FacturaDetalle {
   factura        Factura  @relation(fields: [facturaId], references: [id], onDelete: Cascade)
 
   @@map("factura_detalles")
-}
-
-model Pago {
-  id             Int        @id @default(autoincrement())
-  facturaId      Int        @map("factura_id")
-  clienteId      Int        @map("cliente_id")
-  usuarioId      Int        @map("usuario_id")
-  monto          Decimal    @db.Decimal(10, 2)
-  metodoPago     MetodoPago @map("metodo_pago")
-  referencia     String?
-  observaciones  String?
-  fechaPago      DateTime   @default(now()) @map("fecha_pago")
-  // Anulación lógica — no se elimina físicamente
-  anulado        Boolean    @default(false)
-  motivoAnulacion String?   @map("motivo_anulacion")
-  anuladoEn      DateTime?  @map("anulado_en")
-  creadoEn       DateTime   @default(now()) @map("creado_en")
-
-  factura        Factura    @relation(fields: [facturaId], references: [id])
-  cliente        Cliente    @relation(fields: [clienteId], references: [id])
-  usuario        Usuario    @relation(fields: [usuarioId], references: [id])
-  movimientosCaja MovimientoCaja[]
-
-  @@map("pagos")
 }
 
 model Caja {
@@ -265,29 +224,9 @@ model MovimientoCaja {
   creadoEn           DateTime           @default(now()) @map("creado_en")
 
   caja               Caja              @relation(fields: [cajaId], references: [id])
-  pago               Pago?             @relation(fields: [pagoId], references: [id])
   movimientoCuenta   MovimientoCuentaV2? @relation("MovCajaCuenta", fields: [movimientoCuentaId], references: [id])
 
   @@map("movimientos_caja")
-}
-
-model Gasto {
-  id              Int       @id @default(autoincrement())
-  // P5: el gasto ahora se asocia opcionalmente a un vehículo, no a un pedido
-  vehiculoId      Int?      @map("vehiculo_id")
-  usuarioId       Int       @map("usuario_id")
-  tipoGasto       TipoGasto @map("tipo_gasto")
-  monto           Decimal   @db.Decimal(10, 2)
-  descripcion     String
-  comprobante     String?
-  fecha           DateTime  @default(now())
-  creadoEn        DateTime  @default(now()) @map("creado_en")
-  actualizadoEn   DateTime  @updatedAt @map("actualizado_en")
-
-  vehiculo        Vehiculo? @relation(fields: [vehiculoId], references: [id])
-  usuario         Usuario   @relation(fields: [usuarioId], references: [id])
-
-  @@map("gastos")
 }
 
 model LogActividad {
@@ -353,8 +292,6 @@ model Vehiculo {
   actualizadoEn        DateTime     @updatedAt @map("actualizado_en")
 
   combustibles         Combustible[]
-  // P5: gastos asociados a este vehículo
-  gastos               Gasto[]
 
   @@map("vehiculos")
 }
@@ -488,20 +425,6 @@ model SerieFacturacion {
   actualizadoEn     DateTime @updatedAt @map("actualizado_en")
 
   @@map("series_facturacion")
-}
-
-// ─── CATEGORÍAS DE GASTO ──────────────────────────────────────────────────────
-model CategoriaGasto {
-  id            Int      @id @default(autoincrement())
-  codigo        String   @unique
-  nombre        String
-  descripcion   String?
-  activo        Boolean  @default(true)
-  esDefault     Boolean  @default(false) @map("es_default")
-  creadoEn      DateTime @default(now()) @map("creado_en")
-  actualizadoEn DateTime @updatedAt @map("actualizado_en")
-
-  @@map("categorias_gasto")
 }
 
 // ─── TABLA MAESTRA GENÉRICA ───────────────────────────────────────────────────
@@ -656,6 +579,8 @@ model MovimientoCuentaV2 {
   liquidacionId    Int?     @map("liquidacion_id")
   // P7: anulación lógica (false = activo, true = anulado; default false)
   anulado          Boolean  @default(false)
+  // Módulo Movimientos: distingue movimientos creados a mano de los importados de un Excel bancario
+  origen           String   @default("MANUAL") // MANUAL | EXCEL
   fecha            DateTime @default(now())
   creadoEn         DateTime @default(now()) @map("creado_en")
 
@@ -667,27 +592,40 @@ model MovimientoCuentaV2 {
   liquidacion      Liquidacion? @relation("LiquidacionPago", fields: [liquidacionId], references: [id])
   // Back-relation: movimientos de caja que apuntan a este movimiento de cuenta
   movimientosCaja  MovimientoCaja[] @relation("MovCajaCuenta")
+  // Módulo Movimientos: cobranza vinculada a este movimiento (solo si tipo = INGRESO)
+  cobranza         PagoV2?
 
   @@map("movimientos_cuenta_v2")
 }
 
 // ─── PAGOS V2 ─────────────────────────────────────────────────────────────────
+// Módulo Movimientos: registra la vinculación de cobranza de un ingreso importado
+// (cliente + factura, o cliente + observación libre si no aplica a ninguna factura)
 model PagoV2 {
-  id            Int      @id @default(autoincrement())
-  facturaId     Int?     @map("factura_id")
-  clienteId     Int?     @map("cliente_id")
-  usuarioId     Int      @map("usuario_id")
-  monto         Decimal  @db.Decimal(12, 2)
-  monedaId      Int      @map("moneda_id")
-  tipoPagoId    Int?     @map("tipo_pago_id")
-  referencia    String?
-  observaciones String?
-  fechaPago     DateTime @default(now()) @map("fecha_pago")
-  creadoEn      DateTime @default(now()) @map("creado_en")
+  id                 Int      @id @default(autoincrement())
+  facturaId          Int?     @map("factura_id")
+  clienteId          Int?     @map("cliente_id")
+  usuarioId          Int      @map("usuario_id")
+  monto              Decimal  @db.Decimal(12, 2)
+  monedaId           Int      @map("moneda_id")
+  tipoPagoId         Int?     @map("tipo_pago_id")
+  referencia         String?
+  observaciones      String?
+  fechaPago          DateTime @default(now()) @map("fecha_pago")
+  // Vínculo con el movimiento de cuenta (ingreso) que esta cobranza explica
+  movimientoCuentaId Int?     @unique @map("movimiento_cuenta_id")
+  // Anulación lógica — no revierte el movimiento de cuenta, solo desvincula la cobranza
+  anulado            Boolean  @default(false)
+  motivoAnulacion    String?  @map("motivo_anulacion")
+  anuladoEn          DateTime? @map("anulado_en")
+  creadoEn           DateTime @default(now()) @map("creado_en")
 
-  moneda        Moneda   @relation(fields: [monedaId], references: [id])
-  tipoPago      TipoPago? @relation(fields: [tipoPagoId], references: [id])
-  usuario       Usuario  @relation(fields: [usuarioId], references: [id])
+  factura            Factura?  @relation(fields: [facturaId], references: [id])
+  cliente            Cliente?  @relation(fields: [clienteId], references: [id])
+  moneda             Moneda   @relation(fields: [monedaId], references: [id])
+  tipoPago           TipoPago? @relation(fields: [tipoPagoId], references: [id])
+  usuario            Usuario  @relation(fields: [usuarioId], references: [id])
+  movimientoCuenta   MovimientoCuentaV2? @relation(fields: [movimientoCuentaId], references: [id])
 
   @@map("pagos_v2")
 }

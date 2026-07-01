@@ -70,10 +70,10 @@ export class ReportesController {
     } catch (e) { R.serverError(res, e); }
   }
 
-  async gastos(req: Request, res: Response): Promise<void> {
+  async egresos(req: Request, res: Response): Promise<void> {
     try {
       const { desde, hasta } = req.query as Record<string, string>;
-      const data = await reportesService.reporteGastos({ desde, hasta });
+      const data = await reportesService.reporteEgresos({ desde, hasta });
       R.ok(res, data);
     } catch (e) { R.serverError(res, e); }
   }

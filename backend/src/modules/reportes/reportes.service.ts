@@ -335,21 +335,25 @@ export class ReportesService {
     where.anulado = false;
 
     const [pagos, resumenMetodo] = await Promise.all([
-      prisma.pago.findMany({
+      prisma.pagoV2.findMany({
         where,
         orderBy: { fechaPago: 'desc' },
         include: {
           cliente: { select: { id: true, razonSocial: true } },
           factura: { select: { id: true, numeroFactura: true, total: true } },
+          tipoPago: { select: { nombre: true } },
         },
       }),
-      prisma.pago.groupBy({
-        by: ['metodoPago'],
+      prisma.pagoV2.groupBy({
+        by: ['tipoPagoId'],
         where,
         _count: true,
         _sum: { monto: true },
       }),
     ]);
+
+    const tiposPago = await prisma.tipoPago.findMany({ select: { id: true, nombre: true } });
+    const nombreTipoPago = new Map(tiposPago.map((t) => [t.id, t.nombre]));
 
     const totalCobrado = pagos.reduce((s: number, p: any) => s + Number(p.monto), 0);
 
@@ -406,7 +410,7 @@ export class ReportesService {
     return {
       pagos,
       resumenPorMetodo: resumenMetodo.map((r: any) => ({
-        metodoPago: r.metodoPago,
+        metodoPago: r.tipoPagoId ? (nombreTipoPago.get(r.tipoPagoId) ?? 'Otro') : 'Sin especificar',
         cantidad: r._count,
         total: Number(r._sum.monto || 0),
       })),
@@ -456,75 +460,30 @@ export class ReportesService {
     return { cajas: resumen, totalesGlobales };
   }
 
-  async reporteGastos(filtros: FiltroReporte) {
-    const where: any = {};
+  // Módulo Movimientos: los egresos ya no tienen categoría ni vehículo asociado,
+  // por lo que este reporte se arma directamente sobre el ledger MovimientoCuentaV2.
+  async reporteEgresos(filtros: FiltroReporte) {
+    const where: any = { tipo: 'EGRESO', anulado: false };
     if (filtros.desde || filtros.hasta) {
       where.fecha = {};
       if (filtros.desde) where.fecha.gte = new Date(filtros.desde);
       if (filtros.hasta) where.fecha.lte = new Date(filtros.hasta + 'T23:59:59');
     }
 
-    const [gastos, resumenTipo] = await Promise.all([
-      prisma.gasto.findMany({
-        where,
-        orderBy: { fecha: 'desc' },
-        include: {
-          vehiculo: { select: { id: true, placa: true, marca: true, modelo: true } },
-          usuario: { select: { id: true, nombre: true } },
-        },
-      }),
-      prisma.gasto.groupBy({
-        by: ['tipoGasto'],
-        where,
-        _count: true,
-        _sum: { monto: true },
-      }),
-    ]);
+    const egresos = await prisma.movimientoCuentaV2.findMany({
+      where,
+      orderBy: { fecha: 'desc' },
+      include: {
+        cuenta: { select: { id: true, nombre: true, tipoCuenta: true } },
+        usuario: { select: { id: true, nombre: true } },
+      },
+    });
 
-    const totalGastos = gastos.reduce((s: number, g: any) => s + Number(g.monto), 0);
-
-    // Resumen agrupado por vehículo
-    const porVehiculoMap = new Map<string, {
-      vehiculoId: number | null;
-      placa: string;
-      cantidadGastos: number;
-      totalGastado: number;
-    }>();
-
-    for (const g of gastos as any[]) {
-      // Solo agrupar gastos que tengan vehículo real — sin vehículo no aparece en el resumen
-      if (!g.vehiculoId) continue;
-      const key = String(g.vehiculoId);
-      const entry = porVehiculoMap.get(key) ?? {
-        vehiculoId: g.vehiculoId,
-        placa: g.vehiculo?.placa ?? '',
-        cantidadGastos: 0,
-        totalGastado: 0,
-      };
-      entry.cantidadGastos += 1;
-      entry.totalGastado += Number(g.monto);
-      porVehiculoMap.set(key, entry);
-    }
-
-    const resumenPorVehiculo = Array.from(porVehiculoMap.values())
-      .map((v) => ({
-        ...v,
-        totalGastado: Math.round(v.totalGastado * 100) / 100,
-        participacion: totalGastos > 0
-          ? Math.round((v.totalGastado / totalGastos) * 10000) / 100
-          : 0,
-      }))
-      .sort((a, b) => b.totalGastado - a.totalGastado);
+    const totalEgresos = egresos.reduce((s: number, g: any) => s + Number(g.monto), 0);
 
     return {
-      gastos,
-      resumenPorTipo: resumenTipo.map((r: any) => ({
-        tipoGasto: r.tipoGasto,
-        cantidad: r._count,
-        total: Number(r._sum.monto || 0),
-      })),
-      resumenPorVehiculo,
-      totales: { cantidad: gastos.length, totalGastos },
+      egresos,
+      totales: { cantidad: egresos.length, totalEgresos },
     };
   }
 
@@ -547,12 +506,12 @@ export class ReportesService {
         where: { fechaEmision: { gte: inicioAnio, lte: finAnio }, estado: { not: 'ANULADA' } },
         select: { fechaEmision: true, total: true },
       }),
-      prisma.pago.findMany({
+      prisma.pagoV2.findMany({
         where: { fechaPago: { gte: inicioAnio, lte: finAnio }, anulado: false },
         select: { fechaPago: true, monto: true },
       }),
-      prisma.gasto.findMany({
-        where: { fecha: { gte: inicioAnio, lte: finAnio } },
+      prisma.movimientoCuentaV2.findMany({
+        where: { tipo: 'EGRESO', anulado: false, fecha: { gte: inicioAnio, lte: finAnio } },
         select: { fecha: true, monto: true },
       }),
     ]);
@@ -699,12 +658,12 @@ export class ReportesService {
         where: { creadoEn: { gte: desde, lte: hasta }, estado: { not: 'ANULADA' } },
         _sum: { total: true },
       }),
-      prisma.pago.aggregate({
+      prisma.pagoV2.aggregate({
         where: { fechaPago: { gte: desde, lte: hasta }, anulado: false },
         _sum: { monto: true },
       }),
-      prisma.gasto.aggregate({
-        where: { fecha: { gte: desde, lte: hasta } },
+      prisma.movimientoCuentaV2.aggregate({
+        where: { tipo: 'EGRESO', anulado: false, fecha: { gte: desde, lte: hasta } },
         _sum: { monto: true },
       }),
       prisma.pedido.groupBy({

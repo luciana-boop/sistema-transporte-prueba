@@ -20,10 +20,8 @@ export interface AuthState {
 
 export type EstadoPedido = 'ACTIVO' | 'ANULADO' | 'FACTURADO';
 export type EstadoFactura = 'EMITIDA' | 'PAGADA' | 'PENDIENTE' | 'PARCIAL' | 'ANULADA';
-export type MetodoPago   = 'EFECTIVO' | 'TRANSFERENCIA' | 'TARJETA' | 'CHEQUE';
 export type EstadoCaja   = 'ABIERTA' | 'CERRADA';
 export type TipoMov      = 'INGRESO' | 'EGRESO';
-export type TipoGasto    = 'COMBUSTIBLE' | 'VIATICOS' | 'PEAJE' | 'MANTENIMIENTO' | 'OTROS';
 export type CondicionPago = 'CONTADO' | 'CREDITO_15' | 'CREDITO_30' | 'CREDITO_60';
 
 export interface Cliente {
@@ -107,63 +105,16 @@ export interface Factura {
   usuario: { id: number; nombre: string };
 }
 
-export interface Pago {
+/** Módulo Movimientos: cobranza vinculada a un ingreso (cliente + factura, o cliente + observación) */
+export interface MovimientoCobranza {
   id: number;
-  facturaId: number;
-  clienteId: number;
+  movimientoCuentaId: number;
+  cliente: { id: number; razonSocial: string; ruc: string };
+  factura?: { id: number; numeroFactura: string; total: number } | null;
+  observaciones?: string;
   monto: number;
-  metodoPago: MetodoPago;
-  referencia?: string;
-  observaciones?: string;
   fechaPago: string;
-  factura: { id: number; numeroFactura: string; total: number; estado: EstadoFactura };
-  cliente: { id: number; razonSocial: string; ruc: string };
-  usuario: { id: number; nombre: string };
-}
-
-/** P8: detalle enriquecido de un pago â€” incluye el movimiento financiero generado */
-export interface PagoDetalle extends Pago {
-  anulado?: boolean;
-  motivoAnulacion?: string;
-  movimiento?: {
-    referencia: string | null;
-    concepto: string;
-    cuenta: { id: number; nombre: string; tipoCuenta: string };
-    moneda: { codigo: string; nombre: string; simbolo: string };
-  } | null;
-}
-
-/** P8: detalle uniforme de una cuenta por cobrar â€” incluye el Ãºltimo cobro asociado (si existe) */
-export interface CuentaPorCobrarDetalle {
-  facturaId: number;
-  numeroFactura: string;
-  cliente: { id: number; razonSocial: string; ruc: string };
-  fecha: string;
-  estado: EstadoFactura;
-  observaciones?: string;
-  ultimoPago: {
-    id: number;
-    monto: number;
-    metodoPago: MetodoPago;
-    fechaPago: string;
-    usuario: { id: number; nombre: string };
-  } | null;
-  cuenta: { id: number; nombre: string; tipoCuenta: string } | null;
-  moneda: { codigo: string; nombre: string; simbolo: string } | null;
-  movimiento: { referencia: string | null; concepto: string } | null;
-}
-
-export interface CuentaPorCobrar {
-  facturaId: number;
-  numeroFactura: string;
-  cliente: { id: number; razonSocial: string; ruc: string };
-  total: number;
-  pagado: number;
-  saldoPendiente: number;
-  fechaVencimiento: string;
-  vencida: boolean;
-  diasVencida: number;
-  estado: EstadoFactura;
+  anulado: boolean;
 }
 
 export interface Caja {
@@ -247,19 +198,6 @@ export interface MovimientosGlobalResponse {
   limit: number;
   totalIngresos: number;
   totalEgresos: number;
-}
-
-export interface Gasto {
-  id: number;
-  vehiculoId?: number;
-  usuarioId: number;
-  tipoGasto: TipoGasto;
-  monto: number;
-  descripcion: string;
-  comprobante?: string;
-  fecha: string;
-  vehiculo?: { id: number; placa: string; marca: string; modelo?: string };
-  usuario: { id: number; nombre: string };
 }
 
 export interface DashboardData {
@@ -453,15 +391,6 @@ export interface SerieFacturacion {
   creadoEn: string;
 }
 
-export interface CategoriaGasto {
-  id: number;
-  codigo: string;
-  nombre: string;
-  descripcion?: string;
-  activo: boolean;
-  esDefault: boolean;
-}
-
 export interface ConfigAlerta {
   id: number;
   clave: string;
@@ -540,6 +469,12 @@ export interface MovimientoCuenta {
   moneda: { codigo: string; simbolo: string };
   tipoPago?: { nombre: string };
   usuario: { id: number; nombre: string };
+  /** Módulo Movimientos: cobranza vinculada (solo relevante si tipo === 'INGRESO') */
+  cobranza?: {
+    id: number; anulado: boolean; observaciones?: string;
+    cliente: { id: number; razonSocial: string };
+    factura?: { id: number; numeroFactura: string } | null;
+  } | null;
 }
 
 /** P7: detalle completo de un movimiento, incluye origen y datos enriquecidos */

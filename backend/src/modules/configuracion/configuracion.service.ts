@@ -36,18 +36,6 @@ const DEFAULTS_ALERTAS = [
   { clave: 'mantenimiento_proximo', etiqueta: 'Mantenimiento próximo',      diasAnticipacion: 15, color: 'blue',   nivel: 'info' },
 ];
 
-const DEFAULTS_CATEGORIAS_GASTO = [
-  { codigo: 'PEAJE',        nombre: 'Peaje',         esDefault: true },
-  { codigo: 'BALANZA',      nombre: 'Balanza',       esDefault: true },
-  { codigo: 'VIATICO',      nombre: 'Viático',       esDefault: true },
-  { codigo: 'TOLDO',        nombre: 'Toldo',         esDefault: true },
-  { codigo: 'HOSPEDAJE',    nombre: 'Hospedaje',     esDefault: false },
-  { codigo: 'LAVADO',       nombre: 'Lavado',        esDefault: false },
-  { codigo: 'MECANICO',     nombre: 'Mecánico',      esDefault: false },
-  { codigo: 'COMBUSTIBLE',  nombre: 'Combustible',   esDefault: false },
-  { codigo: 'OTROS',        nombre: 'Otros',         esDefault: true },
-];
-
 const DEFAULTS_TABLAS: Array<{ tipo: string; codigo: string; nombre: string; descripcion?: string; orden?: number }> = [
   // Bancos
   { tipo: 'banco', codigo: 'BCP',   nombre: 'Banco de Crédito del Perú' },
@@ -119,14 +107,6 @@ export class ConfiguracionService {
         where: { clave: a.clave },
         update: {},
         create: a,
-      });
-    }
-    // Categorías gasto
-    for (const c of DEFAULTS_CATEGORIAS_GASTO) {
-      await prisma.categoriaGasto.upsert({
-        where: { codigo: c.codigo },
-        update: {},
-        create: c,
       });
     }
     // Tablas maestras (incluye unidad_medida y codigo_factura)
@@ -237,30 +217,6 @@ export class ConfiguracionService {
     // Fallback to counting facturas
     const ultima = await prisma.factura.findFirst({ where: { serie }, orderBy: { correlativo: 'desc' }, select: { correlativo: true } });
     return (ultima?.correlativo ?? 0) + 1;
-  }
-
-  // ── Categorías de gasto ─────────────────────────────────────────────────────
-  async getCategoriasGasto() {
-    return prisma.categoriaGasto.findMany({ orderBy: { nombre: 'asc' } });
-  }
-
-  async createCategoriaGasto(dto: { codigo: string; nombre: string; descripcion?: string }) {
-    const existe = await prisma.categoriaGasto.findUnique({ where: { codigo: dto.codigo.toUpperCase() } });
-    if (existe) throw new Error(`El código ${dto.codigo} ya existe`);
-    return prisma.categoriaGasto.create({ data: { ...dto, codigo: dto.codigo.toUpperCase() } });
-  }
-
-  async updateCategoriaGasto(id: number, dto: { nombre?: string; descripcion?: string; activo?: boolean }) {
-    const c = await prisma.categoriaGasto.findUnique({ where: { id } });
-    if (!c) throw new Error('Categoría no encontrada');
-    return prisma.categoriaGasto.update({ where: { id }, data: dto });
-  }
-
-  async deleteCategoriaGasto(id: number) {
-    const c = await prisma.categoriaGasto.findUnique({ where: { id } });
-    if (!c) throw new Error('Categoría no encontrada');
-    if (c.esDefault) throw new Error('No se pueden eliminar categorías del sistema');
-    return prisma.categoriaGasto.delete({ where: { id } });
   }
 
   // ── Alertas ─────────────────────────────────────────────────────────────────

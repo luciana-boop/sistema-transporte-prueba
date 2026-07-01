@@ -14,7 +14,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 import {
-  Building2, FileText, Tags, Bell, Car, Database, Settings2, Plus, Edit2, Trash2,
+  Building2, FileText, Bell, Car, Database, Settings2, Plus, Edit2, Trash2,
   Save, ToggleLeft, ToggleRight, RefreshCw,
 } from 'lucide-react';
 import { configuracionApi, cuentasApi } from '@/services/api';
@@ -27,14 +27,13 @@ import {
 import { useAuthStore } from '@/store/auth.store';
 import { usePermisosStore } from '@/store/permisos.store';
 import type {
-  ConfigParam, SerieFacturacion, CategoriaGasto,
+  ConfigParam, SerieFacturacion,
   ConfigAlerta, TablaMaestra, TipoVehiculoConfig,
 } from '@/types';
 
 const TABS = [
   { id: 'empresa',    label: 'Empresa',        icon: Building2  },
   { id: 'series',     label: 'Series Factura', icon: FileText   },
-  { id: 'gastos',     label: 'Cat. Gastos',    icon: Tags       },
   { id: 'alertas',    label: 'Alertas',        icon: Bell       },
   { id: 'vehiculos',  label: 'Tipos Vehículo', icon: Car        },
   { id: 'monedas',    label: 'Monedas',        icon: Database   },
@@ -158,12 +157,6 @@ export default function ConfiguracionPage() {
     enabled: tab === 'series',
   });
 
-  const { data: categoriasGasto = [], isLoading: loadCats } = useQuery({
-    queryKey: ['config', 'categorias-gasto'],
-    queryFn: () => configuracionApi.getCategoriasGasto().then(r => r.data.data),
-    enabled: tab === 'gastos',
-  });
-
   const { data: alertas = [], isLoading: loadAlertas } = useQuery({
     queryKey: ['config', 'alertas'],
     queryFn: () => configuracionApi.getAlertas().then(r => r.data.data),
@@ -242,25 +235,6 @@ export default function ConfiguracionPage() {
   const deleteSerieMutation = useMutation({
     mutationFn: (id: number) => configuracionApi.deleteSerie(id),
     onSuccess: () => { toast.success('Serie eliminada'); inv('series'); },
-    onError: (e) => toast.error(getErrorMessage(e)),
-  });
-
-  // Categorías mutations
-  const createCatMutation = useMutation({
-    mutationFn: () => configuracionApi.createCategoriaGasto({ codigo: formData.codigo, nombre: formData.nombre, descripcion: formData.descripcion }),
-    onSuccess: () => { toast.success('Categoría creada'); setShowModal(null); setFormData({}); inv('categorias-gasto'); },
-    onError: (e) => toast.error(getErrorMessage(e)),
-  });
-
-  const updateCatMutation = useMutation({
-    mutationFn: (activo?: boolean) => configuracionApi.updateCategoriaGasto(editingItem?.id, activo !== undefined ? { activo } : { nombre: formData.nombre, descripcion: formData.descripcion }),
-    onSuccess: () => { toast.success('Actualizado'); setShowModal(null); setEditingItem(null); setFormData({}); inv('categorias-gasto'); },
-    onError: (e) => toast.error(getErrorMessage(e)),
-  });
-
-  const deleteCatMutation = useMutation({
-    mutationFn: (id: number) => configuracionApi.deleteCategoriaGasto(id),
-    onSuccess: () => { toast.success('Categoría eliminada'); inv('categorias-gasto'); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
@@ -459,53 +433,6 @@ export default function ConfiguracionPage() {
                     </Td>
                   </Tr>
                 )) : <tr><td colSpan={7}><EmptyState message="No hay series. Presiona 'Inicializar defaults' o crea una nueva." /></td></tr>}
-              </tbody>
-            </Table>
-          )}
-        </div>
-      )}
-
-      {/* ── TAB: GASTOS ──────────────────────────────────────────────────────── */}
-      {tab === 'gastos' && (
-        <div className="flex flex-col gap-4">
-          <div className="flex justify-between items-center">
-            <p className="text-sm text-muted-foreground">{categoriasGasto.length} categorías de gasto</p>
-            <Button size="sm" onClick={() => openCreate('categoria')}>
-              <Plus className="w-4 h-4" /> Nueva categoría
-            </Button>
-          </div>
-          {loadCats ? <TableSkeleton rows={6} cols={5} /> : (
-            <Table>
-              <thead>
-                <tr><Th>Código</Th><Th>Nombre</Th><Th>Descripción</Th><Th>Sistema</Th><Th>Activo</Th><Th className="text-right">Acciones</Th></tr>
-              </thead>
-              <tbody>
-                {categoriasGasto.map((c) => (
-                  <Tr key={c.id}>
-                    <Td><span className="font-mono text-xs font-bold">{c.codigo}</span></Td>
-                    <Td><span className="text-sm font-medium">{c.nombre}</span></Td>
-                    <Td><span className="text-xs text-muted-foreground">{c.descripcion ?? '—'}</span></Td>
-                    <Td>{c.esDefault ? <Badge value="ACTIVO" label="Sistema" /> : <span className="text-xs text-muted-foreground">Personalizada</span>}</Td>
-                    <Td>
-                      <Switch
-                        checked={c.activo}
-                        onChange={(v) => { setEditingItem(c); updateCatMutation.mutate(v); }}
-                      />
-                    </Td>
-                    <Td>
-                      <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => openEdit('categoria', c)} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all">
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        {!c.esDefault && (
-                          <button onClick={() => { if (confirm(`¿Eliminar "${c.nombre}"?`)) deleteCatMutation.mutate(c.id); }} className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </Td>
-                  </Tr>
-                ))}
               </tbody>
             </Table>
           )}
@@ -799,47 +726,6 @@ export default function ConfiguracionPage() {
         </div>
       </Modal>
 
-      {/* Categoría Gasto Modal */}
-      <Modal
-        open={showModal === 'categoria'}
-        onClose={() => { setShowModal(null); setEditingItem(null); setFormData({}); }}
-        title={editingItem ? 'Editar categoría' : 'Nueva categoría de gasto'}
-      >
-        <div className="flex flex-col gap-4">
-          {!editingItem && (
-            <FormField label="Código" required>
-              <Input
-                placeholder="HOSPEDAJE, LAVADO..."
-                value={formData.codigo ?? ''}
-                onChange={(e) => setFormData(p => ({ ...p, codigo: e.target.value.toUpperCase() }))}
-              />
-            </FormField>
-          )}
-          <FormField label="Nombre" required>
-            <Input
-              placeholder="Nombre de la categoría"
-              value={formData.nombre ?? ''}
-              onChange={(e) => setFormData(p => ({ ...p, nombre: e.target.value }))}
-            />
-          </FormField>
-          <FormField label="Descripción">
-            <Textarea
-              placeholder="Descripción opcional..."
-              value={formData.descripcion ?? ''}
-              onChange={(e) => setFormData(p => ({ ...p, descripcion: e.target.value }))}
-            />
-          </FormField>
-          <div className="flex justify-end gap-2 pt-2 border-t border-border">
-            <Button variant="secondary" onClick={() => { setShowModal(null); setEditingItem(null); setFormData({}); }}>Cancelar</Button>
-            <Button
-              loading={createCatMutation.isPending || updateCatMutation.isPending}
-              onClick={() => editingItem ? updateCatMutation.mutate(undefined) : createCatMutation.mutate()}
-            >
-              {editingItem ? 'Guardar' : 'Crear categoría'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
 
       {/* Tipo Vehículo Modal */}
       <Modal

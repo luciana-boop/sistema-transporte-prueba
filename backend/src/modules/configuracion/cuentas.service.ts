@@ -39,6 +39,7 @@ export interface MovimientoInternoDto {
   usuarioId: number;
   fecha?: string;
   liquidacionId?: number;
+  origen?: string;
 }
 
 export class CuentasService {
@@ -207,7 +208,7 @@ export class CuentasService {
 
   // ── MOVIMIENTOS POR CUENTA ──────────────────────────────────────────────────
   async getMovimientos(query: {
-    cuentaId?: number; tipo?: string; desde?: string; hasta?: string;
+    cuentaId?: number; tipo?: string; desde?: string; hasta?: string; search?: string;
   } & PaginacionQuery) {
     const where: any = {};
     if (query.cuentaId) where.cuentaId = query.cuentaId;
@@ -216,6 +217,12 @@ export class CuentasService {
       where.fecha = {};
       if (query.desde) where.fecha.gte = new Date(query.desde);
       if (query.hasta) where.fecha.lte = new Date(query.hasta + 'T23:59:59');
+    }
+    if (query.search) {
+      where.OR = [
+        { concepto: { contains: query.search, mode: 'insensitive' } },
+        { referencia: { contains: query.search, mode: 'insensitive' } },
+      ];
     }
     const { skip, take, page, limit } = paginar(query);
     const [total, items] = await Promise.all([
@@ -231,6 +238,14 @@ export class CuentasService {
           tipoPago: { select: { nombre: true } },
           usuario: { select: { id: true, nombre: true } },
           liquidacion: { select: { id: true, conductor: { select: { nombre: true } } } },
+          // Módulo Movimientos: para saber en la lista si un ingreso ya tiene cobranza vinculada
+          cobranza: {
+            select: {
+              id: true, anulado: true, observaciones: true,
+              cliente: { select: { id: true, razonSocial: true } },
+              factura: { select: { id: true, numeroFactura: true } },
+            },
+          },
         },
       }),
     ]);
@@ -251,6 +266,7 @@ export class CuentasService {
     if (ref.startsWith('DEVOLUCION-LIQ-')) return `Devolución liquidación #${ref.replace('DEVOLUCION-LIQ-', '')}`;
     if (ref.startsWith('CAJA-')) return `Caja #${ref.replace('CAJA-', '')}`;
     if (ref.startsWith('REV-MOV-')) return `Reverso del movimiento #${ref.replace('REV-MOV-', '')}`;
+    if (mov.origen === 'EXCEL') return 'Importado — Excel banco';
     return 'Movimiento manual';
   }
 
@@ -342,6 +358,7 @@ export class CuentasService {
         referencia: dto.referencia ?? null,
         usuarioId: dto.usuarioId,
         liquidacionId: dto.liquidacionId ?? null,
+        origen: dto.origen ?? 'MANUAL',
         fecha: dto.fecha ? new Date(dto.fecha) : new Date(),
       },
     });
@@ -411,7 +428,7 @@ export class CuentasService {
     cuentaId: number; tipo: 'INGRESO' | 'EGRESO';
     monto: number; monedaId: number; tipoPagoId?: number;
     concepto: string; referencia?: string;
-    usuarioId: number; fecha?: string;
+    usuarioId: number; fecha?: string; origen?: string;
   }) {
     const cuenta = await prisma.cuentaDinero.findUnique({ where: { id: dto.cuentaId } });
     if (!cuenta) throw new Error('Cuenta no encontrada');

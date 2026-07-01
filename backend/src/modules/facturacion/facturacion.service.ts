@@ -140,7 +140,7 @@ export class FacturacionService {
           pedido: { select: { id: true, origen: true, destino: true } },
           usuario: { select: { id: true, nombre: true } },
           lineas: { orderBy: { orden: 'asc' } },
-          _count: { select: { pagos: true } },
+          _count: { select: { pagosV2: true } },
         },
       }),
     ]);
@@ -156,11 +156,11 @@ export class FacturacionService {
         pedido: { select: { id: true, origen: true, destino: true, tipoCarga: true } },
         usuario: { select: { id: true, nombre: true, email: true } },
         lineas: { orderBy: { orden: 'asc' } },
-        pagos: {
+        pagosV2: {
           select: {
             id: true,
             monto: true,
-            metodoPago: true,
+            tipoPago: { select: { nombre: true } },
             fechaPago: true,
             referencia: true,
             anulado: true,
@@ -535,7 +535,7 @@ export class FacturacionService {
     if (factura.estado === EstadoFactura.PAGADA) throw new Error('No se puede anular una factura ya pagada');
 
     // P2: verificar si existen pagos activos (no anulados)
-    const pagosActivos = await prisma.pago.count({
+    const pagosActivos = await prisma.pagoV2.count({
       where: { facturaId: id, anulado: false },
     });
     if (pagosActivos > 0) {
@@ -564,11 +564,11 @@ export class FacturacionService {
   async recalcularEstado(id: number) {
     const factura = await prisma.factura.findUnique({
       where: { id },
-      include: { pagos: { select: { monto: true } } },
+      include: { pagosV2: { where: { anulado: false }, select: { monto: true } } },
     });
     if (!factura || factura.estado === EstadoFactura.ANULADA) return;
 
-    const totalPagado = factura.pagos.reduce((s: number, p: any) => s + Number(p.monto), 0);
+    const totalPagado = factura.pagosV2.reduce((s: number, p: any) => s + Number(p.monto), 0);
     const total = Number(factura.total);
     let nuevoEstado: EstadoFactura;
 

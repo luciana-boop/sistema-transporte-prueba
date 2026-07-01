@@ -69,26 +69,11 @@ export const CATEGORIA_DETALLE_LABEL: Record<string, string> = {
   OTROS:   'Otros',
 };
 
-export const METODO_PAGO_LABEL: Record<string, string> = {
-  EFECTIVO: 'Efectivo',
-  TRANSFERENCIA: 'Transferencia',
-  TARJETA: 'Tarjeta',
-  CHEQUE: 'Cheque',
-};
-
 export const CLASIFICACION_MES_LABEL: Record<string, string> = {
   BUEN_MES:    'Buen mes',
   MES_REGULAR: 'Mes regular',
   MAL_MES:     'Mal mes',
   SIN_DATOS:   'Sin datos',
-};
-
-export const TIPO_GASTO_LABEL: Record<string, string> = {
-  COMBUSTIBLE: 'Combustible',
-  VIATICOS: 'Viáticos',
-  PEAJE: 'Peaje',
-  MANTENIMIENTO: 'Mantenimiento',
-  OTROS: 'Otros',
 };
 
 export const CONDICION_PAGO_LABEL: Record<string, string> = {

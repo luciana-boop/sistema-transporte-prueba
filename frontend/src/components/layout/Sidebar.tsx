@@ -4,8 +4,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, Users, Package, FileText, DollarSign,
-  Wallet, Receipt, BarChart3, UserCog, Truck, LogOut,
+  LayoutDashboard, Users, Package, FileText, ArrowLeftRight,
+  Wallet, BarChart3, UserCog, Truck, LogOut,
   UserCheck, Car, ClipboardList, Fuel, Archive, Settings2,
 } from 'lucide-react';
 import { useAuthStore }      from '@/store/auth.store';
@@ -36,11 +36,10 @@ const navGroups: {
     label: 'Finanzas',
     items: [
       { href: '/facturacion',   label: 'Facturación',   icon: FileText,     moduloKey: 'facturacion'   },
-      { href: '/cobranza',      label: 'Cobranza',      icon: DollarSign,   moduloKey: 'cobranza'      },
+      { href: '/movimientos',   label: 'Movimientos',   icon: ArrowLeftRight, moduloKey: 'movimientos' },
       { href: '/liquidaciones', label: 'Liquidaciones', icon: ClipboardList,moduloKey: 'liquidaciones' },
       { href: '/combustible',   label: 'Combustible',   icon: Fuel,         moduloKey: 'combustible'   },
       { href: '/caja',          label: 'Caja',          icon: Wallet,       moduloKey: 'caja'          },
-      { href: '/gastos',        label: 'Gastos',        icon: Receipt,      moduloKey: 'gastos'        },
     ],
   },
   {

@@ -5,10 +5,10 @@ import prisma from '../../prisma/client';
 export class BackupService {
   async exportarJson() {
     const [
-      usuarios, clientes, pedidos, facturas, pagos,
-      cajas, gastos, conductores, vehiculos,
+      usuarios, clientes, pedidos, facturas,
+      cajas, conductores, vehiculos,
       liquidaciones, combustible, logsActividad,
-      configuraciones, seriesFacturacion, categoriasGasto, tablasMaestras,
+      configuraciones, seriesFacturacion, tablasMaestras,
       configuracionAlertas, tiposVehiculo,
       permisosModulos, permisosAcciones,
       monedas, tiposPago, cuentasDinero, movimientosCuenta, pagosV2,
@@ -17,9 +17,7 @@ export class BackupService {
       prisma.cliente.findMany(),
       prisma.pedido.findMany(),
       prisma.factura.findMany({ include: { lineas: true } }),
-      prisma.pago.findMany(),
       prisma.caja.findMany({ include: { movimientos: true } }),
-      prisma.gasto.findMany(),
       prisma.conductor.findMany(),
       prisma.vehiculo.findMany(),
       prisma.liquidacion.findMany({ include: { detalles: true, pedidos: true } }),
@@ -27,7 +25,6 @@ export class BackupService {
       prisma.logActividad.findMany(),
       prisma.configuracion.findMany(),
       prisma.serieFacturacion.findMany(),
-      prisma.categoriaGasto.findMany(),
       prisma.tablaMaestra.findMany(),
       prisma.configuracionAlerta.findMany(),
       prisma.tipoVehiculoConfig.findMany(),
@@ -44,10 +41,10 @@ export class BackupService {
       version: '3.0',
       exportadoEn: new Date().toISOString(),
       data: {
-        usuarios, clientes, pedidos, facturas, pagos,
-        cajas, gastos, conductores, vehiculos,
+        usuarios, clientes, pedidos, facturas,
+        cajas, conductores, vehiculos,
         liquidaciones, combustible, logsActividad,
-        configuraciones, seriesFacturacion, categoriasGasto, tablasMaestras,
+        configuraciones, seriesFacturacion, tablasMaestras,
         configuracionAlertas, tiposVehiculo,
         permisosModulos, permisosAcciones,
         monedas, tiposPago, cuentasDinero, movimientosCuenta, pagosV2,
@@ -135,19 +132,6 @@ export class BackupService {
     // tocan datos transaccionales (pedidos, facturas, pagos, cajas, liquidaciones,
     // movimientos, etc.): restaurarlos requeriría reordenar por dependencias FK
     // y podría duplicar saldos y movimientos ya existentes en el sistema destino.
-    if (Array.isArray(data.categoriasGasto)) {
-      for (const c of data.categoriasGasto) {
-        try {
-          await prisma.categoriaGasto.upsert({
-            where: { codigo: c.codigo },
-            update: { nombre: c.nombre, descripcion: c.descripcion, activo: c.activo, esDefault: c.esDefault },
-            create: { codigo: c.codigo, nombre: c.nombre, descripcion: c.descripcion, activo: c.activo ?? true, esDefault: c.esDefault ?? false },
-          });
-        } catch (err) { errores.push(err instanceof Error ? err.message : String(err)); }
-      }
-      resultados.categoriasGasto = data.categoriasGasto.length;
-    }
-
     if (Array.isArray(data.tablasMaestras)) {
       for (const t of data.tablasMaestras) {
         try {

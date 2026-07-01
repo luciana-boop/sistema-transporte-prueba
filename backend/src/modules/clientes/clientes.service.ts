@@ -131,7 +131,7 @@ export class ClientesService {
         where: { clienteId: id, estado: { not: 'ANULADA' } },
         _sum: { total: true },
       }),
-      prisma.pago.aggregate({
+      prisma.pagoV2.aggregate({
         where: { clienteId: id, anulado: false },
         _sum: { monto: true },
       }),

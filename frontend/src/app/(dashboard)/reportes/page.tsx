@@ -4,7 +4,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportesApi } from '@/services/api';
-import { formatCurrency, formatDate, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL, METODO_PAGO_LABEL, TIPO_GASTO_LABEL, CLASIFICACION_MES_LABEL } from '@/lib/utils';
+import { formatCurrency, formatDate, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL, CLASIFICACION_MES_LABEL } from '@/lib/utils';
 import {
   PageHeader, Table, Th, Td, Tr, Badge, TableSkeleton,
   EmptyState, StatCard, Input, Select, Modal,
@@ -20,7 +20,7 @@ const TABS = [
   { id: 'facturacion', label: 'Facturación' },
   { id: 'cobranza',    label: 'Cobranza' },
   { id: 'caja',        label: 'Caja' },
-  { id: 'gastos',      label: 'Gastos' },
+  { id: 'egresos',     label: 'Egresos' },
   { id: 'anual',       label: 'Reporte Anual' },
 ];
 
@@ -37,7 +37,6 @@ export default function ReportesPage() {
   // Estado para modales de detalle
   const [detalleRentCliente, setDetalleRentCliente] = useState<{ id: number; nombre: string } | null>(null);
   const [detalleFacCliente, setDetalleFacCliente] = useState<{ id: number; nombre: string } | null>(null);
-  const [detalleGasVehiculo, setDetalleGasVehiculo] = useState<{ id: number; placa: string } | null>(null);
 
   const params = { desde: desde || undefined, hasta: hasta || undefined };
 
@@ -77,10 +76,10 @@ export default function ReportesPage() {
     enabled: tab === 'caja',
   });
 
-  const { data: gastosData, isLoading: lGastos } = useQuery({
-    queryKey: ['reporte', 'gastos', desde, hasta],
-    queryFn: () => reportesApi.gastos(params).then((r) => r.data.data),
-    enabled: tab === 'gastos',
+  const { data: egresosData, isLoading: lEgresos } = useQuery({
+    queryKey: ['reporte', 'egresos', desde, hasta],
+    queryFn: () => reportesApi.egresos(params).then((r) => r.data.data),
+    enabled: tab === 'egresos',
   });
 
   const { data: anualData, isLoading: lAnual } = useQuery({
@@ -105,12 +104,6 @@ export default function ReportesPage() {
     if (!detalleFacCliente || !facData) return [];
     return (facData.facturas as any[]).filter((f) => f.clienteId === detalleFacCliente.id);
   }, [detalleFacCliente, facData]);
-
-  // Gastos del vehículo seleccionado para modal de gastos
-  const gastosDelVehiculo = useMemo(() => {
-    if (!detalleGasVehiculo || !gastosData) return [];
-    return (gastosData.gastos as any[]).filter((g) => g.vehiculoId === detalleGasVehiculo.id);
-  }, [detalleGasVehiculo, gastosData]);
 
   const aniosDisponibles = useMemo(() => {
     const actual = new Date().getFullYear();
@@ -371,82 +364,33 @@ export default function ReportesPage() {
         </div>
       )}
 
-      {/* ── GASTOS ── */}
-      {tab === 'gastos' && (
+      {/* ── EGRESOS ── */}
+      {tab === 'egresos' && (
         <div className="flex flex-col gap-4">
-          {gastosData && (
+          {egresosData && (
             <div className="grid grid-cols-2 gap-4">
-              <StatCard label="Total gastos" value={formatCurrency(gastosData.totales.totalGastos)} color="red" />
-              <StatCard label="Registros" value={gastosData.totales.cantidad} color="default" />
+              <StatCard label="Total egresos" value={formatCurrency(egresosData.totales.totalEgresos)} color="red" />
+              <StatCard label="Registros" value={egresosData.totales.cantidad} color="default" />
             </div>
           )}
 
-          {/* Gráfico de tipos de gastos */}
-          {gastosData && gastosData.resumenPorTipo.length > 0 && (
-            <div className="bg-card border border-border rounded-xl p-5">
-              <p className="text-sm font-semibold mb-4">Tipos de gastos</p>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart
-                  data={gastosData.resumenPorTipo.map((r) => ({ name: TIPO_GASTO_LABEL[r.tipoGasto] ?? r.tipoGasto, total: r.total }))}
-                  barSize={36}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v) => `S/${(v/1000).toFixed(0)}k`} />
-                  <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} formatter={(v: number) => [formatCurrency(v), 'Total']} />
-                  <Bar dataKey="total" fill="hsl(0,84%,60%)" radius={[4,4,0,0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+          {lEgresos ? <TableSkeleton rows={6} cols={4} /> : (
+            <Table>
+              <thead>
+                <tr><Th>Fecha</Th><Th>Concepto</Th><Th>Cuenta</Th><Th className="text-right">Monto</Th></tr>
+              </thead>
+              <tbody>
+                {egresosData?.egresos.length ? egresosData.egresos.map((e: any) => (
+                  <Tr key={e.id}>
+                    <Td><span className="text-sm">{formatDate(e.fecha)}</span></Td>
+                    <Td><span className="text-sm font-medium">{e.concepto}</span></Td>
+                    <Td><span className="text-xs text-muted-foreground">{e.cuenta?.nombre ?? '—'}</span></Td>
+                    <Td className="text-right"><span className="font-semibold text-destructive">{formatCurrency(Number(e.monto))}</span></Td>
+                  </Tr>
+                )) : <tr><td colSpan={4}><EmptyState message="Sin egresos en el período" /></td></tr>}
+              </tbody>
+            </Table>
           )}
-
-          {/* Tabla de gastos por vehículo (solo vehículos reales) */}
-          {lGastos ? <TableSkeleton rows={4} cols={5} /> : gastosData?.resumenPorVehiculo.length ? (
-            <div>
-              <p className="text-sm font-semibold mb-2">Gastos por vehículo</p>
-              <Table>
-                <thead>
-                  <tr>
-                    <Th>Vehículo</Th>
-                    <Th>Cant. gastos</Th>
-                    <Th>Total gastado</Th>
-                    <Th>Participación</Th>
-                    <Th>Detalle</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {gastosData.resumenPorVehiculo.map((v, i) => (
-                    <Tr key={i}>
-                      <Td><span className="text-sm font-medium">{v.placa}</span></Td>
-                      <Td><span className="text-sm text-muted-foreground">{v.cantidadGastos}</span></Td>
-                      <Td><span className="font-semibold text-destructive">{formatCurrency(v.totalGastado)}</span></Td>
-                      <Td>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 bg-muted rounded-full h-1.5 max-w-20">
-                            <div
-                              className="bg-destructive h-1.5 rounded-full"
-                              style={{ width: `${Math.min(v.participacion, 100)}%` }}
-                            />
-                          </div>
-                          <span className="text-xs font-medium">{v.participacion.toFixed(1)}%</span>
-                        </div>
-                      </Td>
-                      <Td>
-                        {v.vehiculoId != null && (
-                          <button
-                            onClick={() => setDetalleGasVehiculo({ id: v.vehiculoId!, placa: v.placa })}
-                            className="text-xs text-primary hover:underline flex items-center gap-1"
-                          >
-                            <Eye className="w-3 h-3" /> Ver detalle
-                          </button>
-                        )}
-                      </Td>
-                    </Tr>
-                  ))}
-                </tbody>
-              </Table>
-            </div>
-          ) : null}
         </div>
       )}
 
@@ -635,42 +579,6 @@ export default function ReportesPage() {
         </div>
       </Modal>
 
-      {/* ── MODAL: Detalle gastos por vehículo ── */}
-      <Modal
-        open={!!detalleGasVehiculo}
-        onClose={() => setDetalleGasVehiculo(null)}
-        title={detalleGasVehiculo ? `Gastos — ${detalleGasVehiculo.placa}` : ''}
-        maxWidth="max-w-3xl"
-      >
-        <div className="flex flex-col gap-3">
-          {gastosDelVehiculo.length > 0 ? (
-            <Table>
-              <thead>
-                <tr>
-                  <Th>Fecha</Th>
-                  <Th>Tipo</Th>
-                  <Th>Descripción</Th>
-                  <Th>Monto</Th>
-                  <Th>Responsable</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {gastosDelVehiculo.map((g: any) => (
-                  <Tr key={g.id}>
-                    <Td><span className="text-xs text-muted-foreground">{formatDate(g.fecha)}</span></Td>
-                    <Td><span className="text-xs">{TIPO_GASTO_LABEL[g.tipoGasto as keyof typeof TIPO_GASTO_LABEL] ?? g.tipoGasto}</span></Td>
-                    <Td><span className="text-sm">{g.descripcion}</span></Td>
-                    <Td><span className="font-semibold text-destructive">{formatCurrency(Number(g.monto))}</span></Td>
-                    <Td><span className="text-xs text-muted-foreground">{g.usuario?.nombre ?? '—'}</span></Td>
-                  </Tr>
-                ))}
-              </tbody>
-            </Table>
-          ) : (
-            <EmptyState message="Sin gastos para este vehículo en el período" />
-          )}
-        </div>
-      </Modal>
     </div>
   );
 }

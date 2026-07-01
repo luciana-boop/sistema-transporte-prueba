@@ -1,8 +1,8 @@
 // FILE: prisma/seed.ts
 
 import {
-  PrismaClient, Rol, CondicionPago, EstadoPedido, TipoGasto, EstadoFactura,
-  MetodoPago, EstadoCaja, TipoMovimientoCaja, TipoVehiculo, CategoriaDetalle,
+  PrismaClient, Rol, CondicionPago, EstadoPedido, EstadoFactura,
+  EstadoCaja, TipoMovimientoCaja, TipoVehiculo, CategoriaDetalle,
 } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
@@ -23,9 +23,7 @@ async function main() {
   await prisma.liquidacionDetalle.deleteMany();
   await prisma.movimientoCaja.deleteMany();
   await prisma.combustible.deleteMany();
-  await prisma.gasto.deleteMany();
   await prisma.liquidacion.deleteMany();
-  await prisma.pago.deleteMany();
   await prisma.facturaDetalle.deleteMany();
   await prisma.factura.deleteMany();
   await prisma.pedido.deleteMany();
@@ -136,59 +134,24 @@ async function main() {
   ]);
   console.log('✅ Facturas (12)');
 
-  // ── PAGOS (8) ─────────────────────────────────────────────────────────────
-  const [pago1, pago2, pago3, pago4, pago5, pago6, pago7, pago8] = await Promise.all([
-    prisma.pago.create({ data: { facturaId: fac1.id, clienteId: c1.id, usuarioId: sec1.id, monto: 1500, metodoPago: MetodoPago.TRANSFERENCIA, referencia: 'TRF-2024-001', fechaPago: new Date('2024-01-20') } }),
-    prisma.pago.create({ data: { facturaId: fac2.id, clienteId: c2.id, usuarioId: sec1.id, monto: 2200, metodoPago: MetodoPago.TRANSFERENCIA, referencia: 'TRF-2024-002', fechaPago: new Date('2024-02-05') } }),
-    prisma.pago.create({ data: { facturaId: fac3.id, clienteId: c3.id, usuarioId: admin.id, monto: 900,  metodoPago: MetodoPago.EFECTIVO, fechaPago: new Date('2024-02-10') } }),
-    prisma.pago.create({ data: { facturaId: fac5.id, clienteId: c5.id, usuarioId: sec1.id, monto: 3200, metodoPago: MetodoPago.CHEQUE, referencia: 'CHQ-2024-001', fechaPago: new Date('2024-03-15') } }),
-    prisma.pago.create({ data: { facturaId: fac6.id, clienteId: c7.id, usuarioId: sec3.id, monto: 1000, metodoPago: MetodoPago.TRANSFERENCIA, referencia: 'TRF-2024-003', observaciones: 'Pago parcial acordado', fechaPago: new Date('2024-04-01') } }),
-    prisma.pago.create({ data: { facturaId: fac8.id, clienteId: c1.id, usuarioId: sec1.id, monto: 1900, metodoPago: MetodoPago.TARJETA, referencia: 'TARJ-2024-001', fechaPago: new Date('2024-04-20') } }),
-    prisma.pago.create({ data: { facturaId: fac10.id, clienteId: c6.id, usuarioId: sec2.id, monto: 1200, metodoPago: MetodoPago.TRANSFERENCIA, referencia: 'TRF-2024-004', fechaPago: new Date('2024-05-10') } }),
-    prisma.pago.create({ data: { facturaId: fac1.id, clienteId: c1.id, usuarioId: sec1.id, monto: 500,  metodoPago: MetodoPago.EFECTIVO, observaciones: 'Adelanto previo registrado', fechaPago: new Date('2024-01-12'), anulado: true, motivoAnulacion: 'Registrado por error, reemplazado por TRF-2024-001' } }),
-  ]);
-  console.log('✅ Pagos (8)');
-
   // ── MOVIMIENTOS DE CAJA ───────────────────────────────────────────────────
   await prisma.movimientoCaja.createMany({
     data: [
-      { cajaId: caja1.id, tipo: TipoMovimientoCaja.INGRESO, monto: 1500, concepto: `Cobro factura F001-00001`, pagoId: pago1.id, fecha: new Date('2024-01-20') },
-      { cajaId: caja1.id, tipo: TipoMovimientoCaja.INGRESO, monto: 900,  concepto: `Cobro factura F001-00003`, pagoId: pago3.id, fecha: new Date('2024-02-10') },
+      { cajaId: caja1.id, tipo: TipoMovimientoCaja.INGRESO, monto: 1500, concepto: `Cobro factura F001-00001`, fecha: new Date('2024-01-20') },
+      { cajaId: caja1.id, tipo: TipoMovimientoCaja.INGRESO, monto: 900,  concepto: `Cobro factura F001-00003`, fecha: new Date('2024-02-10') },
       { cajaId: caja1.id, tipo: TipoMovimientoCaja.EGRESO,  monto: 350,  concepto: 'Pago combustible unidad ABC-123', fecha: new Date('2024-01-18') },
       { cajaId: caja1.id, tipo: TipoMovimientoCaja.EGRESO,  monto: 500,  concepto: 'Anticipo conductor Roberto Flores', fecha: new Date('2024-01-12') },
-      { cajaId: caja2.id, tipo: TipoMovimientoCaja.INGRESO, monto: 2200, concepto: `Cobro factura F001-00002`, pagoId: pago2.id, fecha: new Date('2024-02-05') },
-      { cajaId: caja2.id, tipo: TipoMovimientoCaja.INGRESO, monto: 3200, concepto: `Cobro factura F001-00005`, pagoId: pago4.id, fecha: new Date('2024-03-15') },
+      { cajaId: caja2.id, tipo: TipoMovimientoCaja.INGRESO, monto: 2200, concepto: `Cobro factura F001-00002`, fecha: new Date('2024-02-05') },
+      { cajaId: caja2.id, tipo: TipoMovimientoCaja.INGRESO, monto: 3200, concepto: `Cobro factura F001-00005`, fecha: new Date('2024-03-15') },
       { cajaId: caja2.id, tipo: TipoMovimientoCaja.EGRESO,  monto: 700,  concepto: 'Anticipo conductor Miguel Torres', fecha: new Date('2024-03-02') },
       { cajaId: caja2.id, tipo: TipoMovimientoCaja.EGRESO,  monto: 280,  concepto: 'Peajes y gastos varios ruta Trujillo', fecha: new Date('2024-03-10') },
-      { cajaId: caja3.id, tipo: TipoMovimientoCaja.INGRESO, monto: 1900, concepto: `Cobro factura F001-00008`, pagoId: pago6.id, fecha: new Date('2024-04-20') },
-      { cajaId: caja3.id, tipo: TipoMovimientoCaja.INGRESO, monto: 1000, concepto: `Cobro parcial factura F001-00006`, pagoId: pago5.id, fecha: new Date('2024-04-01') },
+      { cajaId: caja3.id, tipo: TipoMovimientoCaja.INGRESO, monto: 1900, concepto: `Cobro factura F001-00008`, fecha: new Date('2024-04-20') },
+      { cajaId: caja3.id, tipo: TipoMovimientoCaja.INGRESO, monto: 1000, concepto: `Cobro parcial factura F001-00006`, fecha: new Date('2024-04-01') },
       { cajaId: caja3.id, tipo: TipoMovimientoCaja.EGRESO,  monto: 620,  concepto: 'Anticipo conductor Edwin Santos', fecha: new Date('2024-04-12') },
       { cajaId: caja3.id, tipo: TipoMovimientoCaja.EGRESO,  monto: 400,  concepto: 'Anticipo conductor Fernando Chávez', fecha: new Date('2024-04-28') },
     ],
   });
   console.log('✅ Movimientos de caja (12)');
-
-  // ── GASTOS (15) ───────────────────────────────────────────────────────────
-  await prisma.gasto.createMany({
-    data: [
-      { vehiculoId: vt1.id, usuarioId: sec1.id, tipoGasto: TipoGasto.COMBUSTIBLE, monto: 350, descripcion: 'Combustible Lima - Trujillo', fecha: new Date('2024-01-11') },
-      { vehiculoId: vt1.id, usuarioId: sec1.id, tipoGasto: TipoGasto.PEAJE, monto: 85, descripcion: 'Peajes Panamericana Norte', fecha: new Date('2024-01-11') },
-      { vehiculoId: vt1.id, usuarioId: sec1.id, tipoGasto: TipoGasto.VIATICOS, monto: 120, descripcion: 'Viáticos conductor 2 días', fecha: new Date('2024-01-12') },
-      { vehiculoId: vt2.id, usuarioId: sec1.id, tipoGasto: TipoGasto.COMBUSTIBLE, monto: 420, descripcion: 'Combustible ruta Lima - Tarapoto', fecha: new Date('2024-02-28') },
-      { vehiculoId: vt2.id, usuarioId: sec2.id, tipoGasto: TipoGasto.MANTENIMIENTO, monto: 850, descripcion: 'Cambio de aceite y filtros DEF-456', fecha: new Date('2024-03-05'), comprobante: 'REC-001-00345' },
-      { vehiculoId: vt3.id, usuarioId: sec2.id, tipoGasto: TipoGasto.PEAJE, monto: 110, descripcion: 'Peajes Panamericana Sur - Arequipa', fecha: new Date('2024-03-12') },
-      { vehiculoId: vt3.id, usuarioId: sec3.id, tipoGasto: TipoGasto.COMBUSTIBLE, monto: 390, descripcion: 'Combustible Callao - Arequipa', fecha: new Date('2024-03-13') },
-      { vehiculoId: vt4.id, usuarioId: sec2.id, tipoGasto: TipoGasto.MANTENIMIENTO, monto: 1200, descripcion: 'Reparación sistema de frenos JKL-012', fecha: new Date('2024-03-20'), comprobante: 'FAC-002-00089' },
-      { vehiculoId: vt5.id, usuarioId: sec1.id, tipoGasto: TipoGasto.COMBUSTIBLE, monto: 310, descripcion: 'Combustible Lima - Chiclayo', fecha: new Date('2024-04-05') },
-      { vehiculoId: vt5.id, usuarioId: sec1.id, tipoGasto: TipoGasto.VIATICOS, monto: 160, descripcion: 'Viáticos conductor ruta norte', fecha: new Date('2024-04-06') },
-      { vehiculoId: vt1.id, usuarioId: sec3.id, tipoGasto: TipoGasto.MANTENIMIENTO, monto: 450, descripcion: 'Revisión técnica y cambio neumáticos', fecha: new Date('2024-04-15'), comprobante: 'REC-003-00112' },
-      { vehiculoId: vt2.id, usuarioId: sec1.id, tipoGasto: TipoGasto.PEAJE, monto: 95, descripcion: 'Peajes ruta Trujillo - Chiclayo', fecha: new Date('2024-04-22') },
-      { vehiculoId: vt3.id, usuarioId: admin.id, tipoGasto: TipoGasto.OTROS, monto: 200, descripcion: 'Licencia de circulación municipal', fecha: new Date('2024-05-02'), comprobante: 'REC-004-00056' },
-      { vehiculoId: vt4.id, usuarioId: sec2.id, tipoGasto: TipoGasto.COMBUSTIBLE, monto: 280, descripcion: 'Combustible ruta Lima - Cerro de Pasco', fecha: new Date('2024-02-15') },
-      { vehiculoId: vt5.id, usuarioId: sec3.id, tipoGasto: TipoGasto.MANTENIMIENTO, monto: 600, descripcion: 'Cambio de correa de distribución MNO-345', fecha: new Date('2024-05-08'), comprobante: 'FAC-005-00210' },
-    ],
-  });
-  console.log('✅ Gastos (15)');
 
   // ── COMBUSTIBLE (10) ──────────────────────────────────────────────────────
   await prisma.combustible.createMany({
@@ -290,7 +253,7 @@ async function main() {
   console.log('  Módulos poblados:');
   console.log('  • Usuarios: 4  • Clientes: 10  • Conductores: 10');
   console.log('  • Vehículos: 10  • Pedidos: 15  • Facturas: 12');
-  console.log('  • Cajas: 3  • Pagos: 8  • Gastos: 15');
+  console.log('  • Cajas: 3');
   console.log('  • Combustible: 10  • Liquidaciones: 8');
   console.log('');
   console.log('  Credenciales:');

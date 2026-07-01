@@ -97,49 +97,6 @@ export class ConfiguracionController {
     }
   }
 
-  // ── Categorías gasto ────────────────────────────────────────────────────────
-  async getCategoriasGasto(req: Request, res: Response): Promise<void> {
-    try { R.ok(res, await configuracionService.getCategoriasGasto()); } catch (e) { R.serverError(res, e); }
-  }
-
-  async createCategoriaGasto(req: Request, res: Response): Promise<void> {
-    try {
-      const { codigo, nombre, descripcion } = req.body;
-      if (!codigo || !nombre) { R.badRequest(res, 'codigo y nombre son requeridos'); return; }
-      R.created(res, await configuracionService.createCategoriaGasto({ codigo, nombre, descripcion }), 'Categoría creada');
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('ya existe')) R.badRequest(res, msg);
-      else R.serverError(res, e);
-    }
-  }
-
-  async updateCategoriaGasto(req: Request, res: Response): Promise<void> {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      R.ok(res, await configuracionService.updateCategoriaGasto(id, req.body), 'Categoría actualizada');
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : '';
-      if (msg === 'Categoría no encontrada') R.notFound(res, msg);
-      else R.serverError(res, e);
-    }
-  }
-
-  async deleteCategoriaGasto(req: Request, res: Response): Promise<void> {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      await configuracionService.deleteCategoriaGasto(id);
-      R.ok(res, null, 'Categoría eliminada');
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('no encontrada')) R.notFound(res, msg);
-      else if (msg.includes('sistema')) R.badRequest(res, msg);
-      else R.serverError(res, e);
-    }
-  }
-
   // ── Alertas ─────────────────────────────────────────────────────────────────
   async getAlertas(req: Request, res: Response): Promise<void> {
     try { R.ok(res, await configuracionService.getAlertas()); } catch (e) { R.serverError(res, e); }

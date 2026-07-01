@@ -48,12 +48,6 @@ router.post('/series',                      configuracionController.createSerie.
 router.put('/series/:id',                   configuracionController.updateSerie.bind(configuracionController));
 router.delete('/series/:id',               configuracionController.deleteSerie.bind(configuracionController));
 
-// Categorías de gasto
-router.get('/categorias-gasto',             configuracionController.getCategoriasGasto.bind(configuracionController));
-router.post('/categorias-gasto',            configuracionController.createCategoriaGasto.bind(configuracionController));
-router.put('/categorias-gasto/:id',         configuracionController.updateCategoriaGasto.bind(configuracionController));
-router.delete('/categorias-gasto/:id',      configuracionController.deleteCategoriaGasto.bind(configuracionController));
-
 // Alertas
 router.get('/alertas',                      configuracionController.getAlertas.bind(configuracionController));
 router.put('/alertas/bulk',                 configuracionController.updateAlertasBulk.bind(configuracionController));

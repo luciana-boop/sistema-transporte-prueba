@@ -10,9 +10,17 @@ const apiOrigin = process.env.NEXT_PUBLIC_API_URL || 'https://sistema-transporte
 // sitio. Se acepta 'unsafe-inline' para script-src/style-src como riesgo
 // residual documentado; no se ejecuta JS de terceros (no hay scripts de
 // analytics/ads) y la API solo acepta el origen propio (connect-src).
+// En desarrollo, Next.js necesita 'unsafe-eval' en script-src para el
+// Fast Refresh / HMR de webpack (usa eval() para los source maps). Sin esto,
+// el navegador bloquea la ejecución de todo el JS y la app queda en blanco.
+// En producción (build real) no hace falta y se mantiene la política estricta.
+const scriptSrc = process.env.NODE_ENV === 'production'
+  ? "script-src 'self' 'unsafe-inline'"
+  : "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
+
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  scriptSrc,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self' data:",

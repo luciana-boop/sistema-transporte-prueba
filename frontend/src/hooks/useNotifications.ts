@@ -3,7 +3,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import { vehiculosApi, conductoresApi, cobranzaApi, configuracionApi } from '@/services/api';
+import { vehiculosApi, conductoresApi, facturacionApi, configuracionApi } from '@/services/api';
 import { useAuthStore } from '@/store/auth.store';
 
 export interface Notification {
@@ -45,9 +45,9 @@ export function useNotifications() {
     enabled: canFetch, // ← NUEVO
   });
 
-  const { data: cpc = [] } = useQuery({
-    queryKey: ['cuentas-por-cobrar'],
-    queryFn: () => cobranzaApi.cuentasPorCobrar({ limit: 100 }).then((r) => r.data.data.items).catch(() => []),
+  const { data: facturasPendientes = [] } = useQuery({
+    queryKey: ['facturas-pendientes-notif'],
+    queryFn: () => facturacionApi.listar({ limit: 100 }).then((r) => r.data.data.items).catch(() => []),
     staleTime: 5 * 60 * 1000,
     enabled: canFetch, // ← NUEVO
   });
@@ -155,7 +155,12 @@ export function useNotifications() {
 
     const cfgFac = cfg('factura_vencida');
     if (cfgFac.activo) {
-      const vencidas = cpc.filter((c: any) => c.vencida);
+      const hoy = new Date();
+      const vencidas = facturasPendientes.filter((f: any) =>
+        f.estado !== 'PAGADA' && f.estado !== 'ANULADA' &&
+        Number(f.total) - Number(f.totalPagado || 0) > 0.01 &&
+        new Date(f.fechaVencimiento) < hoy
+      );
       if (vencidas.length > 0) {
         items.push({
           id: 'facturas-vencidas',
@@ -169,7 +174,7 @@ export function useNotifications() {
     }
 
     return items.map((n) => ({ ...n, read: readIds.has(n.id) }));
-  }, [vehiculos, conductores, cpc, alertaMap, readIds]);
+  }, [vehiculos, conductores, facturasPendientes, alertaMap, readIds]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const markRead    = (id: string) => setReadIds((prev) => new Set([...prev, id]));

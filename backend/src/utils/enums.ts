@@ -18,14 +18,6 @@ export const EstadoFactura = {
 } as const;
 export type EstadoFactura = typeof EstadoFactura[keyof typeof EstadoFactura];
 
-export const MetodoPago = {
-  EFECTIVO:      'EFECTIVO',
-  TRANSFERENCIA: 'TRANSFERENCIA',
-  TARJETA:       'TARJETA',
-  CHEQUE:        'CHEQUE',
-} as const;
-export type MetodoPago = typeof MetodoPago[keyof typeof MetodoPago];
-
 export const EstadoCaja = {
   ABIERTA:  'ABIERTA',
   CERRADA:  'CERRADA',
@@ -37,15 +29,6 @@ export const TipoMovimientoCaja = {
   EGRESO:  'EGRESO',
 } as const;
 export type TipoMovimientoCaja = typeof TipoMovimientoCaja[keyof typeof TipoMovimientoCaja];
-
-export const TipoGasto = {
-  COMBUSTIBLE:  'COMBUSTIBLE',
-  VIATICOS:     'VIATICOS',
-  PEAJE:        'PEAJE',
-  MANTENIMIENTO:'MANTENIMIENTO',
-  OTROS:        'OTROS',
-} as const;
-export type TipoGasto = typeof TipoGasto[keyof typeof TipoGasto];
 
 export const CondicionPago = {
   CONTADO:    'CONTADO',

@@ -4,8 +4,6 @@
 export type Rol = 'ADMIN' | 'SECRETARIO';
 export type EstadoPedido = 'PENDIENTE' | 'EN_RUTA' | 'ENTREGADO' | 'FACTURADO' | 'ANULADO';
 export type EstadoFactura = 'EMITIDA' | 'PAGADA' | 'PENDIENTE' | 'ANULADA';
-export type MetodoPago = 'EFECTIVO' | 'TRANSFERENCIA' | 'TARJETA' | 'CHEQUE';
 export type EstadoCaja = 'ABIERTA' | 'CERRADA';
 export type TipoMovimientoCaja = 'INGRESO' | 'EGRESO';
-export type TipoGasto = 'COMBUSTIBLE' | 'VIATICOS' | 'PEAJE' | 'MANTENIMIENTO' | 'OTROS';
 export type CondicionPago = 'CONTADO' | 'CREDITO_15' | 'CREDITO_30' | 'CREDITO_60';

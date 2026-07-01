@@ -5,10 +5,10 @@ import { useState, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Download, Upload, AlertTriangle, CheckCircle, Database, FileSpreadsheet, FileJson } from 'lucide-react';
-import { backupsApi, clientesApi, pedidosApi, conductoresApi, vehiculosApi, gastosApi, liquidacionesApi, combustibleApi, usuariosApi, fetchAllPages } from '@/services/api';
+import { backupsApi, clientesApi, pedidosApi, conductoresApi, vehiculosApi, liquidacionesApi, combustibleApi, usuariosApi, fetchAllPages } from '@/services/api';
 import { facturacionApi } from '@/services/api';
 import { PageHeader, Button, StatCard } from '@/components/shared';
-import { formatCurrency, formatDate, getErrorMessage, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL, TIPO_GASTO_LABEL } from '@/lib/utils';
+import { formatCurrency, formatDate, getErrorMessage, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
 import * as XLSX from 'xlsx';
 
@@ -51,16 +51,14 @@ export default function BackupsPage() {
 
       // Fetch all data in parallel
       const [
-        cData, pData, facData, , condData, vehData,
-        gData, liqData, combData
+        cData, pData, facData, condData, vehData,
+        liqData, combData
       ] = await Promise.all([
         fetchAllPages((p) => clientesApi.listar(p).then(r => r.data.data)),
         fetchAllPages((p) => pedidosApi.listar(p).then(r => r.data.data)),
         fetchAllPages((p) => facturacionApi.listar(p).then(r => r.data.data)),
-        Promise.resolve([]),
         fetchAllPages((p) => conductoresApi.listar(p).then(r => r.data.data)),
         fetchAllPages((p) => vehiculosApi.listar(p).then(r => r.data.data)),
-        fetchAllPages((p) => gastosApi.listar(p).then(r => r.data.data)),
         fetchAllPages((p) => liquidacionesApi.listar(p).then(r => r.data.data)),
         fetchAllPages((p) => combustibleApi.listar(p).then(r => r.data.data)),
       ]);
@@ -89,11 +87,6 @@ export default function BackupsPage() {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
         (vehData as any[]).map(v => ({ Placa: v.placa, Tipo: v.tipo, Marca: v.marca, Modelo: v.modelo, Año: v.anio, 'Venc. SOAT': v.vencimientoSoat ? formatDate(v.vencimientoSoat) : '', 'Venc. Rev. Téc.': v.vencimientoRevision ? formatDate(v.vencimientoRevision) : '', Estado: v.estado }))
       ), 'Vehículos');
-
-      // Sheet: Gastos
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
-        (gData as any[]).map(g => ({ '#': g.id, Tipo: TIPO_GASTO_LABEL[g.tipoGasto] ?? g.tipoGasto, Descripción: g.descripcion, 'Monto S/': Number(g.monto), 'Pedido #': g.pedido ? g.pedido.id : '', Fecha: formatDate(g.fecha) }))
-      ), 'Gastos');
 
       // Sheet: Liquidaciones
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
@@ -182,10 +175,10 @@ export default function BackupsPage() {
           </div>
           <ul className="text-xs text-muted-foreground space-y-1 pl-1">
             {[
-              'Usuarios', 'Clientes', 'Pedidos', 'Facturas y detalles', 'Pagos',
-              'Cajas y movimientos', 'Gastos', 'Conductores', 'Vehículos',
+              'Usuarios', 'Clientes', 'Pedidos', 'Facturas y detalles',
+              'Cajas y movimientos', 'Conductores', 'Vehículos',
               'Liquidaciones y pedidos asociados', 'Combustible',
-              'Cuentas, monedas y movimientos', 'Configuración del sistema',
+              'Cuentas, monedas, movimientos y cobranza', 'Configuración del sistema',
               'Permisos de usuarios', 'Registro de actividad',
             ].map(m => (
               <li key={m} className="flex items-center gap-1.5"><CheckCircle className="w-3 h-3 text-emerald-500" />{m}</li>
@@ -210,7 +203,7 @@ export default function BackupsPage() {
             </div>
           </div>
           <ul className="text-xs text-muted-foreground space-y-1 pl-1">
-            {['Clientes', 'Pedidos', 'Facturación', 'Conductores', 'Vehículos', 'Gastos', 'Liquidaciones', 'Combustible'].map(m => (
+            {['Clientes', 'Pedidos', 'Facturación', 'Conductores', 'Vehículos', 'Liquidaciones', 'Combustible'].map(m => (
               <li key={m} className="flex items-center gap-1.5"><CheckCircle className="w-3 h-3 text-emerald-500" />{m}</li>
             ))}
           </ul>
