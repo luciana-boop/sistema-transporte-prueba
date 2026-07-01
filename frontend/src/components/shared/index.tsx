@@ -3,8 +3,8 @@
 'use client';
 
 import React from 'react';
-import { cn } from '@/lib/utils';
-import { Loader2, SearchX } from 'lucide-react';
+import { cn, NOMBRES_MES } from '@/lib/utils';
+import { Loader2, SearchX, ChevronLeft, ChevronRight } from 'lucide-react';
 
 // ─── BADGE ───────────────────────────────────────────────────────────────────
 const badgeVariants: Record<string, string> = {
@@ -113,10 +113,38 @@ export function PageHeader({
   return (
     <div className="flex items-start justify-between gap-4">
       <div>
-        <h2 className="text-xl font-bold tracking-tight">{title}</h2>
+        <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
         {description && <p className="text-sm text-muted-foreground mt-0.5">{description}</p>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
+    </div>
+  );
+}
+
+// ─── MONTH SELECTOR ──────────────────────────────────────────────────────────
+export function MonthSelector({
+  year, month, onChange,
+}: { year: number; month: number; onChange: (year: number, month: number) => void }) {
+  const prev = () => (month === 1 ? onChange(year - 1, 12) : onChange(year, month - 1));
+  const next = () => (month === 12 ? onChange(year + 1, 1) : onChange(year, month + 1));
+
+  return (
+    <div className="flex items-center gap-1 bg-card border border-border rounded-2xl px-2 py-1.5 w-fit shadow-sm">
+      <button
+        onClick={prev}
+        className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+      >
+        <ChevronLeft className="w-4 h-4" />
+      </button>
+      <span className="text-sm font-semibold min-w-[130px] text-center capitalize">
+        {NOMBRES_MES[month - 1]} {year}
+      </span>
+      <button
+        onClick={next}
+        className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+      >
+        <ChevronRight className="w-4 h-4" />
+      </button>
     </div>
   );
 }
@@ -138,17 +166,25 @@ export function StatCard({
     yellow:  'bg-yellow-500/10 text-yellow-500',
   };
 
+  const valueColors = {
+    default: 'text-foreground',
+    green:   'text-emerald-600 dark:text-emerald-400',
+    blue:    'text-blue-600 dark:text-blue-400',
+    red:     'text-red-600 dark:text-red-400',
+    yellow:  'text-amber-600 dark:text-amber-400',
+  };
+
   return (
     <div className="card-stat animate-fade-in">
       <div className="flex items-start justify-between">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{label}</p>
+        <p className="text-sm font-medium text-muted-foreground">{label}</p>
         {Icon && (
           <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center', iconColors[color])}>
             <Icon className="w-4 h-4" />
           </div>
         )}
       </div>
-      <p className="text-2xl font-bold mt-1">{value}</p>
+      <p className={cn('text-2xl font-bold mt-1', valueColors[color])}>{value}</p>
       <div className="flex items-center gap-2 mt-0.5">
         {trend && (
           <span className={cn('text-xs font-medium', trend.positive ? 'text-emerald-500' : 'text-red-500')}>

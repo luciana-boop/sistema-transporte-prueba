@@ -15,22 +15,22 @@
     --card-foreground:     240 22% 12%;
     --border:              240 12% 90%;
     --input:               240 12% 90%;
-    --ring:                243 47% 51%;
-    --primary:             243 47% 51%;
+    --ring:                221 83% 53%;
+    --primary:             221 83% 45%;
     --primary-foreground:  0 0% 100%;
     --secondary:           240 20% 95%;
     --secondary-foreground:240 10% 50%;
     --muted:               240 15% 95%;
     --muted-foreground:    240 8% 52%;
-    --accent:              243 40% 95%;
-    --accent-foreground:   243 47% 51%;
+    --accent:              221 70% 95%;
+    --accent-foreground:   221 83% 45%;
     --destructive:         5 70% 52%;
     --destructive-foreground: 0 0% 100%;
     --sidebar:             0 0% 100%;
     --sidebar-foreground:  240 22% 12%;
     --sidebar-border:      240 12% 90%;
-    --sidebar-accent:      243 40% 95%;
-    --radius:              0.5rem;
+    --sidebar-accent:      221 70% 95%;
+    --radius:              0.85rem;
     --success:             152 42% 45%;
     --warning:             35 80% 52%;
   }
@@ -42,8 +42,8 @@
     --card-foreground:     213 31% 91%;
     --border:              216 34% 14%;
     --input:               216 34% 14%;
-    --ring:                243 47% 51%;
-    --primary:             243 47% 51%;
+    --ring:                221 83% 53%;
+    --primary:             221 83% 53%;
     --primary-foreground:  0 0% 100%;
     --secondary:           222 47% 11%;
     --secondary-foreground:215 20% 65%;
@@ -91,11 +91,11 @@
   }
 
   .card-stat {
-    @apply bg-card border border-border rounded-xl p-5 flex flex-col gap-2;
+    @apply bg-card border border-border rounded-2xl p-5 shadow-sm flex flex-col gap-2;
   }
 
   .table-container {
-    @apply bg-card border border-border rounded-xl overflow-hidden;
+    @apply bg-card border border-border rounded-2xl overflow-hidden;
   }
 
   .badge-estado {

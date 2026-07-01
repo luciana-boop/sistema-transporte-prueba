@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
-import { Moon, Sun, Bell, Search } from 'lucide-react';
+import { Moon, Sun, Bell } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useAuthStore } from '@/store/auth.store';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -52,16 +52,6 @@ export function Topbar() {
             weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
           })}
         </p>
-      </div>
-
-      {/* Search */}
-      <div className="relative hidden lg:flex items-center">
-        <Search className="absolute left-2.5 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-        <input
-          type="text"
-          placeholder="Buscar..."
-          className="h-8 pl-8 pr-3 rounded-lg border border-border bg-muted/50 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring w-44 transition-[width] focus:w-56"
-        />
       </div>
 
       {/* Actions */}

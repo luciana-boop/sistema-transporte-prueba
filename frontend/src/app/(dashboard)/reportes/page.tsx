@@ -4,10 +4,10 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportesApi } from '@/services/api';
-import { formatCurrency, formatDate, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL, CLASIFICACION_MES_LABEL } from '@/lib/utils';
+import { formatCurrency, formatDate, rangoMes, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL, CLASIFICACION_MES_LABEL } from '@/lib/utils';
 import {
   PageHeader, Table, Th, Td, Tr, Badge, TableSkeleton,
-  EmptyState, StatCard, Input, Select, Modal,
+  EmptyState, StatCard, Select, Modal, MonthSelector,
 } from '@/components/shared';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -27,11 +27,11 @@ const TABS = [
 const COLORS = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4'];
 
 export default function ReportesPage() {
+  const hoy = new Date();
   const [tab, setTab] = useState('pedidos');
-  const [desde, setDesde] = useState(() => {
-    const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().split('T')[0];
-  });
-  const [hasta, setHasta] = useState(() => new Date().toISOString().split('T')[0]);
+  const [year, setYear] = useState(hoy.getFullYear());
+  const [month, setMonth] = useState(hoy.getMonth() + 1);
+  const { desde, hasta } = rangoMes(year, month);
   const [anioReporte, setAnioReporte] = useState(() => new Date().getFullYear());
 
   // Estado para modales de detalle
@@ -123,30 +123,16 @@ export default function ReportesPage() {
           </Select>
         </div>
       ) : (
-        <div className="flex flex-wrap gap-3 items-center">
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-muted-foreground">Desde</label>
-            <Input type="date" className="w-36" value={desde} onChange={(e) => setDesde(e.target.value)} />
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-muted-foreground">Hasta</label>
-            <Input type="date" className="w-36" value={hasta} onChange={(e) => setHasta(e.target.value)} />
-          </div>
-          {(desde || hasta) && (
-            <button onClick={() => { setDesde(''); setHasta(''); }} className="text-xs text-muted-foreground hover:text-destructive transition-colors">
-              × Limpiar filtros
-            </button>
-          )}
-        </div>
+        <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-muted p-1 rounded-lg w-fit flex-wrap">
+      <div className="flex gap-1 bg-muted p-1.5 rounded-xl w-fit flex-wrap">
         {TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${tab === t.id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === t.id ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
           >
             {t.label}
           </button>
@@ -165,17 +151,31 @@ export default function ReportesPage() {
 
           {/* Gráfico pedidos por cliente */}
           {pedidosPorCliente.length > 0 && (
-            <div className="bg-card border border-border rounded-xl p-5">
+            <div className="bg-card border border-border rounded-2xl p-5 shadow-sm">
               <p className="text-sm font-semibold mb-4">Pedidos por cliente</p>
-              <ResponsiveContainer width="100%" height={180}>
-                <PieChart>
-                  <Pie data={pedidosPorCliente} cx="50%" cy="50%" outerRadius={70} dataKey="value" paddingAngle={3}>
-                    {pedidosPorCliente.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                </PieChart>
-              </ResponsiveContainer>
+              <div className="flex flex-col sm:flex-row items-center gap-6">
+                <div className="w-full sm:w-1/2">
+                  <ResponsiveContainer width="100%" height={200}>
+                    <PieChart>
+                      <Pie data={pedidosPorCliente} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3} dataKey="value" stroke="none">
+                        {pedidosPorCliente.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="w-full sm:w-1/2 flex flex-col gap-2.5">
+                  {pedidosPorCliente.map((c, i) => (
+                    <div key={c.name} className="flex items-center justify-between gap-3 text-sm">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
+                        <span className="truncate text-muted-foreground">{c.name}</span>
+                      </div>
+                      <span className="font-semibold shrink-0">{c.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
@@ -411,7 +411,7 @@ export default function ReportesPage() {
                 <StatCard label="Promedio mensual de utilidad" value={formatCurrency(anualData.promedioUtilidadMensual)} color="default" />
               </div>
 
-              <div className="bg-card border border-border rounded-xl p-5">
+              <div className="bg-card border border-border rounded-2xl p-5 shadow-sm">
                 <p className="text-sm font-semibold mb-1">Resumen mensual {anualData.anio}</p>
                 <p className="text-xs text-muted-foreground mb-4">Facturado, gastos y utilidad por mes (utilidad = facturado − gastos)</p>
                 <ResponsiveContainer width="100%" height={260}>

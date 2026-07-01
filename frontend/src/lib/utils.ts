@@ -33,6 +33,18 @@ export function formatDatetime(dateStr: string): string {
   return formatDate(dateStr, "dd/MM/yyyy HH:mm");
 }
 
+export const NOMBRES_MES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+];
+
+export function rangoMes(year: number, month: number): { desde: string; hasta: string } {
+  const desde = new Date(year, month - 1, 1);
+  const hasta = new Date(year, month, 0);
+  const toISO = (d: Date) => d.toISOString().split('T')[0];
+  return { desde: toISO(desde), hasta: toISO(hasta) };
+}
+
 export function getErrorMessage(error: unknown): string {
   if (typeof error === 'object' && error !== null) {
     const e = error as Record<string, unknown>;

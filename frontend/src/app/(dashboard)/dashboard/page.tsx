@@ -6,17 +6,25 @@ import { useQuery } from '@tanstack/react-query';
 import { reportesApi, cuentasApi } from '@/services/api';
 import { useConfig } from '@/hooks/useConfig';
 import { usePermisosStore } from '@/store/permisos.store';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDate, rangoMes } from '@/lib/utils';
 import { MonedaBadge, TipoCuentaBadge } from '@/components/shared/FinancialSelectors';
 import {
   StatCard, StatCardSkeleton, TableSkeleton, EmptyState,
-  Table, Th, Td, Tr, PageHeader, Input, Modal, Badge,
+  Table, Th, Td, Tr, PageHeader, Input, Modal, Badge, MonthSelector,
 } from '@/components/shared';
 import { DollarSign, TrendingUp, Package, Users, ArrowUpRight, AlertCircle, Trophy, Medal, Fuel, Eye } from 'lucide-react';
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+
+const FINANCIERO_COLORS: Record<string, string> = {
+  Facturado:    '#2563eb',
+  Cobrado:      '#10b981',
+  'Por cobrar': '#f59e0b',
+  Gastos:       '#ef4444',
+  Utilidad:     '#0ea5e9',
+};
 
 function lunesDe(fecha: Date) {
   const dia = fecha.getDay();
@@ -32,10 +40,10 @@ export default function DashboardPage() {
   const tieneModulo = usePermisosStore((s) => s.tieneModulo);
   const accesoDashboard = modulos === null || tieneModulo('dashboard');
 
-  const [desde, setDesde] = useState(() => {
-    const d = new Date(); d.setDate(1); return d.toISOString().split('T')[0];
-  });
-  const [hasta, setHasta] = useState(() => new Date().toISOString().split('T')[0]);
+  const hoy = new Date();
+  const [year, setYear] = useState(hoy.getFullYear());
+  const [month, setMonth] = useState(hoy.getMonth() + 1);
+  const { desde, hasta } = rangoMes(year, month);
 
   const { data: dash, isLoading } = useQuery({
     queryKey: ['reportes', 'dashboard', desde, hasta],
@@ -93,26 +101,17 @@ export default function DashboardPage() {
     <div className="page-container">
       <PageHeader title="Dashboard" description={config.nombreEmpresa ? `${config.nombreEmpresa} — Resumen del período seleccionado` : "Resumen del período seleccionado"} />
 
-      {/* Filtro de fechas */}
+      {/* Filtro por mes */}
       <div className="flex flex-wrap gap-3 items-center">
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground">Desde</label>
-          <Input type="date" className="w-36" value={desde} onChange={(e) => setDesde(e.target.value)} max={hasta} />
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground">Hasta</label>
-          <Input type="date" className="w-36" value={hasta} onChange={(e) => setHasta(e.target.value)} min={desde} />
-        </div>
-        <button
-          onClick={() => {
-            const d = new Date(); d.setDate(1);
-            setDesde(d.toISOString().split('T')[0]);
-            setHasta(new Date().toISOString().split('T')[0]);
-          }}
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          ↺ Mes actual
-        </button>
+        <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
+        {(year !== hoy.getFullYear() || month !== hoy.getMonth() + 1) && (
+          <button
+            onClick={() => { setYear(hoy.getFullYear()); setMonth(hoy.getMonth() + 1); }}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            ↺ Mes actual
+          </button>
+        )}
       </div>
 
       {/* KPI Cards */}
@@ -143,7 +142,7 @@ export default function DashboardPage() {
 
       {/* Saldos por cuenta */}
       {resumenCuentas && resumenCuentas.cuentas.length > 0 && (
-        <div className="bg-card border border-border rounded-xl p-5">
+        <div className="bg-card border border-border rounded-2xl p-5 shadow-sm">
           <p className="text-sm font-semibold mb-3">Saldos por cuenta</p>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {resumenCuentas.cuentas.map((c: any) => (
@@ -166,31 +165,33 @@ export default function DashboardPage() {
 
       {/* Gráficos */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-card border border-border rounded-xl p-5">
+        <div className="lg:col-span-2 bg-card border border-border rounded-2xl p-5 shadow-sm">
           <p className="text-sm font-semibold mb-4">Resumen financiero del período</p>
           {isLoading ? (
-            <div className="skeleton h-48 rounded-lg" />
+            <div className="skeleton h-48 rounded-xl" />
           ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={financieroData}>
-                <defs>
-                  <linearGradient id="colorValor" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(221,83%,53%)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="hsl(221,83%,53%)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={financieroData} barSize={40}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                 <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v) => `S/${(v/1000).toFixed(0)}k`} />
-                <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} formatter={(v: number) => [formatCurrency(v), 'Monto']} />
-                <Area type="monotone" dataKey="valor" stroke="hsl(221,83%,53%)" strokeWidth={2} fill="url(#colorValor)" />
-              </AreaChart>
+                <Tooltip
+                  cursor={{ fill: 'hsl(var(--muted)/0.4)' }}
+                  contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12 }}
+                  formatter={(v: number) => [formatCurrency(v), 'Monto']}
+                />
+                <Bar dataKey="valor" radius={[10, 10, 0, 0]}>
+                  {financieroData.map((d) => (
+                    <Cell key={d.name} fill={FINANCIERO_COLORS[d.name] ?? 'hsl(var(--primary))'} />
+                  ))}
+                </Bar>
+              </BarChart>
             </ResponsiveContainer>
           )}
         </div>
 
         {/* Conductor del mes */}
-        <div className="bg-card border border-border rounded-xl p-5">
+        <div className="bg-card border border-border rounded-2xl p-5 shadow-sm">
           <p className="text-sm font-semibold mb-4">
             Conductor del mes{conductorMes?.periodo ? ` — ${conductorMes.periodo.nombreMes}` : ''}
           </p>
