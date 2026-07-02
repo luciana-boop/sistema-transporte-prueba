@@ -42,6 +42,8 @@ export interface MovimientoInternoDto {
   origen?: string;
   /** Solo aplica a egresos: nota libre de en qué se usó el gasto (no confundir con `referencia`, el N° de operación bancario) */
   notaEgreso?: string;
+  /** Solo aplica a egresos: categoría (COMBUSTIBLE | REPUESTOS | CAJA_CHICA | PLANILLA | OTROS) */
+  categoriaEgreso?: string;
 }
 
 export class CuentasService {
@@ -248,6 +250,9 @@ export class CuentasService {
               factura: { select: { id: true, numeroFactura: true } },
             },
           },
+          // Si este ingreso es la devolución de saldo al cerrar una caja chica,
+          // no admite cobranza — el frontend usa este campo para ocultar esa opción
+          cajaCierre: { select: { id: true, nombre: true } },
         },
       }),
     ]);
@@ -259,6 +264,9 @@ export class CuentasService {
     const ref: string = mov.referencia || '';
     if (mov.liquidacion) {
       return `Liquidación #${mov.liquidacion.id}${mov.liquidacion.conductor ? ' — ' + mov.liquidacion.conductor.nombre : ''}`;
+    }
+    if (mov.cajaCierre) {
+      return `Devolución caja chica${mov.cajaCierre.nombre ? ' — ' + mov.cajaCierre.nombre : ` #${mov.cajaCierre.id}`}`;
     }
     if (ref.startsWith('GASTO-')) return `Gasto #${ref.replace('GASTO-', '')}`;
     if (ref.startsWith('COMBUSTIBLE-')) return `Combustible #${ref.replace('COMBUSTIBLE-', '')}`;
@@ -282,6 +290,7 @@ export class CuentasService {
         tipoPago: { select: { id: true, nombre: true } },
         usuario: { select: { id: true, nombre: true } },
         liquidacion: { select: { id: true, conductor: { select: { nombre: true } } } },
+        cajaCierre: { select: { id: true, nombre: true } },
       },
     });
     if (!mov) throw new Error('Movimiento no encontrado');
@@ -290,7 +299,8 @@ export class CuentasService {
 
   // ── P7: edición controlada (no afecta saldo: monto/tipo/cuenta no editables) ─
   async actualizarMovimiento(id: number, dto: {
-    concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null; notaEgreso?: string | null;
+    concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null;
+    notaEgreso?: string | null; categoriaEgreso?: string | null;
   }) {
     const mov = await prisma.movimientoCuentaV2.findUnique({ where: { id } });
     if (!mov) throw new Error('Movimiento no encontrado');
@@ -298,6 +308,18 @@ export class CuentasService {
     if (mov.referencia?.startsWith('REV-MOV-')) throw new Error('No se puede editar un movimiento de reverso');
     if (dto.notaEgreso !== undefined && mov.tipo !== 'EGRESO') {
       throw new Error('La referencia (nota del gasto) solo aplica a egresos');
+    }
+    if (dto.categoriaEgreso !== undefined) {
+      if (mov.tipo !== 'EGRESO') throw new Error('La categoría solo aplica a egresos');
+      if ((dto.categoriaEgreso || null) !== mov.categoriaEgreso) {
+        const [combustibleVinculado, cajaVinculada] = await Promise.all([
+          prisma.combustible.findFirst({ where: { movimientoCuentaId: id } }),
+          prisma.caja.findFirst({ where: { movimientoCuentaId: id } }),
+        ]);
+        if (combustibleVinculado || cajaVinculada) {
+          throw new Error('No se puede cambiar la categoría: este egreso ya está vinculado a un registro de Combustible o Caja chica');
+        }
+      }
     }
 
     return prisma.movimientoCuentaV2.update({
@@ -308,6 +330,7 @@ export class CuentasService {
         ...(dto.fecha !== undefined && { fecha: new Date(dto.fecha) }),
         ...(dto.tipoPagoId !== undefined && { tipoPagoId: dto.tipoPagoId || null }),
         ...(dto.notaEgreso !== undefined && { notaEgreso: dto.notaEgreso || null }),
+        ...(dto.categoriaEgreso !== undefined && { categoriaEgreso: dto.categoriaEgreso || null }),
       },
       include: {
         cuenta: { select: { id: true, nombre: true, tipoCuenta: true } },
@@ -366,6 +389,7 @@ export class CuentasService {
         liquidacionId: dto.liquidacionId ?? null,
         origen: dto.origen ?? 'MANUAL',
         notaEgreso: dto.tipo === 'EGRESO' ? (dto.notaEgreso ?? null) : null,
+        categoriaEgreso: dto.tipo === 'EGRESO' ? (dto.categoriaEgreso ?? null) : null,
         fecha: dto.fecha ? new Date(dto.fecha) : new Date(),
       },
     });
@@ -435,7 +459,7 @@ export class CuentasService {
     cuentaId: number; tipo: 'INGRESO' | 'EGRESO';
     monto: number; monedaId: number; tipoPagoId?: number;
     concepto: string; referencia?: string;
-    usuarioId: number; fecha?: string; origen?: string; notaEgreso?: string;
+    usuarioId: number; fecha?: string; origen?: string; notaEgreso?: string; categoriaEgreso?: string;
   }) {
     const cuenta = await prisma.cuentaDinero.findUnique({ where: { id: dto.cuentaId } });
     if (!cuenta) throw new Error('Cuenta no encontrada');

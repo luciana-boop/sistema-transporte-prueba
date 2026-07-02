@@ -27,14 +27,17 @@ import type { Caja, MovimientoEnriquecido, MovimientosCajaResponse, TipoMov } fr
 // ─── Schemas ────────────────────────────────────────────────────────────────
 const abrirSchema = z.object({
   nombre: z.string().optional(),
-  saldoApertura: z.string().min(1, 'Saldo de apertura requerido'),
-  cuentaOrigenId: z.string().min(1, 'Debe seleccionar la cuenta de origen'),
+  movimientoCuentaId: z.string().min(1, 'Debe seleccionar un egreso'),
   observaciones: z.string().optional(),
 });
 const cerrarSchema = z.object({
   saldoCierre: z.string().min(1, 'Saldo de cierre requerido'),
   observaciones: z.string().optional(),
   cuentaDestinoId: z.string().optional(),
+  referencia: z.string().optional(),
+}).refine((d) => !d.cuentaDestinoId || (d.referencia && d.referencia.trim().length > 0), {
+  message: 'Indica el N° de operación del ingreso ya registrado para esa devolución',
+  path: ['referencia'],
 });
 const movSchema = z.object({
   tipo: z.enum(['INGRESO', 'EGRESO']),
@@ -129,27 +132,10 @@ function exportMovimientosExcel(movimientos: MovimientoEnriquecido[], saldoInici
   XLSX.writeFile(wb, `movimientos_caja_${new Date().toISOString().split('T')[0]}.xlsx`);
 }
 
-function exportCuentaExcel(movimientos: any[], nombreCuenta: string) {
-  let saldo = 0;
-  const rows = movimientos.map((m: any) => {
-    const ingreso = m.tipo === 'INGRESO' ? Number(m.monto) : 0;
-    const egreso = m.tipo === 'EGRESO' ? Number(m.monto) : 0;
-    saldo += ingreso - egreso;
-    return { Fecha: formatDatetime(m.fecha), Concepto: m.concepto, Referencia: m.referencia ?? '', Ingreso: ingreso || '', Egreso: egreso || '', Saldo: saldo };
-  });
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Movimientos');
-  XLSX.writeFile(wb, `cuenta_${nombreCuenta.replace(/\s/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
-}
-
 // ─── Página principal ────────────────────────────────────────────────────────
 export default function CajaPage() {
   const qc = useQueryClient();
   const { usuario } = useAuthStore();
-
-  // Tabs
-  const [tab, setTab] = useState<'cajas' | 'cuentas'>('cajas');
 
   // Modales existentes
   const [showAbrir, setShowAbrir] = useState(false);
@@ -164,9 +150,6 @@ export default function CajaPage() {
   const [filtroListaDesde, setFiltroListaDesde] = useState('');
   const [filtroListaHasta, setFiltroListaHasta] = useState('');
   const [cajasPage, setCajasPage] = useState(1);
-  const [cuentaSelId, setCuentaSelId] = useState<string>('');
-  const [cuentaMovDesde, setCuentaMovDesde] = useState('');
-  const [cuentaMovHasta, setCuentaMovHasta] = useState('');
 
   // ── Queries ──────────────────────────────────────────────────────────────
   const { data: movData, isLoading: isLoadingMov, error: errorMov } = useQuery({
@@ -195,11 +178,10 @@ export default function CajaPage() {
     queryFn: () => cuentasApi.getResumen().then((r) => r.data.data).catch(() => null),
   });
 
-  const { data: cuentaMovData, isLoading: isLoadingCuentaMov } = useQuery({
-    queryKey: ['cuenta-movimientos', cuentaSelId, cuentaMovDesde, cuentaMovHasta],
-    queryFn: () =>
-      cuentasApi.getMovimientos({ cuentaId: parseInt(cuentaSelId), desde: cuentaMovDesde || undefined, hasta: cuentaMovHasta || undefined }).then((r) => r.data.data),
-    enabled: !!cuentaSelId,
+  const { data: egresosDisponibles = [] } = useQuery({
+    queryKey: ['caja', 'egresos-disponibles'],
+    queryFn: () => cajaApi.egresosDisponibles().then((r) => r.data.data),
+    enabled: showAbrir,
   });
 
   // ── Forms ────────────────────────────────────────────────────────────────
@@ -219,8 +201,11 @@ export default function CajaPage() {
   // ── Mutations ────────────────────────────────────────────────────────────
   const abrirMutation = useMutation({
     mutationFn: (d: z.infer<typeof abrirSchema>) =>
-      cajaApi.abrir({ nombre: d.nombre || undefined, saldoApertura: parseFloat(d.saldoApertura), cuentaOrigenId: parseInt(d.cuentaOrigenId), observaciones: d.observaciones }),
-    onSuccess: () => { toast.success('Caja abierta'); setShowAbrir(false); abrirForm.reset(); invalidate(); },
+      cajaApi.abrir({ nombre: d.nombre || undefined, movimientoCuentaId: parseInt(d.movimientoCuentaId), observaciones: d.observaciones }),
+    onSuccess: () => {
+      toast.success('Caja abierta'); setShowAbrir(false); abrirForm.reset(); invalidate();
+      qc.invalidateQueries({ queryKey: ['caja', 'egresos-disponibles'] });
+    },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
@@ -230,6 +215,7 @@ export default function CajaPage() {
         saldoCierre: parseFloat(d.saldoCierre),
         observaciones: d.observaciones,
         cuentaDestinoId: d.cuentaDestinoId ? parseInt(d.cuentaDestinoId) : undefined,
+        referencia: d.cuentaDestinoId ? (d.referencia || undefined) : undefined,
       }),
     onSuccess: () => { toast.success('Caja cerrada'); setShowCerrar(null); cerrarForm.reset(); invalidate(); },
     onError: (e) => toast.error(getErrorMessage(e)),
@@ -279,11 +265,7 @@ export default function CajaPage() {
     printMovimientos({ caja: showMovimientos, movimientos: movData.movimientos, saldoInicial: movData.saldoInicial, totalIngresos: movData.totalIngresos, totalEgresos: movData.totalEgresos, saldoFinal: movData.saldoFinal, desde: filtroMovDesde || undefined, hasta: filtroMovHasta || undefined });
   }
 
-  const cuentaNombre = resumenCuentas?.cuentas?.find((c: any) => String(c.id) === cuentaSelId)?.nombre ?? '';
-  const cuentaMovList: any[] = Array.isArray(cuentaMovData) ? cuentaMovData : [];
-  const cuentaTotalIngresos = cuentaMovList.filter((m) => m.tipo === 'INGRESO').reduce((s, m) => s + Number(m.monto), 0);
-  const cuentaTotalEgresos = cuentaMovList.filter((m) => m.tipo === 'EGRESO').reduce((s, m) => s + Number(m.monto), 0);
-  const cuentaSaldo = cuentaTotalIngresos - cuentaTotalEgresos;
+  const egresoAperturaSeleccionado = egresosDisponibles.find((e: any) => String(e.id) === abrirForm.watch('movimientoCuentaId'));
 
   return (
     <div className="page-container">
@@ -343,128 +325,8 @@ export default function CajaPage() {
         </div>
       )}
 
-      {/* ── Tabs ─────────────────────────────────────────────────────────────── */}
-      <div className="flex gap-1 border-b border-border">
-        {[
-          { key: 'cajas', label: 'Historial de cajas' },
-          { key: 'cuentas', label: 'Movimientos por cuenta' },
-        ].map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key as any)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              tab === t.key
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* ── TAB: MOVIMIENTOS POR CUENTA ─────────────────────────────────────── */}
-      {tab === 'cuentas' && (
-        <div className="bg-card border border-border rounded-xl p-5">
-          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-            <div>
-              <p className="text-sm font-semibold">Movimientos por cuenta</p>
-              <p className="text-xs text-muted-foreground">Ver ingresos, egresos y saldo de una cuenta específica</p>
-            </div>
-            {cuentaSelId && cuentaMovList.length > 0 && (
-              <Button variant="secondary" size="sm" onClick={() => exportCuentaExcel(cuentaMovList, cuentaNombre)}>
-                <FileDown className="w-4 h-4" /> Excel
-              </Button>
-            )}
-          </div>
-
-          <div className="flex gap-3 flex-wrap items-end mb-4">
-            <div className="flex flex-col gap-0.5">
-              <label className="text-xs text-muted-foreground">Cuenta</label>
-              <Select value={cuentaSelId} onChange={(e) => setCuentaSelId(e.target.value)} className="w-56">
-                <option value="">Seleccionar cuenta...</option>
-                {resumenCuentas?.cuentas?.map((c: any) => (
-                  <option key={c.id} value={c.id}>{c.nombre} ({c.moneda?.simbolo} {c.moneda?.codigo})</option>
-                ))}
-              </Select>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <label className="text-xs text-muted-foreground">Desde</label>
-              <Input type="date" value={cuentaMovDesde} onChange={(e) => setCuentaMovDesde(e.target.value)} className="w-36" />
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <label className="text-xs text-muted-foreground">Hasta</label>
-              <Input type="date" value={cuentaMovHasta} onChange={(e) => setCuentaMovHasta(e.target.value)} className="w-36" />
-            </div>
-            {(cuentaMovDesde || cuentaMovHasta) && (
-              <Button variant="ghost" size="sm" onClick={() => { setCuentaMovDesde(''); setCuentaMovHasta(''); }}>
-                <X className="w-3.5 h-3.5" /> Limpiar
-              </Button>
-            )}
-          </div>
-
-          {cuentaSelId ? (
-            <>
-              {!isLoadingCuentaMov && (
-                <div className="grid grid-cols-3 gap-3 mb-4">
-                  <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-center">
-                    <p className="text-xs text-muted-foreground">Total ingresos</p>
-                    <p className="font-semibold text-sm text-emerald-600 dark:text-emerald-400 mt-1">{formatCurrency(cuentaTotalIngresos)}</p>
-                  </div>
-                  <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-center">
-                    <p className="text-xs text-muted-foreground">Total egresos</p>
-                    <p className="font-semibold text-sm text-destructive mt-1">{formatCurrency(cuentaTotalEgresos)}</p>
-                  </div>
-                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-center">
-                    <p className="text-xs text-muted-foreground">Saldo acumulado</p>
-                    <p className={`font-bold text-sm mt-1 ${cuentaSaldo >= 0 ? 'text-primary' : 'text-destructive'}`}>{formatCurrency(cuentaSaldo)}</p>
-                  </div>
-                </div>
-              )}
-              {isLoadingCuentaMov ? <TableSkeleton rows={4} cols={6} /> : cuentaMovList.length === 0 ? (
-                <EmptyState message="Sin movimientos en el período seleccionado" />
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border">
-                        <Th>Fecha</Th><Th>Concepto</Th><Th>Referencia</Th>
-                        <Th className="text-right">Ingreso</Th><Th className="text-right">Egreso</Th><Th className="text-right">Saldo</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(() => {
-                        let saldoAcc = 0;
-                        return cuentaMovList.map((m: any) => {
-                          const ing = m.tipo === 'INGRESO' ? Number(m.monto) : 0;
-                          const egr = m.tipo === 'EGRESO' ? Number(m.monto) : 0;
-                          saldoAcc += ing - egr;
-                          return (
-                            <Tr key={m.id}>
-                              <Td><span className="text-xs text-muted-foreground">{formatDatetime(m.fecha)}</span></Td>
-                              <Td><span className="text-sm">{m.concepto}</span></Td>
-                              <Td><span className="text-xs text-muted-foreground">{m.referencia ?? '—'}</span></Td>
-                              <Td className="text-right">{ing > 0 ? <span className="font-medium text-emerald-600 dark:text-emerald-400">{formatCurrency(ing)}</span> : <span className="text-muted-foreground">—</span>}</Td>
-                              <Td className="text-right">{egr > 0 ? <span className="font-medium text-destructive">{formatCurrency(egr)}</span> : <span className="text-muted-foreground">—</span>}</Td>
-                              <Td className="text-right"><span className={`font-semibold ${saldoAcc >= 0 ? '' : 'text-destructive'}`}>{formatCurrency(saldoAcc)}</span></Td>
-                            </Tr>
-                          );
-                        });
-                      })()}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground text-center py-6">Selecciona una cuenta para ver sus movimientos</p>
-          )}
-        </div>
-      )}
-
-      {/* ── TAB: HISTORIAL DE CAJAS ──────────────────────────────────────────── */}
-      {tab === 'cajas' && (
-        <>
+      {/* ── Historial de cajas ───────────────────────────────────────────────── */}
+      <>
           <div className="flex gap-3 flex-wrap items-end">
             <p className="text-sm font-semibold self-center">Historial de cajas</p>
             <div className="flex flex-col gap-0.5">
@@ -537,8 +399,7 @@ export default function CajaPage() {
               </Button>
             </div>
           )}
-        </>
-      )}
+      </>
 
       {/* ── MODALES ──────────────────────────────────────────────────────────── */}
 
@@ -675,18 +536,28 @@ export default function CajaPage() {
       <Modal open={showAbrir} onClose={() => { setShowAbrir(false); abrirForm.reset(); }} title="Abrir caja">
         <form onSubmit={abrirForm.handleSubmit((d) => abrirMutation.mutate(d))} className="flex flex-col gap-4">
           <FormField label="Nombre de caja (opcional)"><Input placeholder="Ej: Caja principal..." {...abrirForm.register('nombre')} /></FormField>
-          <FormField label="Saldo de apertura (S/)" required error={abrirForm.formState.errors.saldoApertura?.message}><Input type="number" step="0.01" placeholder="0.00" {...abrirForm.register('saldoApertura')} /></FormField>
-          <FormField label="Cuenta origen" required error={abrirForm.formState.errors.cuentaOrigenId?.message}>
-            <Select {...abrirForm.register('cuentaOrigenId')}>
-              <option value="">Seleccionar cuenta...</option>
-              {(resumenCuentas?.cuentas ?? []).map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nombre} ({c.moneda?.simbolo} {c.moneda?.codigo}) — Saldo: {c.moneda?.simbolo} {Number(c.saldoActual).toFixed(2)}
+          <FormField label="Egreso de caja chica" required error={abrirForm.formState.errors.movimientoCuentaId?.message} hint="Egresos registrados en Movimientos con categoría Caja chica">
+            <Select {...abrirForm.register('movimientoCuentaId')}>
+              <option value="">Seleccionar egreso...</option>
+              {egresosDisponibles.map((e: any) => (
+                <option key={e.id} value={e.id}>
+                  {e.concepto} — {formatDate(e.fecha)} — {e.moneda?.simbolo} {Number(e.monto).toFixed(2)}
                 </option>
               ))}
             </Select>
           </FormField>
-          <p className="text-xs text-muted-foreground -mt-2">Se generará un movimiento de salida automático en esta cuenta por el monto del saldo de apertura.</p>
+          {egresosDisponibles.length === 0 && (
+            <p className="text-xs text-muted-foreground -mt-2">No hay egresos disponibles. Registra uno en Movimientos con categoría "Caja chica".</p>
+          )}
+          {egresoAperturaSeleccionado && (
+            <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2">
+              <span className="text-xs text-muted-foreground">Saldo de apertura</span>
+              <span className="text-sm font-semibold text-primary">
+                {egresoAperturaSeleccionado.moneda?.simbolo} {Number(egresoAperturaSeleccionado.monto).toFixed(2)}
+              </span>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground -mt-2">El egreso ya fue registrado en Movimientos; aquí solo se vincula a la apertura de esta caja.</p>
           <FormField label="Observaciones"><Textarea {...abrirForm.register('observaciones')} /></FormField>
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="secondary" type="button" onClick={() => { setShowAbrir(false); abrirForm.reset(); }}>Cancelar</Button>
@@ -719,7 +590,12 @@ export default function CajaPage() {
               ))}
             </Select>
           </FormField>
-          <p className="text-xs text-muted-foreground -mt-2">Si seleccionas una cuenta, el saldo calculado se registrará como ingreso en esa cuenta. Esta operación no puede deshacerse.</p>
+          {cerrarForm.watch('cuentaDestinoId') && (
+            <FormField label="N° Operación" required error={cerrarForm.formState.errors.referencia?.message} hint="Debe coincidir exactamente con el N° de operación del ingreso que ya registraste en Movimientos para esta devolución">
+              <Input {...cerrarForm.register('referencia')} />
+            </FormField>
+          )}
+          <p className="text-xs text-muted-foreground -mt-2">Si seleccionas una cuenta, el cierre se vincula al ingreso ya registrado con ese N° de operación (no se crea un movimiento nuevo). Esta operación no puede deshacerse.</p>
           <FormField label="Observaciones"><Textarea {...cerrarForm.register('observaciones')} /></FormField>
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="secondary" type="button" onClick={() => { setShowCerrar(null); cerrarForm.reset(); }}>Cancelar</Button>

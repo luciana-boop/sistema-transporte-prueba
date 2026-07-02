@@ -36,11 +36,10 @@ export class CajaController {
 
   async abrir(req: Request, res: Response): Promise<void> {
     try {
-      const { saldoApertura, cuentaOrigenId, nombre, observaciones } = req.body;
-      if (saldoApertura === undefined) { R.badRequest(res, 'saldoApertura es requerido'); return; }
-      if (!cuentaOrigenId) { R.badRequest(res, 'Debe seleccionar la cuenta de origen de los fondos de apertura'); return; }
+      const { movimientoCuentaId, nombre, observaciones } = req.body;
+      if (!movimientoCuentaId) { R.badRequest(res, 'Debe seleccionar un egreso de caja chica'); return; }
       const data = await cajaService.abrir(
-        { saldoApertura: parseFloat(saldoApertura), cuentaOrigenId: parseInt(cuentaOrigenId), nombre, observaciones },
+        { movimientoCuentaId: parseInt(movimientoCuentaId), nombre, observaciones },
         req.usuario!.id
       );
       R.created(res, data, 'Caja abierta correctamente');
@@ -48,9 +47,12 @@ export class CajaController {
       const msg = e instanceof Error ? e.message : '';
       if (
         msg.includes('Ya existe') ||
+        msg.includes('no encontrado') ||
         msg.includes('no encontrada') ||
         msg.includes('inactiva') ||
-        msg.includes('Saldo insuficiente') ||
+        msg.includes('anulado') ||
+        msg.includes('ya fue usado') ||
+        msg.includes('no es un egreso') ||
         msg.includes('Debe seleccionar')
       ) {
         R.badRequest(res, msg);
@@ -58,11 +60,17 @@ export class CajaController {
     }
   }
 
+  async egresosDisponibles(req: Request, res: Response): Promise<void> {
+    try {
+      R.ok(res, await cajaService.egresosDisponibles());
+    } catch (e) { R.serverError(res, e); }
+  }
+
   async cerrar(req: Request, res: Response): Promise<void> {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      const { saldoCierre, observaciones, cuentaDestinoId } = req.body;
+      const { saldoCierre, observaciones, cuentaDestinoId, referencia } = req.body;
       if (saldoCierre === undefined) { R.badRequest(res, 'saldoCierre es requerido'); return; }
       const data = await cajaService.cerrar(
         id,
@@ -70,6 +78,7 @@ export class CajaController {
           saldoCierre: parseFloat(saldoCierre),
           observaciones,
           cuentaDestinoId: cuentaDestinoId ? parseInt(cuentaDestinoId) : undefined,
+          referencia,
         },
         req.usuario!.id
       );
@@ -77,7 +86,11 @@ export class CajaController {
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Caja no encontrada') R.notFound(res, msg);
-      else if (msg.includes('ya está') || msg.includes('No puede') || msg.includes('ya fue devuelto') || msg.includes('no encontrada') || msg.includes('inactiva') || msg.includes('Saldo insuficiente')) R.badRequest(res, msg);
+      else if (
+        msg.includes('ya está') || msg.includes('No puede') || msg.includes('ya fue devuelto') ||
+        msg.includes('no encontrada') || msg.includes('inactiva') || msg.includes('Saldo insuficiente') ||
+        msg.includes('Debe indicar') || msg.includes('No se encontró') || msg.includes('Hay más de un')
+      ) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }

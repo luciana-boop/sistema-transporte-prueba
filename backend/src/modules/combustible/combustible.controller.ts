@@ -1,5 +1,6 @@
 // FILE: src/modules/combustible/combustible.controller.ts
-// CHAT 9: cuentaId y monedaId son obligatorios. Se pasa usuarioId al service.
+// Las cargas de combustible se vinculan a un egreso existente (Movimientos,
+// categoría COMBUSTIBLE) en vez de generar su propio movimiento financiero.
 
 import { Request, Response } from 'express';
 import { combustibleService } from './combustible.service';
@@ -20,6 +21,12 @@ export class CombustibleController {
     } catch (e) { R.serverError(res, e); }
   }
 
+  async egresosDisponibles(req: Request, res: Response): Promise<void> {
+    try {
+      R.ok(res, await combustibleService.egresosDisponibles());
+    } catch (e) { R.serverError(res, e); }
+  }
+
   async obtener(req: Request, res: Response): Promise<void> {
     try {
       const id = parseInt(req.params.id);
@@ -34,14 +41,12 @@ export class CombustibleController {
 
   async crear(req: Request, res: Response): Promise<void> {
     try {
-      const { vehiculoId, fecha, galones, monto, conductorId, liquidacionId, kilometraje, grifo, observaciones, cuentaId, monedaId, tipoPagoId } = req.body;
+      const { vehiculoId, fecha, galones, monto, conductorId, liquidacionId, kilometraje, grifo, observaciones, movimientoCuentaId } = req.body;
 
       if (!vehiculoId || !fecha || galones === undefined || monto === undefined) {
         R.badRequest(res, 'vehiculoId, fecha, galones y monto son requeridos'); return;
       }
-      // CHAT 9: obligatorios
-      if (!cuentaId) { R.badRequest(res, 'Debe seleccionar una cuenta para el combustible'); return; }
-      if (!monedaId) { R.badRequest(res, 'Debe seleccionar una moneda'); return; }
+      if (!movimientoCuentaId) { R.badRequest(res, 'Debe seleccionar un egreso de combustible'); return; }
 
       R.created(res, await combustibleService.create({
         vehiculoId: parseInt(vehiculoId),
@@ -54,18 +59,18 @@ export class CombustibleController {
         kilometraje: kilometraje ? parseFloat(kilometraje) : undefined,
         grifo,
         observaciones,
-        cuentaId: parseInt(cuentaId),
-        monedaId: parseInt(monedaId),
-        tipoPagoId: tipoPagoId ? parseInt(tipoPagoId) : undefined,
+        movimientoCuentaId: parseInt(movimientoCuentaId),
       }, req.usuario!.id), 'Carga registrada');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (
         msg.includes('no encontrado') ||
-        msg.includes('Saldo insuficiente') ||
+        msg.includes('no encontrada') ||
+        msg.includes('excede el saldo') ||
         msg.includes('Debe seleccionar') ||
         msg.includes('mayor a') ||
-        msg.includes('inactiva')
+        msg.includes('anulado') ||
+        msg.includes('no es un egreso')
       ) {
         R.badRequest(res, msg);
       } else R.serverError(res, e);
@@ -76,8 +81,7 @@ export class CombustibleController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      // Solo campos no financieros
-      const { vehiculoId, conductorId, liquidacionId, fecha, galones, kilometraje, grifo, observaciones } = req.body;
+      const { vehiculoId, conductorId, liquidacionId, fecha, galones, monto, kilometraje, grifo, observaciones } = req.body;
       R.ok(res, await combustibleService.update(id, {
         vehiculoId,
         conductorId,
@@ -85,6 +89,7 @@ export class CombustibleController {
         liquidacionId: liquidacionId === null ? null : (liquidacionId !== undefined ? parseInt(liquidacionId) : undefined),
         fecha,
         galones,
+        monto: monto !== undefined ? parseFloat(monto) : undefined,
         kilometraje,
         grifo,
         observaciones,
@@ -92,7 +97,7 @@ export class CombustibleController {
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Registro no encontrado') R.notFound(res, msg);
-      else if (msg.includes('no encontrada') || msg.includes('no pertenece')) R.badRequest(res, msg);
+      else if (msg.includes('no encontrada') || msg.includes('no pertenece') || msg.includes('excede el saldo') || msg.includes('mayor a')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }

@@ -21,6 +21,7 @@ const crearValidations = [
   body('referencia').optional({ values: 'falsy' }).isString().isLength({ max: 255 }).withMessage('N° de operación inválido'),
   body('fecha').optional({ values: 'falsy' }).isISO8601().withMessage('fecha inválida'),
   body('notaEgreso').optional({ values: 'falsy' }).isString().isLength({ max: 500 }).withMessage('referencia inválida'),
+  body('categoriaEgreso').optional({ values: 'falsy' }).isIn(['COMBUSTIBLE', 'REPUESTOS', 'CAJA_CHICA', 'PLANILLA', 'OTROS']).withMessage('categoriaEgreso inválida'),
 ];
 
 const actualizarValidations = [
@@ -28,6 +29,7 @@ const actualizarValidations = [
   body('referencia').optional({ values: 'falsy' }).isString().isLength({ max: 255 }).withMessage('N° de operación inválido'),
   body('fecha').optional({ values: 'falsy' }).isISO8601().withMessage('fecha inválida'),
   body('notaEgreso').optional({ nullable: true }).isString().isLength({ max: 500 }).withMessage('referencia inválida'),
+  body('categoriaEgreso').optional({ nullable: true }).isIn(['COMBUSTIBLE', 'REPUESTOS', 'CAJA_CHICA', 'PLANILLA', 'OTROS']).withMessage('categoriaEgreso inválida'),
 ];
 
 const importarValidations = [

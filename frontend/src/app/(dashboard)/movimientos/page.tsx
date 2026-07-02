@@ -21,6 +21,15 @@ import type { MovimientoCuenta, MovimientoCuentaDetalle, MovimientoCobranza } fr
 
 type Tab = 'INGRESO' | 'EGRESO';
 
+const CATEGORIAS_EGRESO: { value: string; label: string }[] = [
+  { value: 'COMBUSTIBLE', label: 'Combustible' },
+  { value: 'REPUESTOS', label: 'Repuestos' },
+  { value: 'CAJA_CHICA', label: 'Caja chica' },
+  { value: 'PLANILLA', label: 'Planilla' },
+  { value: 'OTROS', label: 'Otros' },
+];
+const categoriaLabel = (v?: string | null) => CATEGORIAS_EGRESO.find((c) => c.value === v)?.label ?? v ?? '—';
+
 export default function MovimientosPage() {
   const { usuario } = useAuthStore();
   const queryClient = useQueryClient();
@@ -87,6 +96,7 @@ export default function MovimientosPage() {
       referencia: formRegistrar.referencia || undefined,
       fecha: formRegistrar.fecha || undefined,
       notaEgreso: tab === 'EGRESO' ? (formRegistrar.notaEgreso || undefined) : undefined,
+      categoriaEgreso: tab === 'EGRESO' ? (formRegistrar.categoriaEgreso || undefined) : undefined,
     }),
     onSuccess: () => { toast.success('Movimiento registrado'); setShowRegistrar(false); setFormRegistrar({}); inv(); },
     onError: (e) => toast.error(getErrorMessage(e)),
@@ -99,15 +109,16 @@ export default function MovimientosPage() {
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
-  // ── Editar movimiento (N° Operación y, solo en egreso, Referencia) ───────
+  // ── Editar movimiento (N° Operación y, solo en egreso, Categoría + Referencia) ─
   const [editandoMov, setEditandoMov] = useState<MovimientoCuenta | null>(null);
   const [formReferencia, setFormReferencia] = useState('');
   const [formNotaEgreso, setFormNotaEgreso] = useState('');
-  const cerrarEdicion = () => { setEditandoMov(null); setFormReferencia(''); setFormNotaEgreso(''); };
+  const [formCategoriaEgreso, setFormCategoriaEgreso] = useState('');
+  const cerrarEdicion = () => { setEditandoMov(null); setFormReferencia(''); setFormNotaEgreso(''); setFormCategoriaEgreso(''); };
   const editarMovimientoMutation = useMutation({
     mutationFn: () => movimientosApi.actualizar(editandoMov!.id, {
       referencia: formReferencia,
-      ...(editandoMov!.tipo === 'EGRESO' ? { notaEgreso: formNotaEgreso } : {}),
+      ...(editandoMov!.tipo === 'EGRESO' ? { notaEgreso: formNotaEgreso, categoriaEgreso: formCategoriaEgreso || null } : {}),
     }),
     onSuccess: () => { toast.success('Movimiento actualizado'); cerrarEdicion(); inv(); },
     onError: (e) => toast.error(getErrorMessage(e)),
@@ -286,6 +297,7 @@ export default function MovimientosPage() {
               <Th>Fecha</Th>
               <Th>Concepto</Th>
               <Th>N° Operación</Th>
+              {tab === 'EGRESO' && <Th>Categoría</Th>}
               {tab === 'EGRESO' && <Th>Referencia</Th>}
               <Th>Cuenta</Th>
               <Th className="text-right">Monto</Th>
@@ -299,6 +311,7 @@ export default function MovimientosPage() {
                 <Td><span className="text-sm">{formatDate(m.fecha)}</span></Td>
                 <Td><span className="text-sm font-medium">{m.concepto}</span>{m.anulado && <Badge value="ANULADA" label="Anulado" />}</Td>
                 <Td><span className="text-xs text-muted-foreground">{m.referencia || '—'}</span></Td>
+                {tab === 'EGRESO' && <Td><span className="text-xs text-muted-foreground">{categoriaLabel(m.categoriaEgreso)}</span></Td>}
                 {tab === 'EGRESO' && <Td><span className="text-xs text-muted-foreground">{m.notaEgreso || '—'}</span></Td>}
                 <Td><span className="text-xs text-muted-foreground">{m.cuenta?.nombre}</span></Td>
                 <Td className="text-right">
@@ -314,6 +327,8 @@ export default function MovimientosPage() {
                           ? `${m.cobranza.cliente.razonSocial} — Fact. ${m.cobranza.factura.numeroFactura}`
                           : `${m.cobranza.cliente.razonSocial} — Otro ingreso`}
                       </span>
+                    ) : m.cajaCierre ? (
+                      <span className="text-xs text-muted-foreground">Devolución caja chica{m.cajaCierre.nombre ? ` — ${m.cajaCierre.nombre}` : ''}</span>
                     ) : (
                       <button
                         onClick={() => setCobranzaMov(m)}
@@ -331,7 +346,7 @@ export default function MovimientosPage() {
                     </button>
                     {!m.anulado && (
                       <button
-                        onClick={() => { setEditandoMov(m); setFormReferencia(m.referencia ?? ''); setFormNotaEgreso(m.notaEgreso ?? ''); }}
+                        onClick={() => { setEditandoMov(m); setFormReferencia(m.referencia ?? ''); setFormNotaEgreso(m.notaEgreso ?? ''); setFormCategoriaEgreso(m.categoriaEgreso ?? ''); }}
                         className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
                       >
                         <Pencil className="w-3.5 h-3.5" />
@@ -348,7 +363,7 @@ export default function MovimientosPage() {
                   </div>
                 </Td>
               </Tr>
-            )) : <tr><td colSpan={7}><EmptyState message={`Sin ${tab === 'INGRESO' ? 'ingresos' : 'egresos'} en el período`} /></td></tr>}
+            )) : <tr><td colSpan={tab === 'EGRESO' ? 8 : 7}><EmptyState message={`Sin ${tab === 'INGRESO' ? 'ingresos' : 'egresos'} en el período`} /></td></tr>}
           </tbody>
         </Table>
       )}
@@ -382,6 +397,14 @@ export default function MovimientosPage() {
             <Input value={formRegistrar.referencia ?? ''} onChange={(e) => setFormRegistrar((p) => ({ ...p, referencia: e.target.value }))} />
           </FormField>
           {tab === 'EGRESO' && (
+            <FormField label="Categoría" required hint="Determina en qué módulo se podrá usar este egreso">
+              <Select value={formRegistrar.categoriaEgreso ?? ''} onChange={(e) => setFormRegistrar((p) => ({ ...p, categoriaEgreso: e.target.value }))}>
+                <option value="">Selecciona una categoría</option>
+                {CATEGORIAS_EGRESO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </Select>
+            </FormField>
+          )}
+          {tab === 'EGRESO' && formRegistrar.categoriaEgreso && (
             <FormField label="Referencia" hint="En qué se usó el gasto">
               <Input value={formRegistrar.notaEgreso ?? ''} onChange={(e) => setFormRegistrar((p) => ({ ...p, notaEgreso: e.target.value }))} />
             </FormField>
@@ -391,7 +414,7 @@ export default function MovimientosPage() {
             <Button variant="secondary" onClick={() => { setShowRegistrar(false); setFormRegistrar({}); }}>Cancelar</Button>
             <Button
               loading={crearMutation.isPending}
-              disabled={!formRegistrar.cuentaId || !formRegistrar.monedaId || !formRegistrar.monto || !formRegistrar.concepto}
+              disabled={!formRegistrar.cuentaId || !formRegistrar.monedaId || !formRegistrar.monto || !formRegistrar.concepto || (tab === 'EGRESO' && !formRegistrar.categoriaEgreso)}
               onClick={() => crearMutation.mutate()}
             >
               Registrar
@@ -476,6 +499,14 @@ export default function MovimientosPage() {
               <Input value={formReferencia} onChange={(e) => setFormReferencia(e.target.value)} placeholder="Sin número de operación" />
             </FormField>
             {editandoMov.tipo === 'EGRESO' && (
+              <FormField label="Categoría" hint="Solo se puede cambiar si el egreso no está vinculado a Combustible o Caja chica">
+                <Select value={formCategoriaEgreso} onChange={(e) => setFormCategoriaEgreso(e.target.value)}>
+                  <option value="">Sin categoría</option>
+                  {CATEGORIAS_EGRESO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </Select>
+              </FormField>
+            )}
+            {editandoMov.tipo === 'EGRESO' && formCategoriaEgreso && (
               <FormField label="Referencia" hint="En qué se usó el gasto (no modifica el N° de operación)">
                 <Input value={formNotaEgreso} onChange={(e) => setFormNotaEgreso(e.target.value)} placeholder="Sin referencia" />
               </FormField>
@@ -559,6 +590,7 @@ export default function MovimientosPage() {
             <Detalle label="Monto" value={formatCurrency(Number(viewing.monto))} />
             <Detalle label="Método de pago" value={viewing.tipoPago?.nombre ?? '—'} />
             <Detalle label="N° Operación" value={viewing.referencia ?? '—'} />
+            {viewing.tipo === 'EGRESO' && <Detalle label="Categoría" value={categoriaLabel(viewing.categoriaEgreso)} />}
             {viewing.tipo === 'EGRESO' && <Detalle label="Referencia" value={viewing.notaEgreso ?? '—'} />}
             <Detalle label="Registrado por" value={viewing.usuario?.nombre} />
             <Detalle label="Origen" value={viewing.origen} />

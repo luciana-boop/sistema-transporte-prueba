@@ -59,12 +59,16 @@ export class MovimientosService {
 
   async crear(dto: {
     cuentaId: number; tipo: 'INGRESO' | 'EGRESO'; monto: number; monedaId: number;
-    tipoPagoId?: number; concepto: string; referencia?: string; fecha?: string; notaEgreso?: string;
+    tipoPagoId?: number; concepto: string; referencia?: string; fecha?: string;
+    notaEgreso?: string; categoriaEgreso?: string;
   }, usuarioId: number) {
     return cuentasService.registrarMovimiento({ ...dto, usuarioId, origen: 'MANUAL' });
   }
 
-  async actualizar(id: number, dto: { concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null; notaEgreso?: string | null }) {
+  async actualizar(id: number, dto: {
+    concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null;
+    notaEgreso?: string | null; categoriaEgreso?: string | null;
+  }) {
     return cuentasService.actualizarMovimiento(id, dto);
   }
 
@@ -256,6 +260,9 @@ export class MovimientosService {
 
     const existente = await prisma.pagoV2.findFirst({ where: { movimientoCuentaId: movimientoId, anulado: false } });
     if (existente) throw new Error('Este ingreso ya tiene una cobranza vinculada');
+
+    const cajaVinculada = await prisma.caja.findFirst({ where: { movimientoCierreId: movimientoId } });
+    if (cajaVinculada) throw new Error('No se puede vincular cobranza a una devolución de saldo de caja chica');
 
     const cliente = await prisma.cliente.findUnique({ where: { id: dto.clienteId } });
     if (!cliente) throw new Error('Cliente no encontrado');

@@ -52,3 +52,14 @@ export const CategoriaDetalle = {
   OTROS:   'OTROS',
 } as const;
 export type CategoriaDetalle = typeof CategoriaDetalle[keyof typeof CategoriaDetalle];
+
+// Módulo Movimientos: categoría de un egreso. COMBUSTIBLE y CAJA_CHICA habilitan
+// que ese egreso sea consumido desde los módulos Combustible y Caja chica.
+export const CategoriaEgreso = {
+  COMBUSTIBLE: 'COMBUSTIBLE',
+  REPUESTOS:   'REPUESTOS',
+  CAJA_CHICA:  'CAJA_CHICA',
+  PLANILLA:    'PLANILLA',
+  OTROS:       'OTROS',
+} as const;
+export type CategoriaEgreso = typeof CategoriaEgreso[keyof typeof CategoriaEgreso];

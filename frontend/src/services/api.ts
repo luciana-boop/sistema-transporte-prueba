@@ -18,7 +18,7 @@ import type {
   ResumenFinanciero, EstadoFactura, FacturaDetalle, PedidoResumen,
   MovimientoCobranza,
   MovimientosCajaResponse, MovimientosGlobalResponse,
-  PaginatedResponse,
+  PaginatedResponse, EgresoCombustibleDisponible, EgresoCajaDisponible,
 } from '@/types';
 
 const api = axios.create({
@@ -171,9 +171,13 @@ export const movimientosApi = {
     api.get<ApiResponse<MovimientoCuentaDetalle & { cobranza: MovimientoCobranza | null }>>(`/api/movimientos/${id}`),
   crear: (data: {
     cuentaId: number; tipo: 'INGRESO' | 'EGRESO'; monto: number; monedaId: number;
-    tipoPagoId?: number; concepto: string; referencia?: string; fecha?: string; notaEgreso?: string;
+    tipoPagoId?: number; concepto: string; referencia?: string; fecha?: string;
+    notaEgreso?: string; categoriaEgreso?: string;
   }) => api.post<ApiResponse<MovimientoCuenta>>('/api/movimientos', data),
-  actualizar: (id: number, data: { concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null; notaEgreso?: string | null }) =>
+  actualizar: (id: number, data: {
+    concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null;
+    notaEgreso?: string | null; categoriaEgreso?: string | null;
+  }) =>
     api.put<ApiResponse<MovimientoCuenta>>(`/api/movimientos/${id}`, data),
   anular: (id: number) => api.patch<ApiResponse<MovimientoCuenta>>(`/api/movimientos/${id}/anular`),
   resumen: (params?: { desde?: string; hasta?: string; cuentaId?: number }) =>
@@ -205,9 +209,11 @@ export const cajaApi = {
     api.get<ApiResponse<PaginatedResponse<Caja>>>('/api/caja', { params }),
   obtener: (id: number) => api.get<ApiResponse<Caja>>(`/api/caja/${id}`),
   actual: () => api.get<ApiResponse<Caja | null>>('/api/caja/actual'),
-  abrir: (data: { saldoApertura: number; cuentaOrigenId: number; nombre?: string; observaciones?: string }) =>
+  egresosDisponibles: () =>
+    api.get<ApiResponse<EgresoCajaDisponible[]>>('/api/caja/egresos-disponibles'),
+  abrir: (data: { movimientoCuentaId: number; nombre?: string; observaciones?: string }) =>
     api.post<ApiResponse<Caja>>('/api/caja/abrir', data),
-  cerrar: (id: number, data: { saldoCierre: number; observaciones?: string; cuentaDestinoId?: number }) =>
+  cerrar: (id: number, data: { saldoCierre: number; observaciones?: string; cuentaDestinoId?: number; referencia?: string }) =>
     api.patch<ApiResponse<Caja>>(`/api/caja/${id}/cerrar`, data),
   registrarMovimiento: (id: number, data: {
     tipo: 'INGRESO' | 'EGRESO'; monto: number; concepto: string;
@@ -433,12 +439,14 @@ export const liquidacionesApi = {
 export const combustibleApi = {
   listar: (params?: { vehiculoId?: number; conductorId?: number; desde?: string; hasta?: string; page?: number; limit?: number }) =>
     api.get<ApiResponse<PaginatedResponse<Combustible>>>('/api/combustible', { params }),
-  /** P9: detalle de solo lectura — incluye el movimiento financiero generado */
+  /** P9: detalle de solo lectura — incluye el egreso vinculado */
   obtener: (id: number) => api.get<ApiResponse<CombustibleDetalle>>(`/api/combustible/${id}`),
+  egresosDisponibles: () =>
+    api.get<ApiResponse<EgresoCombustibleDisponible[]>>('/api/combustible/egresos-disponibles'),
   crear: (data: {
     vehiculoId: number; conductorId?: number; liquidacionId?: number; fecha: string;
     galones: number; monto: number; kilometraje?: number; grifo?: string; observaciones?: string;
-    cuentaId: number; monedaId: number; tipoPagoId?: number;
+    movimientoCuentaId: number;
   }) => api.post<ApiResponse<Combustible>>('/api/combustible', data),
   actualizar: (id: number, data: Partial<Combustible>) =>
     api.put<ApiResponse<Combustible>>(`/api/combustible/${id}`, data),

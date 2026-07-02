@@ -1,20 +1,18 @@
 // FILE: src/app/(dashboard)/combustible/page.tsx
-// CHAT 9:
-//   - cuentaId ahora OBLIGATORIO (Zod required)
-//   - monedaId se autocompleta y envía con el payload
-//   - Muestra saldo disponible de la cuenta seleccionada
-//   - Validación de saldo insuficiente antes de enviar
+// Módulo Movimientos: las cargas de combustible ya no generan su propio egreso.
+// Se registran contra un egreso existente (categoría Combustible) hasta agotar
+// su saldo disponible, permitiendo que un mismo pago cubra dos o más cargas.
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Search, Trash2, Fuel, Eye } from 'lucide-react';
-import { combustibleApi, vehiculosApi, conductoresApi, cuentasApi, liquidacionesApi, fetchAllPages } from '@/services/api';
+import { Plus, Search, Trash2, Fuel, Eye, Pencil } from 'lucide-react';
+import { combustibleApi, vehiculosApi, conductoresApi, liquidacionesApi, fetchAllPages } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, TableSkeleton,
@@ -25,6 +23,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell,
 } from 'recharts';
+import type { Combustible } from '@/types';
 
 const schema = z.object({
   vehiculoId: z.string().min(1, 'Vehículo requerido'),
@@ -37,12 +36,22 @@ const schema = z.object({
   kilometraje: z.string().optional(),
   grifo: z.string().optional(),
   observaciones: z.string().optional(),
-  // CHAT 9: obligatorios
-  cuentaId: z.string().min(1, 'Debe seleccionar una cuenta'),
-  monedaId: z.string().optional(),
-  tipoPagoId: z.string().optional(),
+  movimientoCuentaId: z.string().min(1, 'Debe seleccionar un egreso'),
 });
 type FormData = z.infer<typeof schema>;
+
+const editSchema = z.object({
+  vehiculoId: z.string().min(1, 'Vehículo requerido'),
+  conductorId: z.string().optional(),
+  liquidacionId: z.string().optional(),
+  fecha: z.string().min(1, 'Fecha requerida'),
+  galones: z.string().min(1, 'Galones/litros requerido'),
+  monto: z.string().min(1, 'Monto requerido'),
+  kilometraje: z.string().optional(),
+  grifo: z.string().optional(),
+  observaciones: z.string().optional(),
+});
+type EditFormData = z.infer<typeof editSchema>;
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
 
@@ -51,6 +60,7 @@ export default function CombustiblePage() {
   const { usuario } = useAuthStore();
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<Combustible | null>(null);
   const [filtroVehiculo, setFiltroVehiculo] = useState('');
   const [page, setPage] = useState(1);
   const [viewing, setViewing] = useState<{ id: number } | null>(null);
@@ -78,9 +88,10 @@ export default function CombustiblePage() {
     queryFn: () => conductoresApi.listar({ activo: true, limit: 100 }).then((r) => r.data.data.items),
   });
 
-  const { data: cuentas = [] } = useQuery({
-    queryKey: ['cuentas', 'activas'],
-    queryFn: () => cuentasApi.getCuentas({ activo: true }).then((r) => r.data.data).catch(() => []),
+  const { data: egresosDisponibles = [] } = useQuery({
+    queryKey: ['combustible', 'egresos-disponibles'],
+    queryFn: () => combustibleApi.egresosDisponibles().then((r) => r.data.data),
+    enabled: showForm,
   });
 
   // P9: detalle de solo lectura de una carga de combustible
@@ -91,24 +102,15 @@ export default function CombustiblePage() {
   });
 
   const {
-    register, handleSubmit, reset, setValue, control,
+    register, handleSubmit, reset, control,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { fecha: new Date().toISOString().split('T')[0] },
   });
 
-  const watchedCuentaId = useWatch({ control, name: 'cuentaId' });
-  const cuentaSeleccionada = (cuentas as any[]).find((c) => String(c.id) === watchedCuentaId);
-
-  // Autocompletar monedaId cuando se selecciona la cuenta
-  useEffect(() => {
-    if (!watchedCuentaId) return;
-    const cuenta = (cuentas as any[]).find((c) => String(c.id) === watchedCuentaId);
-    if (cuenta) {
-      setValue('monedaId', String(cuenta.monedaId), { shouldValidate: false });
-    }
-  }, [watchedCuentaId, cuentas, setValue]);
+  const watchedMovimientoCuentaId = useWatch({ control, name: 'movimientoCuentaId' });
+  const egresoSeleccionado = egresosDisponibles.find((e) => String(e.id) === watchedMovimientoCuentaId);
 
   // P4: liquidaciones del conductor seleccionado, para asociar la carga
   const watchedConductorId = useWatch({ control, name: 'conductorId' });
@@ -121,21 +123,19 @@ export default function CombustiblePage() {
     enabled: !!watchedConductorId,
   });
 
-  // Si cambia el conductor, limpiar la liquidación seleccionada (pertenecía al conductor anterior)
-  useEffect(() => {
-    setValue('liquidacionId', '', { shouldValidate: false });
-  }, [watchedConductorId, setValue]);
+  const {
+    register: registerEdit, handleSubmit: handleSubmitEdit, reset: resetEdit,
+    formState: { errors: editErrors, isSubmitting: isSubmittingEdit },
+  } = useForm<EditFormData>({ resolver: zodResolver(editSchema) });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['combustible'] });
 
   const createMutation = useMutation({
     mutationFn: (d: FormData) => {
       const monto = parseFloat(d.monto);
-      // Validar saldo en cliente antes de enviar
-      if (cuentaSeleccionada && Number(cuentaSeleccionada.saldoActual) < monto) {
+      if (egresoSeleccionado && monto > egresoSeleccionado.saldoDisponible + 0.01) {
         throw new Error(
-          `Saldo insuficiente en la cuenta seleccionada. ` +
-          `Saldo disponible: ${cuentaSeleccionada.moneda?.simbolo} ${Number(cuentaSeleccionada.saldoActual).toFixed(2)}`
+          `El monto excede el saldo disponible del egreso seleccionado (${egresoSeleccionado.moneda?.simbolo} ${egresoSeleccionado.saldoDisponible.toFixed(2)})`
         );
       }
       return combustibleApi.crear({
@@ -148,9 +148,7 @@ export default function CombustiblePage() {
         kilometraje: d.kilometraje ? parseFloat(d.kilometraje) : undefined,
         grifo: d.grifo,
         observaciones: d.observaciones,
-        cuentaId: parseInt(d.cuentaId),
-        monedaId: d.monedaId ? parseInt(d.monedaId) : 1,
-        tipoPagoId: d.tipoPagoId ? parseInt(d.tipoPagoId) : undefined,
+        movimientoCuentaId: parseInt(d.movimientoCuentaId),
       });
     },
     onSuccess: () => {
@@ -158,16 +156,53 @@ export default function CombustiblePage() {
       setShowForm(false);
       reset();
       invalidate();
-      qc.invalidateQueries({ queryKey: ['cuentas'] });
+      qc.invalidateQueries({ queryKey: ['combustible', 'egresos-disponibles'] });
+    },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (d: EditFormData) => combustibleApi.actualizar(editing!.id, {
+      vehiculoId: parseInt(d.vehiculoId),
+      conductorId: d.conductorId ? parseInt(d.conductorId) : undefined,
+      liquidacionId: d.liquidacionId ? parseInt(d.liquidacionId) : null,
+      fecha: d.fecha,
+      galones: parseFloat(d.galones),
+      monto: parseFloat(d.monto),
+      kilometraje: d.kilometraje ? parseFloat(d.kilometraje) : undefined,
+      grifo: d.grifo,
+      observaciones: d.observaciones,
+    } as any),
+    onSuccess: () => {
+      toast.success('Carga actualizada');
+      setEditing(null);
+      resetEdit();
+      invalidate();
+      qc.invalidateQueries({ queryKey: ['combustible', 'egresos-disponibles'] });
     },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => combustibleApi.eliminar(id),
-    onSuccess: () => { toast.success('Registro eliminado'); invalidate(); },
+    onSuccess: () => { toast.success('Registro eliminado'); invalidate(); qc.invalidateQueries({ queryKey: ['combustible', 'egresos-disponibles'] }); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
+
+  function abrirEdicion(r: Combustible) {
+    setEditing(r);
+    resetEdit({
+      vehiculoId: String(r.vehiculoId),
+      conductorId: r.conductorId ? String(r.conductorId) : '',
+      liquidacionId: r.liquidacionId ? String(r.liquidacionId) : '',
+      fecha: r.fecha.split('T')[0],
+      galones: String(r.galones),
+      monto: String(r.monto),
+      kilometraje: r.kilometraje ? String(r.kilometraje) : '',
+      grifo: r.grifo ?? '',
+      observaciones: r.observaciones ?? '',
+    });
+  }
 
   const filtered = registros.filter((r) =>
     search
@@ -272,6 +307,13 @@ export default function CombustiblePage() {
                     >
                       <Eye className="w-3.5 h-3.5" />
                     </button>
+                    <button
+                      onClick={() => abrirEdicion(r)}
+                      className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all"
+                      title="Editar"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
                     {usuario?.rol === 'ADMIN' && (
                       <button
                         onClick={() => { if (confirm('¿Eliminar registro?')) deleteMutation.mutate(r.id); }}
@@ -364,23 +406,25 @@ export default function CombustiblePage() {
               <Input placeholder="Primax, Repsol..." {...register('grifo')} />
             </FormField>
 
-            {/* CHAT 9: Cuenta obligatoria */}
             <div className="col-span-2">
-              <FormField label="Cuenta de pago" required error={errors.cuentaId?.message}>
-                <Select {...register('cuentaId')}>
-                  <option value="">Seleccionar cuenta...</option>
-                  {(cuentas as any[]).map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.nombre} ({c.moneda?.simbolo} {c.moneda?.codigo}) — Saldo: {c.moneda?.simbolo} {Number(c.saldoActual).toFixed(2)}
+              <FormField label="Egreso a utilizar" required error={errors.movimientoCuentaId?.message} hint="Egresos registrados en Movimientos con categoría Combustible">
+                <Select {...register('movimientoCuentaId')}>
+                  <option value="">Seleccionar egreso...</option>
+                  {egresosDisponibles.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.concepto} — {formatDate(e.fecha)} — Disponible: {e.moneda?.simbolo} {e.saldoDisponible.toFixed(2)}
                     </option>
                   ))}
                 </Select>
               </FormField>
-              {cuentaSeleccionada && (
+              {egresosDisponibles.length === 0 && (
+                <p className="text-xs text-muted-foreground mt-1.5">No hay egresos disponibles. Registra uno en Movimientos con categoría "Combustible".</p>
+              )}
+              {egresoSeleccionado && (
                 <div className="flex items-center justify-between mt-1.5 rounded-lg border border-border bg-muted/30 px-3 py-2">
-                  <span className="text-xs text-muted-foreground">Saldo disponible</span>
-                  <span className={`text-sm font-semibold ${Number(cuentaSeleccionada.saldoActual) <= 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                    {cuentaSeleccionada.moneda?.simbolo} {Number(cuentaSeleccionada.saldoActual).toFixed(2)}
+                  <span className="text-xs text-muted-foreground">Saldo disponible del egreso</span>
+                  <span className={`text-sm font-semibold ${egresoSeleccionado.saldoDisponible <= 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                    {egresoSeleccionado.moneda?.simbolo} {egresoSeleccionado.saldoDisponible.toFixed(2)}
                   </span>
                 </div>
               )}
@@ -396,6 +440,62 @@ export default function CombustiblePage() {
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="secondary" type="button" onClick={() => { setShowForm(false); reset(); }}>Cancelar</Button>
             <Button type="submit" loading={isSubmitting || createMutation.isPending}>Registrar carga</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal: Editar carga */}
+      <Modal open={!!editing} onClose={() => { setEditing(null); resetEdit(); }} title={`Editar carga #${editing?.id ?? ''}`}>
+        <form onSubmit={handleSubmitEdit((d) => updateMutation.mutate(d))} className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <FormField label="Vehículo" required error={editErrors.vehiculoId?.message}>
+                <Select {...registerEdit('vehiculoId')}>
+                  <option value="">Seleccionar vehículo</option>
+                  {vehiculos.map((v) => (
+                    <option key={v.id} value={v.id}>{v.placa} — {v.marca} {v.modelo}</option>
+                  ))}
+                </Select>
+              </FormField>
+            </div>
+
+            <FormField label="Conductor" error={editErrors.conductorId?.message}>
+              <Select {...registerEdit('conductorId')}>
+                <option value="">Sin conductor</option>
+                {conductores.map((c) => (<option key={c.id} value={c.id}>{c.nombre}</option>))}
+              </Select>
+            </FormField>
+
+            <FormField label="Fecha" required error={editErrors.fecha?.message}>
+              <Input type="date" {...registerEdit('fecha')} />
+            </FormField>
+
+            <FormField label="Galones / Litros" required error={editErrors.galones?.message}>
+              <Input type="number" step="0.01" {...registerEdit('galones')} />
+            </FormField>
+
+            <FormField label="Monto" required error={editErrors.monto?.message} hint="Ajusta el monto si el pago cubrió varias cargas">
+              <Input type="number" step="0.01" {...registerEdit('monto')} />
+            </FormField>
+
+            <FormField label="Kilometraje" error={editErrors.kilometraje?.message}>
+              <Input type="number" {...registerEdit('kilometraje')} />
+            </FormField>
+
+            <FormField label="Grifo / Proveedor" error={editErrors.grifo?.message}>
+              <Input {...registerEdit('grifo')} />
+            </FormField>
+
+            <div className="col-span-2">
+              <FormField label="Observaciones" error={editErrors.observaciones?.message}>
+                <Textarea {...registerEdit('observaciones')} />
+              </FormField>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-border">
+            <Button variant="secondary" type="button" onClick={() => { setEditing(null); resetEdit(); }}>Cancelar</Button>
+            <Button type="submit" loading={isSubmittingEdit || updateMutation.isPending}>Guardar cambios</Button>
           </div>
         </form>
       </Modal>
@@ -442,8 +542,9 @@ export default function CombustiblePage() {
                   <p className="text-sm">{detalle ? formatDate(detalle.fecha) : '—'}</p>
                 </div>
                 <div className="col-span-2">
-                  <p className="text-xs text-muted-foreground mb-1">Movimiento financiero generado</p>
-                  <p className="text-sm font-mono">{detalle?.movimiento?.referencia ?? 'No se generó un movimiento financiero'}</p>
+                  <p className="text-xs text-muted-foreground mb-1">Egreso vinculado (Movimientos)</p>
+                  <p className="text-sm">{detalle?.movimiento?.concepto ?? 'Sin egreso vinculado'}</p>
+                  {detalle?.movimiento?.referencia && <p className="text-xs text-muted-foreground font-mono">{detalle.movimiento.referencia}</p>}
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Usuario</p>

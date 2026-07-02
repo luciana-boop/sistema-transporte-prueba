@@ -2,12 +2,10 @@
 
 import prisma from '../../prisma/client';
 import { EstadoCaja, TipoMovimientoCaja } from '../../utils/enums';
-import { cuentasService } from '../configuracion/cuentas.service';
 import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 export interface AbrirCajaDto {
-  saldoApertura: number;
-  cuentaOrigenId: number;
+  movimientoCuentaId: number;
   nombre?: string;
   observaciones?: string;
 }
@@ -16,6 +14,8 @@ export interface CerrarCajaDto {
   saldoCierre: number;
   observaciones?: string;
   cuentaDestinoId?: number;
+  /** N° de operación bancario del ingreso de devolución (solo aplica si hay cuentaDestinoId) */
+  referencia?: string;
 }
 
 export interface MovimientoManualDto {
@@ -158,48 +158,53 @@ export class CajaService {
     return { ...rest, ingresosTotales: ingresos, egresosTotales: egresos, saldoCalculado };
   }
 
+  // Egresos de categoría CAJA_CHICA que aún no fueron usados para abrir ninguna caja
+  async egresosDisponibles() {
+    return prisma.movimientoCuentaV2.findMany({
+      where: { tipo: 'EGRESO', categoriaEgreso: 'CAJA_CHICA', anulado: false, cajaApertura: null },
+      orderBy: { fecha: 'desc' },
+      include: {
+        cuenta: { select: { id: true, nombre: true } },
+        moneda: { select: { codigo: true, simbolo: true } },
+      },
+    });
+  }
+
   async abrir(dto: AbrirCajaDto, usuarioId: number) {
     const cajaExistente = await this.cajaActual(usuarioId);
     if (cajaExistente) {
       throw new Error('Ya existe una caja abierta o registrada para hoy');
     }
-    if (!dto.cuentaOrigenId) {
-      throw new Error('Debe seleccionar la cuenta de origen de los fondos de apertura');
+    if (!dto.movimientoCuentaId) {
+      throw new Error('Debe seleccionar un egreso de caja chica');
     }
 
-    const cuentaOrigen = await prisma.cuentaDinero.findUnique({ where: { id: dto.cuentaOrigenId } });
-    if (!cuentaOrigen) throw new Error('Cuenta de origen no encontrada');
-    if (!cuentaOrigen.activo) throw new Error('La cuenta de origen está inactiva');
-
     return prisma.$transaction(async (tx: any) => {
-      // 1. Crear la caja
-      const caja = await tx.caja.create({
+      // Releer el egreso dentro de la tx para evitar que dos aperturas usen el mismo
+      const egreso = await tx.movimientoCuentaV2.findUnique({ where: { id: dto.movimientoCuentaId } });
+      if (!egreso) throw new Error('Egreso no encontrado');
+      if (egreso.tipo !== 'EGRESO' || egreso.categoriaEgreso !== 'CAJA_CHICA') {
+        throw new Error('El movimiento seleccionado no es un egreso de categoría Caja chica');
+      }
+      if (egreso.anulado) throw new Error('El egreso seleccionado está anulado');
+
+      const yaUsado = await tx.caja.findUnique({ where: { movimientoCuentaId: dto.movimientoCuentaId } });
+      if (yaUsado) throw new Error('Este egreso ya fue usado para abrir otra caja');
+
+      // La caja se abre con el monto y la cuenta del egreso ya registrado en
+      // Movimientos — no se genera un segundo movimiento financiero.
+      return tx.caja.create({
         data: {
           usuarioId,
           fecha: new Date(),
           nombre: dto.nombre ?? null,
-          saldoApertura: dto.saldoApertura,
-          cuentaOrigenId: dto.cuentaOrigenId,
+          saldoApertura: egreso.monto,
+          cuentaOrigenId: egreso.cuentaId,
+          movimientoCuentaId: egreso.id,
           estado: EstadoCaja.ABIERTA,
           observaciones: dto.observaciones,
         },
       });
-
-      // 2. Movimiento de salida automático en la cuenta de origen: el efectivo
-      // de apertura sale de esa cuenta hacia la caja chica (valida saldo dentro de la tx)
-      if (dto.saldoApertura > 0) {
-        await cuentasService._registrarMovimientoEnTx(tx, {
-          cuentaId: dto.cuentaOrigenId,
-          tipo: 'EGRESO',
-          monto: dto.saldoApertura,
-          monedaId: cuentaOrigen.monedaId,
-          concepto: `Apertura de caja${dto.nombre ? ` — ${dto.nombre}` : ''}`,
-          referencia: `APERTURA-CAJA-${caja.id}`,
-          usuarioId,
-        });
-      }
-
-      return caja;
     });
   }
 
@@ -217,18 +222,34 @@ export class CajaService {
       throw new Error('No puede cerrar una caja de otro usuario');
     }
 
-    // Si se especifica una cuenta destino, generar el movimiento de devolución
+    // Si se especifica una cuenta destino, vincular el cierre a un INGRESO que
+    // el usuario ya registró en Movimientos (por su N° de operación) — no se
+    // genera un segundo movimiento financiero, se busca y se vincula el existente.
     if (dto.cuentaDestinoId) {
       const cuentaDestino = await prisma.cuentaDinero.findUnique({ where: { id: dto.cuentaDestinoId } });
       if (!cuentaDestino) throw new Error('Cuenta destino no encontrada');
-      if (!cuentaDestino.activo) throw new Error('La cuenta destino está inactiva');
 
-      // El saldo que se devuelve es el calculado (no necesariamente el saldoCierre ingresado)
-      const saldoCalculado = caja.saldoCalculado ?? 0;
+      if (!dto.referencia || !dto.referencia.trim()) {
+        throw new Error('Debe indicar el N° de operación del ingreso ya registrado para la devolución');
+      }
+      const referencia = dto.referencia.trim();
+
+      const candidatos = await prisma.movimientoCuentaV2.findMany({
+        where: { cuentaId: dto.cuentaDestinoId, tipo: 'INGRESO', referencia, anulado: false },
+      });
+      if (candidatos.length === 0) {
+        throw new Error('No se encontró un ingreso con ese N° de operación en la cuenta seleccionada');
+      }
+      if (candidatos.length > 1) {
+        throw new Error('Hay más de un ingreso con ese N° de operación en la cuenta seleccionada; corrige la referencia antes de continuar');
+      }
+      const ingreso = candidatos[0];
 
       return prisma.$transaction(async (tx: any) => {
-        // 1. Cerrar la caja con la cuenta destino registrada
-        const cajaActualizada = await tx.caja.update({
+        const yaVinculado = await tx.caja.findUnique({ where: { movimientoCierreId: ingreso.id } });
+        if (yaVinculado) throw new Error('Ese ingreso ya está vinculado al cierre de otra caja');
+
+        return tx.caja.update({
           where: { id },
           data: {
             estado: EstadoCaja.CERRADA,
@@ -236,23 +257,9 @@ export class CajaService {
             cierreEn: new Date(),
             observaciones: dto.observaciones,
             cuentaDestinoId: dto.cuentaDestinoId,
+            movimientoCierreId: ingreso.id,
           },
         });
-
-        // 2. Registrar el ingreso en la cuenta destino (saldo devuelto)
-        if (saldoCalculado > 0) {
-          await cuentasService._registrarMovimientoEnTx(tx, {
-            cuentaId: dto.cuentaDestinoId!,
-            tipo: 'INGRESO',
-            monto: saldoCalculado,
-            monedaId: cuentaDestino.monedaId,
-            concepto: `Devolución de saldo al cerrar caja${(caja as any).nombre ? ` — ${(caja as any).nombre}` : ''}`,
-            referencia: `CIERRE-CAJA-${id}`,
-            usuarioId,
-          });
-        }
-
-        return cajaActualizada;
       });
     }
 

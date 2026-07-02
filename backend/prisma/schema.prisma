@@ -193,6 +193,16 @@ model Caja {
   // Cuenta destino donde se devuelve el saldo restante al cerrar la caja.
   // Si se establece, significa que ya se generó el movimiento de devolución.
   cuentaDestinoId Int?       @map("cuenta_destino_id")
+  // Módulo Movimientos: egreso (categoría CAJA_CHICA) del que se abrió esta caja.
+  // Un mismo egreso solo puede abrir una caja (@unique). Nullable por compatibilidad
+  // con cajas históricas, que generaban su propio egreso identificado por referencia.
+  movimientoCuentaId Int?    @unique @map("movimiento_cuenta_id")
+  // Ingreso (devolución de saldo) generado automáticamente al cerrar esta caja
+  // con cuenta destino. @unique porque cada cierre genera a lo más un ingreso.
+  // Vía este vínculo (en vez de `referencia`) se identifica el ingreso como
+  // "devolución de caja chica" — `referencia` queda libre para que el usuario
+  // escriba el N° de operación bancario real de esa devolución.
+  movimientoCierreId Int?    @unique @map("movimiento_cierre_id")
   aperturaEn      DateTime   @default(now()) @map("apertura_en")
   cierreEn        DateTime?  @map("cierre_en")
   creadoEn        DateTime   @default(now()) @map("creado_en")
@@ -201,6 +211,8 @@ model Caja {
   usuario         Usuario       @relation(fields: [usuarioId], references: [id])
   cuentaOrigen    CuentaDinero? @relation("CajaOrigen", fields: [cuentaOrigenId], references: [id])
   cuentaDestino   CuentaDinero? @relation("CajaDestino", fields: [cuentaDestinoId], references: [id])
+  movimientoCuenta MovimientoCuentaV2? @relation("CajaApertura", fields: [movimientoCuentaId], references: [id])
+  movimientoCierre MovimientoCuentaV2? @relation("CajaCierre", fields: [movimientoCierreId], references: [id])
   movimientos     MovimientoCaja[]
 
   @@map("cajas")
@@ -390,9 +402,15 @@ model Combustible {
   creadoEn      DateTime  @default(now()) @map("creado_en")
   actualizadoEn DateTime  @updatedAt @map("actualizado_en")
 
+  // Módulo Movimientos: egreso (categoría COMBUSTIBLE) del que se descuenta esta
+  // carga. Nullable por compatibilidad con cargas históricas (creadas antes de
+  // este vínculo, que generaban su propio egreso identificado por referencia).
+  movimientoCuentaId Int? @map("movimiento_cuenta_id")
+
   vehiculo      Vehiculo     @relation(fields: [vehiculoId], references: [id])
   conductor     Conductor?   @relation(fields: [conductorId], references: [id])
   liquidacion   Liquidacion? @relation(fields: [liquidacionId], references: [id])
+  movimientoCuenta MovimientoCuentaV2? @relation(fields: [movimientoCuentaId], references: [id])
 
   @@map("combustible")
 }
@@ -584,6 +602,11 @@ model MovimientoCuentaV2 {
   // Módulo Movimientos: nota libre solo para egresos — describe en qué se usó el
   // gasto, independiente de `referencia` (N° de operación bancario, no se toca).
   notaEgreso       String?  @map("nota_egreso")
+  // Módulo Movimientos: categoría del egreso (COMBUSTIBLE | REPUESTOS | CAJA_CHICA |
+  // PLANILLA | OTROS). Solo aplica a egresos. COMBUSTIBLE y CAJA_CHICA determinan
+  // que este egreso pueda ser consumido desde esos módulos en vez de que ellos
+  // generen su propio movimiento financiero.
+  categoriaEgreso  String?  @map("categoria_egreso")
   fecha            DateTime @default(now())
   creadoEn         DateTime @default(now()) @map("creado_en")
 
@@ -597,6 +620,12 @@ model MovimientoCuentaV2 {
   movimientosCaja  MovimientoCaja[] @relation("MovCajaCuenta")
   // Módulo Movimientos: cobranza vinculada a este movimiento (solo si tipo = INGRESO)
   cobranza         PagoV2?
+  // Cargas de combustible que descuentan de este egreso (categoría COMBUSTIBLE)
+  combustibles     Combustible[]
+  // Caja abierta a partir de este egreso (categoría CAJA_CHICA)
+  cajaApertura     Caja? @relation("CajaApertura")
+  // Caja cuyo cierre generó este ingreso (devolución de saldo)
+  cajaCierre       Caja? @relation("CajaCierre")
 
   @@map("movimientos_cuenta_v2")
 }

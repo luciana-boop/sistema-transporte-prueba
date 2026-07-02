@@ -132,6 +132,8 @@ export interface Caja {
   /** Cuenta destino donde se devolviÃ³ el saldo al cerrar. Si estÃ¡ seteado, la devoluciÃ³n ya fue procesada. */
   cuentaDestinoId?: number;
   cuentaDestino?: { id: number; nombre: string };
+  /** Egreso (Movimientos, categoría Caja chica) del que se abrió esta caja */
+  movimientoCuentaId?: number;
   aperturaEn: string;
   cierreEn?: string;
   usuario: { id: number; nombre: string };
@@ -142,6 +144,17 @@ export interface Caja {
   saldoActual?: number;
   movimientos?: MovimientoCaja[];
   _count?: { movimientos: number };
+}
+
+/** Egreso de categoría Caja chica aún no usado para abrir ninguna caja */
+export interface EgresoCajaDisponible {
+  id: number;
+  concepto: string;
+  notaEgreso?: string | null;
+  monto: number;
+  fecha: string;
+  cuenta: { id: number; nombre: string };
+  moneda: { codigo: string; simbolo: string };
 }
 
 export interface MovimientoCaja {
@@ -346,6 +359,8 @@ export interface Combustible {
   vehiculoId: number;
   conductorId?: number;
   liquidacionId?: number;
+  /** Egreso (Movimientos, categoría Combustible) del que se descuenta esta carga */
+  movimientoCuentaId?: number;
   fecha: string;
   galones: number;
   monto: number;
@@ -356,6 +371,18 @@ export interface Combustible {
   conductor?: { id: number; nombre: string };
   liquidacion?: { id: number; fecha: string; estado: string; montoEntregado?: number };
   creadoEn: string;
+}
+
+/** Egreso de categoría Combustible con saldo disponible para vincular una nueva carga */
+export interface EgresoCombustibleDisponible {
+  id: number;
+  concepto: string;
+  notaEgreso?: string | null;
+  monto: number;
+  saldoDisponible: number;
+  fecha: string;
+  cuenta: { id: number; nombre: string };
+  moneda: { codigo: string; simbolo: string };
 }
 
 /** P9: detalle enriquecido de una carga de combustible â€” incluye el movimiento financiero generado */
@@ -466,6 +493,8 @@ export interface MovimientoCuenta {
   referencia?: string;
   /** Módulo Movimientos: nota libre solo para egresos — en qué se usó el gasto */
   notaEgreso?: string | null;
+  /** Módulo Movimientos: categoría del egreso (COMBUSTIBLE | REPUESTOS | CAJA_CHICA | PLANILLA | OTROS) */
+  categoriaEgreso?: string | null;
   fecha: string;
   anulado: boolean;
   cuenta: { id: number; nombre: string; tipoCuenta: string };
@@ -478,6 +507,8 @@ export interface MovimientoCuenta {
     cliente: { id: number; razonSocial: string };
     factura?: { id: number; numeroFactura: string } | null;
   } | null;
+  /** Si este ingreso es la devolución de saldo al cerrar una caja chica — no admite cobranza */
+  cajaCierre?: { id: number; nombre?: string | null } | null;
 }
 
 /** P7: detalle completo de un movimiento, incluye origen y datos enriquecidos */

@@ -14,8 +14,7 @@ const router = Router();
 router.use(verificarToken, adminOSecretario, verificarModulo('caja'));
 
 const abrirValidations = [
-  body('saldoApertura').isFloat({ min: 0 }).withMessage('saldoApertura debe ser un número mayor o igual a 0'),
-  body('cuentaOrigenId').isInt({ gt: 0 }).withMessage('cuentaOrigenId inválido'),
+  body('movimientoCuentaId').isInt({ gt: 0 }).withMessage('movimientoCuentaId inválido'),
   body('nombre').optional({ values: 'falsy' }).isString().isLength({ max: 255 }).withMessage('nombre inválido'),
   body('observaciones').optional({ values: 'falsy' }).isString().isLength({ max: 1000 }).withMessage('observaciones inválidas'),
 ];
@@ -24,6 +23,7 @@ const cerrarValidations = [
   body('saldoCierre').isFloat({ min: 0 }).withMessage('saldoCierre debe ser un número mayor o igual a 0'),
   body('observaciones').optional({ values: 'falsy' }).isString().isLength({ max: 1000 }).withMessage('observaciones inválidas'),
   body('cuentaDestinoId').optional({ values: 'falsy' }).isInt({ gt: 0 }).withMessage('cuentaDestinoId inválido'),
+  body('referencia').optional({ values: 'falsy' }).isString().isLength({ max: 255 }).withMessage('N° de operación inválido'),
 ];
 
 const registrarMovimientoValidations = [
@@ -45,6 +45,7 @@ const editarMovimientoValidations = [
 router.get('/', cajaController.listar.bind(cajaController));
 router.get('/actual', cajaController.cajaActual.bind(cajaController));
 router.get('/movimientos', cajaController.getMovimientosGlobal.bind(cajaController));
+router.get('/egresos-disponibles', cajaController.egresosDisponibles.bind(cajaController));
 
 // Editar / anular movimientos manuales
 router.put('/movimientos/:movimientoId', validate(editarMovimientoValidations), cajaController.editarMovimiento.bind(cajaController));
