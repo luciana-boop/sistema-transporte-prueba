@@ -7,29 +7,68 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, Key, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Plus, Edit2, Trash2, Key, ShieldAlert, ShieldCheck, Clock } from 'lucide-react';
 import { usuariosApi } from '@/services/api';
-import { formatDatetime, getErrorMessage } from '@/lib/utils';
+import { formatDatetime, getErrorMessage, cn } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
   EmptyState, Modal, FormField, Input, Select,
 } from '@/components/shared';
 import { useAuthStore } from '@/store/auth.store';
 import { useRouter } from 'next/navigation';
-import type { Rol } from '@/types';
+import type { Rol, Usuario } from '@/types';
+
+const DIAS_SEMANA = [
+  { valor: 1, label: 'Lun' },
+  { valor: 2, label: 'Mar' },
+  { valor: 3, label: 'Mié' },
+  { valor: 4, label: 'Jue' },
+  { valor: 5, label: 'Vie' },
+  { valor: 6, label: 'Sáb' },
+  { valor: 7, label: 'Dom' },
+];
+
+const HORA_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function validarHorarioCampos(
+  d: { restriccionHorarioActiva: boolean; diasPermitidos: number[]; horaInicio: string; horaFin: string },
+  ctx: z.RefinementCtx
+) {
+  if (!d.restriccionHorarioActiva) return;
+  if (d.diasPermitidos.length === 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['diasPermitidos'], message: 'Seleccioná al menos un día' });
+  }
+  if (!HORA_REGEX.test(d.horaInicio)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['horaInicio'], message: 'Formato HH:mm' });
+  }
+  if (!HORA_REGEX.test(d.horaFin)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['horaFin'], message: 'Formato HH:mm' });
+  }
+  if (HORA_REGEX.test(d.horaInicio) && HORA_REGEX.test(d.horaFin) && d.horaInicio >= d.horaFin) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['horaFin'], message: 'Debe ser posterior a la hora de inicio' });
+  }
+}
 
 const createSchema = z.object({
   nombre: z.string().min(2, 'Mínimo 2 caracteres'),
   email: z.string().email('Email inválido'),
   password: z.string().min(6, 'Mínimo 6 caracteres'),
   rol: z.enum(['ADMIN', 'SECRETARIO']),
-});
+  restriccionHorarioActiva: z.boolean(),
+  diasPermitidos: z.array(z.number()),
+  horaInicio: z.string(),
+  horaFin: z.string(),
+}).superRefine(validarHorarioCampos);
 const editSchema = z.object({
   nombre: z.string().min(2),
   email: z.string().email(),
   rol: z.enum(['ADMIN', 'SECRETARIO']),
   activo: z.boolean(),
-});
+  restriccionHorarioActiva: z.boolean(),
+  diasPermitidos: z.array(z.number()),
+  horaInicio: z.string(),
+  horaFin: z.string(),
+}).superRefine(validarHorarioCampos);
 const passSchema = z.object({
   password: z.string().min(6, 'Mínimo 6 caracteres'),
   confirmar: z.string().min(6),
@@ -39,12 +78,37 @@ type CreateForm = z.infer<typeof createSchema>;
 type EditForm = z.infer<typeof editSchema>;
 type PassForm = z.infer<typeof passSchema>;
 
+function SelectorDias({ value, onChange, disabled }: { value: number[]; onChange: (v: number[]) => void; disabled?: boolean }) {
+  return (
+    <div className="flex gap-1 flex-wrap">
+      {DIAS_SEMANA.map((d) => {
+        const activo = value.includes(d.valor);
+        return (
+          <button
+            key={d.valor}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(activo ? value.filter((v) => v !== d.valor) : [...value, d.valor].sort())}
+            className={cn(
+              'px-2 py-1 rounded-md text-xs font-medium border transition-colors',
+              activo ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/30 border-border text-muted-foreground hover:bg-muted',
+              disabled && 'opacity-40 cursor-not-allowed'
+            )}
+          >
+            {d.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function UsuariosPage() {
   const qc = useQueryClient();
   const router = useRouter();
   const { usuario } = useAuthStore();
   const [showCreate, setShowCreate] = useState(false);
-  const [editing, setEditing] = useState<{ id: number; nombre: string; email: string; rol: Rol; activo: boolean } | null>(null);
+  const [editing, setEditing] = useState<Usuario | null>(null);
   const [changingPass, setChangingPass] = useState<number | null>(null);
 
   useEffect(() => {
@@ -62,7 +126,16 @@ export default function UsuariosPage() {
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / limit);
 
-  const createForm = useForm<CreateForm>({ resolver: zodResolver(createSchema), defaultValues: { rol: 'SECRETARIO' } });
+  const createForm = useForm<CreateForm>({
+    resolver: zodResolver(createSchema),
+    defaultValues: {
+      rol: 'SECRETARIO',
+      restriccionHorarioActiva: false,
+      diasPermitidos: [1, 2, 3, 4, 5],
+      horaInicio: '08:00',
+      horaFin: '18:00',
+    },
+  });
   const editForm = useForm<EditForm>({ resolver: zodResolver(editSchema) });
   const passForm = useForm<PassForm>({ resolver: zodResolver(passSchema) });
 
@@ -92,12 +165,16 @@ export default function UsuariosPage() {
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
-  const openEdit = (u: { id: number; nombre: string; email: string; rol: Rol; activo: boolean }) => {
-    setEditing({ id: u.id, nombre: u.nombre, email: u.email, rol: u.rol, activo: u.activo });
+  const openEdit = (u: Usuario) => {
+    setEditing(u);
     editForm.setValue('nombre', u.nombre);
     editForm.setValue('email', u.email);
     editForm.setValue('rol', u.rol);
     editForm.setValue('activo', u.activo);
+    editForm.setValue('restriccionHorarioActiva', u.restriccionHorarioActiva ?? false);
+    editForm.setValue('diasPermitidos', u.diasPermitidos ?? [1, 2, 3, 4, 5]);
+    editForm.setValue('horaInicio', u.horaInicio ?? '08:00');
+    editForm.setValue('horaFin', u.horaFin ?? '18:00');
   };
 
   if (usuario?.rol !== 'ADMIN') {
@@ -134,6 +211,7 @@ export default function UsuariosPage() {
               <Th>Email</Th>
               <Th>Rol</Th>
               <Th>Estado</Th>
+              <Th>Acceso</Th>
               <Th>Último acceso</Th>
               <Th className="text-right">Acciones</Th>
             </tr>
@@ -153,6 +231,19 @@ export default function UsuariosPage() {
                 <Td><span className="text-sm text-muted-foreground">{u.email}</span></Td>
                 <Td><Badge value={u.rol} label={u.rol} /></Td>
                 <Td><Badge value={u.activo ? 'ABIERTA' : 'CERRADA'} label={u.activo ? 'Activo' : 'Inactivo'} /></Td>
+                <Td>
+                  {u.rol === 'ADMIN' ? (
+                    <span className="text-xs text-muted-foreground">Sin restricción</span>
+                  ) : u.restriccionHorarioActiva ? (
+                    <span className="inline-flex items-center gap-1 text-xs text-yellow-600 dark:text-yellow-400">
+                      <Clock className="w-3.5 h-3.5" />
+                      {DIAS_SEMANA.filter((d) => u.diasPermitidos?.includes(d.valor)).map((d) => d.label).join(' ')}
+                      {' · '}{u.horaInicio}-{u.horaFin}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Sin restricción</span>
+                  )}
+                </Td>
                 <Td>
                   <span className="text-xs text-muted-foreground">
                     {u.ultimoAcceso ? formatDatetime(u.ultimoAcceso) : 'Nunca'}
@@ -187,7 +278,7 @@ export default function UsuariosPage() {
                 </Td>
               </Tr>
             )) : (
-              <tr><td colSpan={7}><EmptyState message="No hay usuarios" /></td></tr>
+              <tr><td colSpan={8}><EmptyState message="No hay usuarios" /></td></tr>
             )}
           </tbody>
         </Table>
@@ -225,6 +316,38 @@ export default function UsuariosPage() {
               </Select>
             </FormField>
           </div>
+
+          {createForm.watch('rol') === 'SECRETARIO' && (
+            <div className="flex flex-col gap-3 border border-border rounded-lg p-3 bg-muted/20">
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                <input type="checkbox" className="rounded border-border" {...createForm.register('restriccionHorarioActiva')} />
+                Restringir horario de acceso
+              </label>
+              {createForm.watch('restriccionHorarioActiva') && (
+                <>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1.5">Días permitidos</p>
+                    <SelectorDias
+                      value={createForm.watch('diasPermitidos')}
+                      onChange={(v) => createForm.setValue('diasPermitidos', v, { shouldValidate: true })}
+                    />
+                    {createForm.formState.errors.diasPermitidos && (
+                      <p className="text-xs text-destructive mt-1">{createForm.formState.errors.diasPermitidos.message}</p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <FormField label="Hora inicio" error={createForm.formState.errors.horaInicio?.message}>
+                      <Input type="time" {...createForm.register('horaInicio')} />
+                    </FormField>
+                    <FormField label="Hora fin" error={createForm.formState.errors.horaFin?.message}>
+                      <Input type="time" {...createForm.register('horaFin')} />
+                    </FormField>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="secondary" type="button" onClick={() => { setShowCreate(false); createForm.reset(); }}>Cancelar</Button>
             <Button type="submit" loading={createMutation.isPending}>Crear usuario</Button>
@@ -255,6 +378,38 @@ export default function UsuariosPage() {
               </Select>
             </FormField>
           </div>
+
+          {editForm.watch('rol') === 'SECRETARIO' && (
+            <div className="flex flex-col gap-3 border border-border rounded-lg p-3 bg-muted/20">
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                <input type="checkbox" className="rounded border-border" {...editForm.register('restriccionHorarioActiva')} />
+                Restringir horario de acceso
+              </label>
+              {editForm.watch('restriccionHorarioActiva') && (
+                <>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1.5">Días permitidos</p>
+                    <SelectorDias
+                      value={editForm.watch('diasPermitidos')}
+                      onChange={(v) => editForm.setValue('diasPermitidos', v, { shouldValidate: true })}
+                    />
+                    {editForm.formState.errors.diasPermitidos && (
+                      <p className="text-xs text-destructive mt-1">{editForm.formState.errors.diasPermitidos.message}</p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <FormField label="Hora inicio" error={editForm.formState.errors.horaInicio?.message}>
+                      <Input type="time" {...editForm.register('horaInicio')} />
+                    </FormField>
+                    <FormField label="Hora fin" error={editForm.formState.errors.horaFin?.message}>
+                      <Input type="time" {...editForm.register('horaFin')} />
+                    </FormField>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="secondary" type="button" onClick={() => { setEditing(null); editForm.reset(); }}>Cancelar</Button>
             <Button type="submit" loading={editMutation.isPending}>Guardar cambios</Button>

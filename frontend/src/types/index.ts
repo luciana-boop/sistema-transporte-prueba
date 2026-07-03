@@ -11,6 +11,22 @@ export interface Usuario {
   activo: boolean;
   ultimoAcceso?: string;
   creadoEn: string;
+  restriccionHorarioActiva?: boolean;
+  diasPermitidos?: number[];
+  horaInicio?: string | null;
+  horaFin?: string | null;
+}
+
+// Registro de un intento de acceso denegado por horario (LogActividad),
+// usado solo en la notificación de ADMIN.
+export interface IntentoFueraHorario {
+  id: number;
+  usuarioId: number;
+  accion: string;
+  detalle: string | null;
+  ip: string | null;
+  fechaHora: string;
+  usuario: { id: number; nombre: string; email: string };
 }
 
 export interface AuthState {

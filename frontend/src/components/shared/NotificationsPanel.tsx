@@ -11,6 +11,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   revision: 'Rev. Técnica',
   cobranza: 'Cobranza',
   mantenimiento: 'Mantenimiento',
+  seguridad: 'Seguridad',
 };
 
 const typeIcon = {

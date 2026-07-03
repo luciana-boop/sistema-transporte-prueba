@@ -18,7 +18,7 @@ export class AuthController {
         return;
       }
 
-      const { token, csrfToken, usuario } = await authService.login({ email, password });
+      const { token, csrfToken, usuario } = await authService.login({ email, password, ip: req.ip });
 
       // SameSite=None es necesario porque frontend (Vercel) y backend (Render)
       // son dominios distintos (cookie cross-site). Esto desactiva las

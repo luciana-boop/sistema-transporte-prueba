@@ -63,6 +63,15 @@ model Usuario {
   creadoEn       DateTime @default(now()) @map("creado_en")
   actualizadoEn  DateTime @updatedAt @map("actualizado_en")
 
+  // ── Restricción de horario de acceso (por usuario) ──────────────────────
+  // Si restriccionHorarioActiva es true, el usuario solo puede iniciar sesión
+  // y usar el sistema dentro de diasPermitidos (1=Lunes...7=Domingo) y entre
+  // horaInicio y horaFin ("HH:mm", hora Perú). ADMIN nunca se restringe.
+  restriccionHorarioActiva Boolean  @default(false) @map("restriccion_horario_activa")
+  diasPermitidos           Int[]    @default([1, 2, 3, 4, 5]) @map("dias_permitidos")
+  horaInicio               String?  @map("hora_inicio")
+  horaFin                  String?  @map("hora_fin")
+
   pedidos        Pedido[]
   facturas       Factura[]
   cajas          Caja[]

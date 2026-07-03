@@ -20,6 +20,7 @@ import type {
   MovimientosCajaResponse, MovimientosGlobalResponse,
   PaginatedResponse, EgresoCombustibleDisponible, EgresoCajaDisponible,
   Guia, GuiaPendienteSunat, EstadoGuia,
+  IntentoFueraHorario,
 } from '@/types';
 
 const api = axios.create({
@@ -383,17 +384,26 @@ export const reportesApi = {
 };
 
 // ─── USUARIOS ────────────────────────────────────────────────────────────────
+interface HorarioAccesoData {
+  restriccionHorarioActiva?: boolean;
+  diasPermitidos?: number[];
+  horaInicio?: string | null;
+  horaFin?: string | null;
+}
+
 export const usuariosApi = {
   listar: (params?: { page?: number; limit?: number }) =>
     api.get<ApiResponse<PaginatedResponse<Usuario>>>('/api/usuarios', { params }),
   obtener: (id: number) => api.get<ApiResponse<Usuario>>(`/api/usuarios/${id}`),
-  crear: (data: { nombre: string; email: string; password: string; rol: Rol }) =>
+  crear: (data: { nombre: string; email: string; password: string; rol: Rol } & HorarioAccesoData) =>
     api.post<ApiResponse<Usuario>>('/api/usuarios', data),
-  actualizar: (id: number, data: { nombre?: string; email?: string; rol?: Rol; activo?: boolean }) =>
+  actualizar: (id: number, data: { nombre?: string; email?: string; rol?: Rol; activo?: boolean } & HorarioAccesoData) =>
     api.put<ApiResponse<Usuario>>(`/api/usuarios/${id}`, data),
   cambiarPassword: (id: number, data: { password: string }) =>
     api.patch<ApiResponse<null>>(`/api/usuarios/${id}/password`, data),
   eliminar: (id: number) => api.delete<ApiResponse<null>>(`/api/usuarios/${id}`),
+  intentosFueraHorario: () =>
+    api.get<ApiResponse<IntentoFueraHorario[]>>('/api/usuarios/intentos-fuera-horario'),
 };
 
 // ─── CONDUCTORES ─────────────────────────────────────────────────────────────

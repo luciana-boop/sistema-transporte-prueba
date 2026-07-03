@@ -3,7 +3,7 @@
 import { Router } from 'express';
 import { guiasController } from './guias.controller';
 import { verificarToken, adminOSecretario } from '../../middleware/auth.middleware';
-import { verificarModulo } from '../../middleware/permisos.middleware';
+import { verificarModulo, verificarAccion } from '../../middleware/permisos.middleware';
 
 const router = Router();
 
@@ -15,7 +15,7 @@ router.get('/pendientes-sunat',              (req, res) => guiasController.pendi
 router.post('/enviar-sunat/lote',            (req, res) => guiasController.enviarSunatLote(req, res));
 router.get('/:id',                           (req, res) => guiasController.obtener(req, res));
 router.get('/:id/pdf',                       (req, res) => guiasController.generarPdf(req, res));
-router.post('/:id/anular',                   (req, res) => guiasController.anular(req, res));
+router.post('/:id/anular',                   verificarAccion('anular_guia'), (req, res) => guiasController.anular(req, res));
 router.post('/:id/enviar-sunat',             (req, res) => guiasController.enviarSunat(req, res));
 router.patch('/:id/factura',                 (req, res) => guiasController.vincularFactura(req, res));
 

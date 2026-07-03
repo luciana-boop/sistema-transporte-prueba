@@ -32,6 +32,7 @@ export type ModuloKey = typeof MODULOS[keyof typeof MODULOS];
 export const ACCIONES = {
   ANULAR_FACTURA:           'anular_factura',
   ANULAR_BOLETA:            'anular_boleta',
+  ANULAR_GUIA:              'anular_guia',
   ANULAR_SERVICIO:          'anular_servicio',
   ANULAR_MOVIMIENTO:        'anular_movimiento',
   ANULAR_MOVIMIENTO_CAJA:   'anular_movimiento_caja',
@@ -63,6 +64,7 @@ export const MODULOS_META: Record<ModuloKey, { label: string; descripcion: strin
 export const ACCIONES_META: Record<AccionKey, { label: string; descripcion: string; modulo: ModuloKey }> = {
   anular_factura:           { label: 'Anular factura',           descripcion: 'Permite anular facturas emitidas',                              modulo: 'facturacion' },
   anular_boleta:            { label: 'Anular boleta',            descripcion: 'Permite anular boletas emitidas',                               modulo: 'facturacion' },
+  anular_guia:              { label: 'Anular guía',              descripcion: 'Permite anular guías de remisión emitidas',                     modulo: 'guias' },
   anular_servicio:          { label: 'Anular servicio',          descripcion: 'Permite anular servicios/pedidos',                              modulo: 'pedidos' },
   anular_movimiento:        { label: 'Anular movimiento',        descripcion: 'Permite anular un movimiento (ingreso/egreso) y su cobranza vinculada', modulo: 'movimientos' },
   anular_movimiento_caja:   { label: 'Anular movimiento de caja',  descripcion: 'Permite anular movimientos manuales de una caja diaria',       modulo: 'caja' },

@@ -10,6 +10,7 @@ export interface JwtPayload {
 export interface LoginDto {
   email: string;
   password: string;
+  ip?: string;
 }
 
 export interface AuthResponse {

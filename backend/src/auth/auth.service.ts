@@ -5,6 +5,8 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import prisma from '../prisma/client';
 import { LoginDto, AuthResponse, JwtPayload } from './auth.types';
+import { Rol } from '../utils/enums';
+import { dentroDeHorario } from '../utils/horario';
 
 export class AuthService {
   // Hash ficticio usado para garantizar tiempo constante cuando el usuario no existe.
@@ -29,6 +31,24 @@ export class AuthService {
 
     if (!usuario.activo) {
       throw new Error('Usuario desactivado. Contacte al administrador');
+    }
+
+    // ADMIN nunca se restringe por horario (son los jefes/gerencia).
+    if (
+      usuario.rol !== Rol.ADMIN &&
+      usuario.restriccionHorarioActiva &&
+      !dentroDeHorario(usuario)
+    ) {
+      await prisma.logActividad.create({
+        data: {
+          usuarioId: usuario.id,
+          accion: 'LOGIN_DENEGADO_HORARIO',
+          modulo: 'AUTH',
+          detalle: 'Intento de inicio de sesión fuera del horario permitido',
+          ip: dto.ip,
+        },
+      });
+      throw new Error('Fuera del horario permitido para su usuario. Contacte al administrador.');
     }
 
     // Actualizar último acceso

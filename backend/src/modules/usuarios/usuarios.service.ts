@@ -9,14 +9,21 @@ import { Rol } from '../../utils/enums';
 import { permisosService } from '../permisos/permisos.service';
 import { paginar, PaginacionQuery } from '../../utils/pagination';
 
-export interface CreateUsuarioDto {
+export interface HorarioAccesoDto {
+  restriccionHorarioActiva?: boolean;
+  diasPermitidos?: number[];
+  horaInicio?: string | null;
+  horaFin?: string | null;
+}
+
+export interface CreateUsuarioDto extends HorarioAccesoDto {
   nombre: string;
   email: string;
   password: string;
   rol: Rol;
 }
 
-export interface UpdateUsuarioDto {
+export interface UpdateUsuarioDto extends HorarioAccesoDto {
   nombre?: string;
   email?: string;
   rol?: Rol;
@@ -37,6 +44,10 @@ export class UsuariosService {
           activo: true,
           ultimoAcceso: true,
           creadoEn: true,
+          restriccionHorarioActiva: true,
+          diasPermitidos: true,
+          horaInicio: true,
+          horaFin: true,
         },
         orderBy: { creadoEn: 'desc' },
         skip,
@@ -58,6 +69,10 @@ export class UsuariosService {
         ultimoAcceso: true,
         creadoEn: true,
         actualizadoEn: true,
+        restriccionHorarioActiva: true,
+        diasPermitidos: true,
+        horaInicio: true,
+        horaFin: true,
       },
     });
     if (!usuario) throw new Error('Usuario no encontrado');
@@ -77,6 +92,10 @@ export class UsuariosService {
         email: dto.email,
         passwordHash,
         rol: dto.rol,
+        restriccionHorarioActiva: dto.restriccionHorarioActiva,
+        diasPermitidos: dto.diasPermitidos,
+        horaInicio: dto.horaInicio,
+        horaFin: dto.horaFin,
       },
       select: {
         id: true,
@@ -85,6 +104,10 @@ export class UsuariosService {
         rol: true,
         activo: true,
         creadoEn: true,
+        restriccionHorarioActiva: true,
+        diasPermitidos: true,
+        horaInicio: true,
+        horaFin: true,
       },
     });
 
@@ -118,7 +141,21 @@ export class UsuariosService {
         rol: true,
         activo: true,
         actualizadoEn: true,
+        restriccionHorarioActiva: true,
+        diasPermitidos: true,
+        horaInicio: true,
+        horaFin: true,
       },
+    });
+  }
+
+  // ── Intentos de acceso denegados por horario (solo para notificaciones ADMIN) ──
+  async getIntentosFueraHorario(limite = 20) {
+    return prisma.logActividad.findMany({
+      where: { accion: { in: ['LOGIN_DENEGADO_HORARIO', 'ACCESO_DENEGADO_HORARIO'] } },
+      orderBy: { fechaHora: 'desc' },
+      take: limite,
+      include: { usuario: { select: { id: true, nombre: true, email: true } } },
     });
   }
 

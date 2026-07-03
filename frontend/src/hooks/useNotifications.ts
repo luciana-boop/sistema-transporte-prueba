@@ -3,13 +3,13 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import { vehiculosApi, conductoresApi, facturacionApi, configuracionApi } from '@/services/api';
+import { vehiculosApi, conductoresApi, facturacionApi, configuracionApi, usuariosApi } from '@/services/api';
 import { useAuthStore } from '@/store/auth.store';
 
 export interface Notification {
   id: string;
   type: 'warning' | 'danger' | 'info';
-  category: 'soat' | 'licencia' | 'revision' | 'cobranza' | 'mantenimiento';
+  category: 'soat' | 'licencia' | 'revision' | 'cobranza' | 'mantenimiento' | 'seguridad';
   title: string;
   message: string;
   read: boolean;
@@ -22,13 +22,20 @@ function diasHasta(fechaStr: string): number {
   return Math.ceil((fecha.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+function esReciente(fechaHoraStr: string, horas = 24): boolean {
+  const transcurridas = (Date.now() - new Date(fechaHoraStr).getTime()) / (1000 * 60 * 60);
+  return transcurridas <= horas;
+}
+
 export function useNotifications() {
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
 
   // ── NUEVO: queries solo se ejecutan cuando auth está confirmada ──
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const _hasHydrated    = useAuthStore((s) => s._hasHydrated);
+  const usuario         = useAuthStore((s) => s.usuario);
   const canFetch = _hasHydrated && isAuthenticated;
+  const esAdmin = usuario?.rol === 'ADMIN';
   // ────────────────────────────────────────────────────────────────
 
   const { data: vehiculos = [] } = useQuery({
@@ -57,6 +64,14 @@ export function useNotifications() {
     queryFn: () => configuracionApi.getAlertas().then((r) => r.data.data).catch(() => []),
     staleTime: 10 * 60 * 1000,
     enabled: canFetch, // ← NUEVO
+  });
+
+  // Solo ADMIN ve intentos de acceso fuera de horario (secretarios no reciben esta notificación).
+  const { data: intentosFueraHorario = [] } = useQuery({
+    queryKey: ['usuarios', 'intentos-fuera-horario'],
+    queryFn: () => usuariosApi.intentosFueraHorario().then((r) => r.data.data).catch(() => []),
+    staleTime: 2 * 60 * 1000,
+    enabled: canFetch && esAdmin,
   });
 
   const alertaMap = useMemo(() => {
@@ -173,8 +188,23 @@ export function useNotifications() {
       }
     }
 
+    if (esAdmin) {
+      const recientes = intentosFueraHorario.filter((i: any) => esReciente(i.fechaHora));
+      if (recientes.length > 0) {
+        const nombres = Array.from(new Set(recientes.map((i: any) => i.usuario?.nombre).filter(Boolean)));
+        items.push({
+          id: 'intentos-fuera-horario',
+          type: 'danger',
+          category: 'seguridad',
+          title: `${recientes.length} intento${recientes.length > 1 ? 's' : ''} de acceso fuera de horario`,
+          message: `Últimas 24h: ${nombres.join(', ')}`,
+          read: false,
+        });
+      }
+    }
+
     return items.map((n) => ({ ...n, read: readIds.has(n.id) }));
-  }, [vehiculos, conductores, facturasPendientes, alertaMap, readIds]);
+  }, [vehiculos, conductores, facturasPendientes, alertaMap, intentosFueraHorario, esAdmin, readIds]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const markRead    = (id: string) => setReadIds((prev) => new Set([...prev, id]));

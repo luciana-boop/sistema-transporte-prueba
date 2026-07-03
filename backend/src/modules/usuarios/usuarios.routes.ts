@@ -11,6 +11,7 @@ const router = Router();
 router.use(verificarToken, soloAdmin, verificarModulo('usuarios'));
 
 router.get('/', usuariosController.listar.bind(usuariosController));
+router.get('/intentos-fuera-horario', usuariosController.intentosFueraHorario.bind(usuariosController));
 router.get('/:id', usuariosController.obtener.bind(usuariosController));
 router.post('/', usuariosController.crear.bind(usuariosController));
 router.put('/:id', usuariosController.actualizar.bind(usuariosController));

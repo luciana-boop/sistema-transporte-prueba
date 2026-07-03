@@ -5,6 +5,28 @@ import { usuariosService } from './usuarios.service';
 import { Rol } from '../../utils/enums';
 import * as R from '../../utils/response';
 
+const HORA_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+// Valida los campos de horario si vienen presentes en el body. Devuelve un
+// mensaje de error o null si todo está bien.
+function validarHorario(body: Record<string, unknown>): string | null {
+  if (body.diasPermitidos !== undefined) {
+    if (
+      !Array.isArray(body.diasPermitidos) ||
+      body.diasPermitidos.some((d: unknown) => typeof d !== 'number' || d < 1 || d > 7)
+    ) {
+      return 'diasPermitidos debe ser un array de números entre 1 (Lunes) y 7 (Domingo)';
+    }
+  }
+  if (body.horaInicio !== null && body.horaInicio !== undefined && !HORA_REGEX.test(body.horaInicio as string)) {
+    return 'horaInicio debe tener formato HH:mm';
+  }
+  if (body.horaFin !== null && body.horaFin !== undefined && !HORA_REGEX.test(body.horaFin as string)) {
+    return 'horaFin debe tener formato HH:mm';
+  }
+  return null;
+}
+
 export class UsuariosController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
@@ -29,7 +51,7 @@ export class UsuariosController {
 
   async crear(req: Request, res: Response): Promise<void> {
     try {
-      const { nombre, email, password, rol } = req.body;
+      const { nombre, email, password, rol, restriccionHorarioActiva, diasPermitidos, horaInicio, horaFin } = req.body;
       if (!nombre || !email || !password || !rol) {
         R.badRequest(res, 'nombre, email, password y rol son requeridos'); return;
       }
@@ -39,7 +61,11 @@ export class UsuariosController {
       if (password.length < 8) {
         R.badRequest(res, 'La contraseña debe tener al menos 8 caracteres'); return;
       }
-      const data = await usuariosService.create({ nombre, email, password, rol });
+      const errorHorario = validarHorario(req.body);
+      if (errorHorario) { R.badRequest(res, errorHorario); return; }
+      const data = await usuariosService.create({
+        nombre, email, password, rol, restriccionHorarioActiva, diasPermitidos, horaInicio, horaFin,
+      });
       R.created(res, data, 'Usuario creado correctamente');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
@@ -52,8 +78,12 @@ export class UsuariosController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      const { nombre, email, rol, activo } = req.body;
-      const data = await usuariosService.update(id, { nombre, email, rol, activo });
+      const { nombre, email, rol, activo, restriccionHorarioActiva, diasPermitidos, horaInicio, horaFin } = req.body;
+      const errorHorario = validarHorario(req.body);
+      if (errorHorario) { R.badRequest(res, errorHorario); return; }
+      const data = await usuariosService.update(id, {
+        nombre, email, rol, activo, restriccionHorarioActiva, diasPermitidos, horaInicio, horaFin,
+      });
       R.ok(res, data, 'Usuario actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
@@ -61,6 +91,13 @@ export class UsuariosController {
       else if (msg.includes('ya está en uso')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
+  }
+
+  async intentosFueraHorario(req: Request, res: Response): Promise<void> {
+    try {
+      const data = await usuariosService.getIntentosFueraHorario();
+      R.ok(res, data);
+    } catch (e) { R.serverError(res, e); }
   }
 
   async cambiarPassword(req: Request, res: Response): Promise<void> {
