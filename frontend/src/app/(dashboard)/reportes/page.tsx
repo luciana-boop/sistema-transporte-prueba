@@ -26,6 +26,14 @@ const TABS = [
 
 const COLORS = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4'];
 
+const CATEGORIA_EGRESO_LABEL: Record<string, string> = {
+  COMBUSTIBLE: 'Combustible',
+  REPUESTOS: 'Repuestos',
+  CAJA_CHICA: 'Caja chica',
+  PLANILLA: 'Planilla',
+  OTROS: 'Otros',
+};
+
 export default function ReportesPage() {
   const hoy = new Date();
   const [tab, setTab] = useState('pedidos');
@@ -98,6 +106,17 @@ export default function ReportesPage() {
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
   }, [pedidosData]);
+
+  const egresosPorCategoria = useMemo(() => {
+    const suma = new Map<string, number>();
+    for (const e of egresosData?.egresos ?? []) {
+      const clave = CATEGORIA_EGRESO_LABEL[(e as any).categoriaEgreso] ?? 'Sin categoría';
+      suma.set(clave, (suma.get(clave) ?? 0) + Number(e.monto));
+    }
+    return Array.from(suma.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [egresosData]);
 
   // Facturas del cliente seleccionado para modal de facturación
   const facturasDelCliente = useMemo(() => {
@@ -368,9 +387,39 @@ export default function ReportesPage() {
       {tab === 'egresos' && (
         <div className="flex flex-col gap-4">
           {egresosData && (
-            <div className="grid grid-cols-2 gap-4">
-              <StatCard label="Total egresos" value={formatCurrency(egresosData.totales.totalEgresos)} color="red" />
-              <StatCard label="Registros" value={egresosData.totales.cantidad} color="default" />
+            <StatCard label="Total egresos" value={formatCurrency(egresosData.totales.totalEgresos)} color="red" />
+          )}
+
+          {/* Gráfico egresos por categoría */}
+          {egresosPorCategoria.length > 0 && (
+            <div className="bg-card border border-border rounded-2xl p-5 shadow-sm">
+              <p className="text-sm font-semibold mb-4">Egresos por categoría</p>
+              <div className="flex flex-col sm:flex-row items-center gap-6">
+                <div className="w-full sm:w-1/2">
+                  <ResponsiveContainer width="100%" height={200}>
+                    <PieChart>
+                      <Pie data={egresosPorCategoria} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3} dataKey="value" stroke="none">
+                        {egresosPorCategoria.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value: number) => formatCurrency(value)}
+                        contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12 }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="w-full sm:w-1/2 flex flex-col gap-2.5">
+                  {egresosPorCategoria.map((c, i) => (
+                    <div key={c.name} className="flex items-center justify-between gap-3 text-sm">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
+                        <span className="truncate text-muted-foreground">{c.name}</span>
+                      </div>
+                      <span className="font-semibold shrink-0">{formatCurrency(c.value)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 

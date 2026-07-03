@@ -29,20 +29,15 @@ export interface Cliente {
   razonSocial: string;
   ruc: string;
   direccion: string;
+  // Código INEI de 6 dígitos — se usa para autocompletar el punto de llegada
+  // al seleccionar el cliente en una Guía de Remisión.
+  ubigeo?: string;
   telefono?: string;
   email?: string;
   condicionPago: CondicionPago;
   activo: boolean;
   creadoEn: string;
   _count?: { pedidos: number; facturas: number };
-}
-
-export interface ClienteEstadisticas {
-  totalPedidos: number;
-  facturado: number;
-  pagado: number;
-  saldoPendiente: number;
-  pedidosPendientes: number;
 }
 
 export interface Pedido {
@@ -522,4 +517,80 @@ export interface ResumenFinanciero {
   porMoneda: Record<string, { simbolo: string; total: number }>;
   movRecientes: MovimientoCuenta[];
   ultimos30dias: { ingresos: number; egresos: number };
+}
+
+// ─── GUÍAS DE REMISIÓN (SUNAT GRE) ───────────────────────────────────────────
+export type EstadoGuia = 'EMITIDA' | 'ANULADA';
+export type TipoGuia = 'REMITENTE' | 'TRANSPORTISTA';
+
+export interface GuiaDetalle {
+  id?: number;
+  descripcion: string;
+  cantidad: number;
+  unidadMedida: string;
+}
+
+export interface GuiaTransportistaAdicional {
+  id?: number;
+  placa: string;
+  numRegistroMTC: string;
+}
+
+export interface Guia {
+  id: number;
+  numero: string;
+  serie?: string | null;
+  pedidoId?: number | null;
+  facturaId?: number | null;
+  clienteId?: number | null;
+  clienteNombre?: string | null;
+  clienteNumDoc?: string | null;
+  remitenteId?: number | null;
+  usuarioId: number;
+  fechaEmision: string;
+  estado: EstadoGuia;
+  tipoGuia: TipoGuia;
+  // Catálogos SUNAT: 20 (motivo de traslado) y 18 (modalidad: 01 público / 02 privado)
+  motivoTraslado: string;
+  modalidadTransporte: string;
+  fechaInicioTraslado?: string | null;
+  ubigeoOrigen?: string | null;
+  direccionPartida?: string | null;
+  ubigeoDestino?: string | null;
+  direccionEntrega?: string | null;
+  rucTransportista?: string | null;
+  razonSocialTransportista?: string | null;
+  numRegistroMTC?: string | null;
+  placaTransportista?: string | null;
+  conductorId?: number | null;
+  vehiculoId?: number | null;
+  conductorNombre?: string | null;
+  conductorDni?: string | null;
+  conductorLicencia?: string | null;
+  pesoTotal?: number | null;
+  observaciones?: string | null;
+  estadoSunat?: string | null;
+  motivoRechazoSunat?: string | null;
+  ticketSunat?: string | null;
+  xmlPath?: string | null;
+  pdfPath?: string | null;
+  cdrPath?: string | null;
+  anulado: boolean;
+  creadoEn: string;
+  cliente?: { id: number; razonSocial: string; ruc: string } | null;
+  remitente?: { id: number; razonSocial: string; ruc: string } | null;
+  pedido?: { id: number; origen: string; destino: string; tipoCarga: string } | null;
+  factura?: { id: number; numeroFactura: string } | null;
+  usuario?: { id: number; nombre: string };
+  conductor?: { id: number; nombre: string; dni: string; licencia: string } | null;
+  vehiculo?: { id: number; placa: string; marca: string; modelo: string } | null;
+  detalles?: GuiaDetalle[];
+  transportistasAdicionales?: GuiaTransportistaAdicional[];
+}
+
+export interface GuiaPendienteSunat {
+  id: number;
+  numero: string;
+  fechaEmision: string;
+  cliente?: { razonSocial: string } | null;
 }

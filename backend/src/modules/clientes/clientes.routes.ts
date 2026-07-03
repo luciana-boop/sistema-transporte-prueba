@@ -12,7 +12,6 @@ router.use(verificarToken, adminOSecretario, verificarModulo('clientes'));
 
 router.get('/', clientesController.listar.bind(clientesController));
 router.get('/:id', clientesController.obtener.bind(clientesController));
-router.get('/:id/estadisticas', clientesController.estadisticas.bind(clientesController));
 router.post('/', clientesController.crear.bind(clientesController));
 router.put('/:id', clientesController.actualizar.bind(clientesController));
 router.delete('/:id', clientesController.eliminar.bind(clientesController));

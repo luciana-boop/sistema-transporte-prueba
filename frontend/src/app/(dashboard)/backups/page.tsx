@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Download, Upload, AlertTriangle, CheckCircle, Database, FileSpreadsheet, FileJson } from 'lucide-react';
 import { backupsApi, clientesApi, pedidosApi, conductoresApi, vehiculosApi, liquidacionesApi, combustibleApi, usuariosApi, fetchAllPages } from '@/services/api';
-import { facturacionApi } from '@/services/api';
+import { facturacionApi, guiasApi, movimientosApi } from '@/services/api';
 import { PageHeader, Button, StatCard } from '@/components/shared';
 import { formatCurrency, formatDate, getErrorMessage, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
@@ -25,6 +25,7 @@ export default function BackupsPage() {
   const { data: pedidosTotal = 0 } = useQuery({ queryKey: ['pedidos', 'count'], queryFn: () => pedidosApi.listar({ limit: 1 }).then(r => r.data.data.total) });
   const { data: conductoresTotal = 0 } = useQuery({ queryKey: ['conductores', 'count'], queryFn: () => conductoresApi.listar({ limit: 1 }).then(r => r.data.data.total) });
   const { data: vehiculosTotal = 0 } = useQuery({ queryKey: ['vehiculos', 'count'], queryFn: () => vehiculosApi.listar({ limit: 1 }).then(r => r.data.data.total) });
+  const { data: guiasTotal = 0 } = useQuery({ queryKey: ['guias', 'count'], queryFn: () => guiasApi.listar({ limit: 1 }).then(r => r.data.data.total) });
 
   const handleJsonBackup = async () => {
     setLoadingJson(true);
@@ -52,7 +53,7 @@ export default function BackupsPage() {
       // Fetch all data in parallel
       const [
         cData, pData, facData, condData, vehData,
-        liqData, combData
+        liqData, combData, guiaData, movData,
       ] = await Promise.all([
         fetchAllPages((p) => clientesApi.listar(p).then(r => r.data.data)),
         fetchAllPages((p) => pedidosApi.listar(p).then(r => r.data.data)),
@@ -61,6 +62,8 @@ export default function BackupsPage() {
         fetchAllPages((p) => vehiculosApi.listar(p).then(r => r.data.data)),
         fetchAllPages((p) => liquidacionesApi.listar(p).then(r => r.data.data)),
         fetchAllPages((p) => combustibleApi.listar(p).then(r => r.data.data)),
+        fetchAllPages((p) => guiasApi.listar(p).then(r => r.data.data)),
+        fetchAllPages((p) => movimientosApi.listar(p).then(r => r.data.data)),
       ]);
 
       // Sheet: Clientes
@@ -97,6 +100,24 @@ export default function BackupsPage() {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
         (combData as any[]).map(r => ({ Placa: r.vehiculo?.placa, Conductor: r.conductor?.nombre ?? '', Fecha: formatDate(r.fecha), 'Galones/L': Number(r.galones), 'Monto S/': Number(r.monto), Grifo: r.grifo ?? '', 'Km': r.kilometraje ?? '' }))
       ), 'Combustible');
+
+      // Sheet: Guías de remisión
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+        (guiaData as any[]).map(g => ({
+          'N°': g.numero, Tipo: g.tipoGuia === 'TRANSPORTISTA' ? 'Transportista' : 'Remitente',
+          Cliente: g.cliente?.razonSocial ?? g.clienteNombre ?? '', Fecha: formatDate(g.fechaEmision),
+          Motivo: g.motivoTraslado ?? '', Modalidad: g.modalidadTransporte === '01' ? 'Pública' : 'Privada',
+          'Peso (kg)': g.pesoTotal ?? '', 'Estado SUNAT': g.estadoSunat ?? '', Estado: g.estado,
+        }))
+      ), 'Guías');
+
+      // Sheet: Movimientos de cuenta
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+        (movData as any[]).map(m => ({
+          Fecha: formatDate(m.fecha), Tipo: m.tipo, Cuenta: m.cuenta?.nombre ?? '',
+          Concepto: m.concepto, 'Monto S/': Number(m.monto), Referencia: m.referencia ?? '',
+        }))
+      ), 'Movimientos');
 
       XLSX.writeFile(wb, `backup_completo_${new Date().toISOString().split('T')[0]}.xlsx`);
       toast.success('Excel completo descargado — ' + wb.SheetNames.length + ' hojas');
@@ -152,11 +173,12 @@ export default function BackupsPage() {
       <PageHeader title="Backups" description="Exportar e importar datos del sistema" />
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard label="Clientes" value={clientesTotal} color="blue" icon={Database} />
         <StatCard label="Pedidos" value={pedidosTotal} color="default" icon={Database} />
         <StatCard label="Conductores" value={conductoresTotal} color="green" icon={Database} />
         <StatCard label="Vehículos" value={vehiculosTotal} color="yellow" icon={Database} />
+        <StatCard label="Guías" value={guiasTotal} color="default" icon={Database} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -178,6 +200,7 @@ export default function BackupsPage() {
               'Usuarios', 'Clientes', 'Pedidos', 'Facturas y detalles',
               'Cajas y movimientos', 'Conductores', 'Vehículos',
               'Liquidaciones y pedidos asociados', 'Combustible',
+              'Guías de remisión (SUNAT)',
               'Cuentas, monedas, movimientos y cobranza', 'Configuración del sistema',
               'Permisos de usuarios', 'Registro de actividad',
             ].map(m => (
@@ -203,7 +226,7 @@ export default function BackupsPage() {
             </div>
           </div>
           <ul className="text-xs text-muted-foreground space-y-1 pl-1">
-            {['Clientes', 'Pedidos', 'Facturación', 'Conductores', 'Vehículos', 'Liquidaciones', 'Combustible'].map(m => (
+            {['Clientes', 'Pedidos', 'Facturación', 'Conductores', 'Vehículos', 'Liquidaciones', 'Combustible', 'Guías', 'Movimientos'].map(m => (
               <li key={m} className="flex items-center gap-1.5"><CheckCircle className="w-3 h-3 text-emerald-500" />{m}</li>
             ))}
           </ul>

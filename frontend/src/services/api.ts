@@ -19,6 +19,7 @@ import type {
   MovimientoCobranza,
   MovimientosCajaResponse, MovimientosGlobalResponse,
   PaginatedResponse, EgresoCombustibleDisponible, EgresoCajaDisponible,
+  Guia, GuiaPendienteSunat, EstadoGuia,
 } from '@/types';
 
 const api = axios.create({
@@ -82,10 +83,8 @@ export const clientesApi = {
   listar: (params?: { activo?: boolean; search?: string; page?: number; limit?: number }) =>
     api.get<ApiResponse<PaginatedResponse<Cliente>>>('/api/clientes', { params }),
   obtener: (id: number) => api.get<ApiResponse<Cliente>>(`/api/clientes/${id}`),
-  estadisticas: (id: number) =>
-    api.get<ApiResponse<import('@/types').ClienteEstadisticas>>(`/api/clientes/${id}/estadisticas`),
   crear: (data: {
-    razonSocial: string; ruc: string; direccion: string;
+    razonSocial: string; ruc: string; direccion: string; ubigeo?: string;
     telefono?: string; email?: string; condicionPago?: string;
   }) => api.post<ApiResponse<Cliente>>('/api/clientes', data),
   actualizar: (id: number, data: Partial<Cliente>) =>
@@ -161,6 +160,34 @@ export const facturacionApi = {
   }) => api.put<ApiResponse<Factura>>(`/api/facturacion/${id}`, data),
   anular: (id: number) => api.patch<ApiResponse<Factura>>(`/api/facturacion/${id}/anular`, {}),
   eliminar: (id: number) => api.delete<ApiResponse<null>>(`/api/facturacion/${id}`),
+};
+
+// ─── GUÍAS DE REMISIÓN ───────────────────────────────────────────────────────
+export const guiasApi = {
+  listar: (params?: { clienteId?: number; pedidoId?: number; estado?: EstadoGuia; search?: string; desde?: string; hasta?: string; page?: number; limit?: number }) =>
+    api.get<ApiResponse<PaginatedResponse<Guia>>>('/api/guias', { params }),
+  obtener: (id: number) => api.get<ApiResponse<Guia>>(`/api/guias/${id}`),
+  crear: (data: {
+    tipoGuia?: 'REMITENTE' | 'TRANSPORTISTA';
+    clienteId?: number; clienteNombre?: string; clienteNumDoc?: string;
+    remitenteId?: number; pedidoId?: number; serie?: string;
+    motivoTraslado?: string; modalidadTransporte?: string; fechaInicioTraslado?: string;
+    ubigeoOrigen?: string; direccionPartida?: string; ubigeoDestino?: string; direccionEntrega?: string;
+    rucTransportista?: string; razonSocialTransportista?: string; numRegistroMTC?: string; placaTransportista?: string;
+    transportistasAdicionales?: Array<{ placa: string; numRegistroMTC: string }>;
+    conductorId?: number; vehiculoId?: number;
+    conductorNombre?: string; conductorDni?: string; conductorLicencia?: string;
+    pesoTotal?: number; observaciones?: string;
+    detalles: Array<{ descripcion: string; cantidad: number; unidadMedida?: string }>;
+  }) => api.post<ApiResponse<Guia>>('/api/guias', data),
+  anular: (id: number) => api.post<ApiResponse<Guia>>(`/api/guias/${id}/anular`, {}),
+  vincularFactura: (id: number, facturaId: number) =>
+    api.patch<ApiResponse<Guia>>(`/api/guias/${id}/factura`, { facturaId }),
+  pendientesSunat: () =>
+    api.get<ApiResponse<GuiaPendienteSunat[]>>('/api/guias/pendientes-sunat'),
+  enviarSunat: (id: number) => api.post<ApiResponse<Guia>>(`/api/guias/${id}/enviar-sunat`, {}),
+  enviarSunatLote: (ids: number[]) =>
+    api.post<ApiResponse<{ enviados: number; errores: Array<{ id: number; numero: string; error: string }> }>>('/api/guias/enviar-sunat/lote', { ids }),
 };
 
 // ─── MOVIMIENTOS ─────────────────────────────────────────────────────────────

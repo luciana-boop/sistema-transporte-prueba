@@ -373,3 +373,7 @@ export function Tr({ children, onClick, className }: { children: React.ReactNode
     </tr>
   );
 }
+
+// ─── SMART SEARCH ────────────────────────────────────────────────────────────
+export { SmartSearchInput } from './SmartSearchInput';
+export type { SmartSearchOption } from './SmartSearchInput';

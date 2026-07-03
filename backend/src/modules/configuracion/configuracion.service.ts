@@ -16,6 +16,7 @@ const DEFAULTS_CONFIGURACION: Record<string, { valor: string; tipo: string; cate
   detraccion_porcentaje:    { valor: '4',                  tipo: 'numero',   categoria: 'facturacion',  etiqueta: 'Detracción default (%)',     descripcion: 'Porcentaje de detracción por defecto' },
   moneda_default:           { valor: 'PEN',                tipo: 'texto',    categoria: 'facturacion',  etiqueta: 'Moneda default',             descripcion: 'PEN, USD, EUR' },
   credito_dias_default:     { valor: '30',                 tipo: 'numero',   categoria: 'facturacion',  etiqueta: 'Días de crédito default',   descripcion: 'Días de crédito cuando no se especifica' },
+  envio_automatico_sunat:   { valor: 'false',              tipo: 'booleano', categoria: 'facturacion',  etiqueta: 'Envío automático de guías a SUNAT', descripcion: 'Si está activo, las guías de remisión se envían a SUNAT al emitirlas; si no, se envían manualmente desde el módulo Guías' },
   empresa_nombre:           { valor: 'Mi Empresa SAC',     tipo: 'texto',    categoria: 'empresa',      etiqueta: 'Nombre empresa',             descripcion: 'Nombre comercial de la empresa' },
   empresa_razon_social:     { valor: 'Mi Empresa SAC',     tipo: 'texto',    categoria: 'empresa',      etiqueta: 'Razón social' },
   empresa_ruc:              { valor: '20000000001',        tipo: 'texto',    categoria: 'empresa',      etiqueta: 'RUC' },

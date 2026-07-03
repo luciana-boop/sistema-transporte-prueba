@@ -72,6 +72,7 @@ model Usuario {
   permisosAcciones PermisoAccion[]
   movimientosCuentaV2 MovimientoCuentaV2[]
   pagosV2          PagoV2[]
+  guias            Guia[]
 
   @@map("usuarios")
 }
@@ -81,6 +82,9 @@ model Cliente {
   razonSocial    String        @map("razon_social")
   ruc            String        @unique
   direccion      String
+  // Ubigeo (código INEI de 6 dígitos) del cliente — se usa para autocompletar
+  // el punto de llegada al seleccionar el cliente en una Guía de Remisión.
+  ubigeo         String?
   telefono       String?
   email          String?
   condicionPago  CondicionPago @default(CONTADO) @map("condicion_pago")
@@ -91,6 +95,8 @@ model Cliente {
   pedidos        Pedido[]
   facturas       Factura[]
   pagosV2        PagoV2[]
+  guias          Guia[]  @relation("GuiaDestinatario")
+  guiasRemitente Guia[]  @relation("GuiaRemitente")
 
   @@map("clientes")
 }
@@ -114,6 +120,7 @@ model Pedido {
   facturas       Factura[]
   // NUEVO: relación con liquidaciones
   liquidaciones  LiquidacionPedido[]
+  guias          Guia[]
 
   @@map("pedidos")
 }
@@ -156,6 +163,7 @@ model Factura {
   usuario        Usuario         @relation(fields: [usuarioId], references: [id])
   pagosV2        PagoV2[]
   lineas         FacturaDetalle[]
+  guias          Guia[]
 
   @@map("facturas")
 }
@@ -274,6 +282,7 @@ model Conductor {
 
   liquidaciones       Liquidacion[]
   combustibles        Combustible[]
+  guias               Guia[]
 
   @@map("conductores")
 }
@@ -304,6 +313,7 @@ model Vehiculo {
   actualizadoEn        DateTime     @updatedAt @map("actualizado_en")
 
   combustibles         Combustible[]
+  guias                Guia[]
 
   @@map("vehiculos")
 }
@@ -628,6 +638,106 @@ model MovimientoCuentaV2 {
   cajaCierre       Caja? @relation("CajaCierre")
 
   @@map("movimientos_cuenta_v2")
+}
+
+// ─── GUÍAS DE REMISIÓN (SUNAT GRE) ────────────────────────────────────────────
+// Portado de MONKSAAS (versión single-tenant: sin empresaId ni ventas/productos).
+model Guia {
+  id                       Int       @id @default(autoincrement())
+  numero                   String    @unique
+  serie                    String?
+  // Origen del traslado: pedido de transporte (equivale a la Venta en el
+  // sistema original). Opcional — la guía puede emitirse suelta.
+  pedidoId                 Int?      @map("pedido_id")
+  facturaId                Int?      @map("factura_id")
+  // En REMITENTE, clienteId es el destinatario de la mercadería. En
+  // TRANSPORTISTA sigue siendo el destinatario, pero además se exige
+  // remitenteId: ninguna de las dos partes es quien emite la guía.
+  // Opcional: ingreso libre (clienteNombre + clienteNumDoc) cuando el
+  // destinatario no es un Cliente registrado. Exactamente uno de los dos
+  // debe estar presente (ver guias.service.ts).
+  clienteId                Int?      @map("cliente_id")
+  clienteNombre            String?   @map("cliente_nombre")
+  clienteNumDoc            String?   @map("cliente_num_doc")
+  remitenteId              Int?      @map("remitente_id")
+  usuarioId                Int       @map("usuario_id")
+  fechaEmision             DateTime  @default(now()) @map("fecha_emision")
+  estado                   String    @default("EMITIDA")
+  // Catálogo SUNAT 01 — tipo de comprobante: 09 Guía Remitente, 31 Guía
+  // Transportista (la empresa emisora es la transportista, no remitente ni
+  // destinataria; exige datos de ambas partes y de vehículo/conductor).
+  tipoGuia                 String    @default("REMITENTE") @map("tipo_guia")
+  // SUNAT: catálogo 20 (motivo) y 18 (modalidad 01=público / 02=privado)
+  motivoTraslado           String    @default("01") @map("motivo_traslado")
+  modalidadTransporte      String    @default("02") @map("modalidad_transporte")
+  fechaInicioTraslado      DateTime? @map("fecha_inicio_traslado")
+  ubigeoOrigen             String?   @map("ubigeo_origen")
+  direccionPartida         String?   @map("direccion_partida")
+  ubigeoDestino            String?   @map("ubigeo_destino")
+  direccionEntrega         String?   @map("direccion_entrega")
+  // Modalidad pública — datos del transportista tercero
+  rucTransportista         String?   @map("ruc_transportista")
+  razonSocialTransportista String?   @map("razon_social_transportista")
+  numRegistroMTC           String?   @map("num_registro_mtc")
+  placaTransportista       String?   @map("placa_transportista")
+  // Modalidad privada — conductor y vehículo propios
+  conductorId              Int?      @map("conductor_id")
+  vehiculoId               Int?      @map("vehiculo_id")
+  conductorNombre          String?   @map("conductor_nombre")
+  conductorDni             String?   @map("conductor_dni")
+  conductorLicencia        String?   @map("conductor_licencia")
+  pesoTotal                Decimal?  @map("peso_total") @db.Decimal(10, 2)
+  observaciones            String?
+  // ─── Resultado del envío a SUNAT (GRE es asíncrono: el envío inicial solo
+  // devuelve un ticket; xmlPath/cdrPath quedan null hasta que el job de
+  // polling confirma "procesado: true") ────────────────────────────────────
+  estadoSunat              String?   @map("estado_sunat")
+  motivoRechazoSunat       String?   @map("motivo_rechazo_sunat")
+  ticketSunat              String?   @map("ticket_sunat")
+  xmlPath                  String?   @map("xml_path")
+  pdfPath                  String?   @map("pdf_path")
+  cdrPath                  String?   @map("cdr_path")
+  hashXml                  String?   @map("hash_xml")
+  anulado                  Boolean   @default(false)
+  creadoEn                 DateTime  @default(now()) @map("creado_en")
+  actualizadoEn            DateTime  @updatedAt @map("actualizado_en")
+
+  pedido    Pedido?    @relation(fields: [pedidoId], references: [id])
+  factura   Factura?   @relation(fields: [facturaId], references: [id])
+  cliente   Cliente?   @relation("GuiaDestinatario", fields: [clienteId], references: [id])
+  remitente Cliente?   @relation("GuiaRemitente", fields: [remitenteId], references: [id])
+  usuario   Usuario    @relation(fields: [usuarioId], references: [id])
+  conductor Conductor? @relation(fields: [conductorId], references: [id])
+  vehiculo  Vehiculo?  @relation(fields: [vehiculoId], references: [id])
+
+  detalles                   GuiaDetalle[]
+  transportistasAdicionales  GuiaTransportistaAdicional[]
+
+  @@map("guias")
+}
+
+model GuiaDetalle {
+  id           Int     @id @default(autoincrement())
+  guiaId       Int     @map("guia_id")
+  descripcion  String
+  cantidad     Decimal @db.Decimal(12, 3)
+  unidadMedida String  @default("NIU") @map("unidad_medida")
+
+  guia Guia @relation(fields: [guiaId], references: [id], onDelete: Cascade)
+
+  @@map("guia_detalles")
+}
+
+// Placas/MTC adicionales cuando Guia.modalidadTransporte = '01' (transporte público)
+model GuiaTransportistaAdicional {
+  id             Int    @id @default(autoincrement())
+  guiaId         Int    @map("guia_id")
+  placa          String
+  numRegistroMTC String @map("num_registro_mtc")
+
+  guia Guia @relation(fields: [guiaId], references: [id], onDelete: Cascade)
+
+  @@map("guia_transportistas_adicionales")
 }
 
 // ─── PAGOS V2 ─────────────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ export class BackupService {
       configuracionAlertas, tiposVehiculo,
       permisosModulos, permisosAcciones,
       monedas, tiposPago, cuentasDinero, movimientosCuenta, pagosV2,
+      guias,
     ] = await Promise.all([
       prisma.usuario.findMany({ select: { id: true, nombre: true, email: true, rol: true, activo: true, creadoEn: true } }),
       prisma.cliente.findMany(),
@@ -35,10 +36,11 @@ export class BackupService {
       prisma.cuentaDinero.findMany(),
       prisma.movimientoCuentaV2.findMany(),
       prisma.pagoV2.findMany(),
+      prisma.guia.findMany({ include: { detalles: true, transportistasAdicionales: true } }),
     ]);
 
     return {
-      version: '3.0',
+      version: '3.1',
       exportadoEn: new Date().toISOString(),
       data: {
         usuarios, clientes, pedidos, facturas,
@@ -48,6 +50,7 @@ export class BackupService {
         configuracionAlertas, tiposVehiculo,
         permisosModulos, permisosAcciones,
         monedas, tiposPago, cuentasDinero, movimientosCuenta, pagosV2,
+        guias,
       },
     };
   }
@@ -61,6 +64,8 @@ export class BackupService {
       combustible:   () => prisma.combustible.findMany({ include: { vehiculo: { select: { placa: true, marca: true } }, conductor: { select: { nombre: true } } } }),
       conductores:   () => prisma.conductor.findMany(),
       vehiculos:     () => prisma.vehiculo.findMany(),
+      movimientos:   () => prisma.movimientoCuentaV2.findMany({ include: { cuenta: { select: { nombre: true } } } }),
+      guias:         () => prisma.guia.findMany({ include: { cliente: { select: { razonSocial: true } } } }),
     };
 
     const fn = map[modulo];

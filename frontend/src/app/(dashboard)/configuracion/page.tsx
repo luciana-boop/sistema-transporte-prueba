@@ -684,6 +684,7 @@ export default function ConfiguracionPage() {
               <option value="FACTURA">Factura</option>
               <option value="BOLETA">Boleta de venta</option>
               <option value="NOTA_CREDITO">Nota de crédito</option>
+              <option value="GUIA">Guía de remisión</option>
               <option value="OTRO">Otro</option>
             </Select>
           </FormField>

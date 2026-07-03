@@ -2,8 +2,13 @@
 
 import app from './app';
 import prisma from './prisma/client';
+import { guiasService } from './modules/guias/guias.service';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
+
+// GRE es asíncrono: el envío inicial solo devuelve un ticket; este intervalo
+// define cada cuánto se consulta a SUNAT el estado de los tickets pendientes.
+const SUNAT_TICKET_POLL_INTERVAL_MS = parseInt(process.env.SUNAT_TICKET_POLL_INTERVAL_MS || '120000', 10);
 
 async function main() {
   // Verificar conexión a la base de datos
@@ -36,9 +41,21 @@ async function main() {
     console.log('');
   });
 
+  // GRE es asíncrono: el envío inicial solo devuelve un ticket. Este job
+  // recorre periódicamente las guías con ticket pendiente y consulta su
+  // estado final en SUNAT hasta que "procesado: true".
+  const pollTickets = () => {
+    guiasService._procesarTicketsPendientes().catch((err) => {
+      console.error('[SUNAT] Error en el job de polling de tickets de guías:', err);
+    });
+  };
+  const ticketPollTimer = setInterval(pollTickets, SUNAT_TICKET_POLL_INTERVAL_MS);
+  console.log(`🛰️  Polling de tickets SUNAT (guías) cada ${SUNAT_TICKET_POLL_INTERVAL_MS / 1000}s`);
+
   // Graceful shutdown
   const shutdown = async (signal: string) => {
     console.log(`\n${signal} recibido. Cerrando servidor...`);
+    clearInterval(ticketPollTimer);
     server.close(async () => {
       await prisma.$disconnect();
       console.log('✅ Servidor cerrado correctamente');

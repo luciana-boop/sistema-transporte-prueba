@@ -7,12 +7,12 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Search, Edit2, Trash2, BarChart2, Download } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Download } from 'lucide-react';
 import { clientesApi, fetchAllPages } from '@/services/api';
-import { formatCurrency, getErrorMessage, CONDICION_PAGO_LABEL } from '@/lib/utils';
+import { getErrorMessage, CONDICION_PAGO_LABEL } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
-  EmptyState, Modal, FormField, Input, Select, StatCard,
+  EmptyState, Modal, FormField, Input, Select,
 } from '@/components/shared';
 import type { Cliente, CondicionPago } from '@/types';
 import * as XLSX from 'xlsx';
@@ -21,6 +21,7 @@ const schema = z.object({
   razonSocial: z.string().min(2, 'Mínimo 2 caracteres'),
   ruc: z.string().min(11, 'RUC debe tener 11 dígitos').max(11),
   direccion: z.string().min(3, 'Dirección requerida'),
+  ubigeo: z.string().optional(),
   telefono: z.string().optional(),
   email: z.string().email('Email inválido').optional().or(z.literal('')),
   condicionPago: z.enum(['CONTADO','CREDITO_15','CREDITO_30','CREDITO_60']).default('CONTADO'),
@@ -32,7 +33,6 @@ export default function ClientesPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
-  const [showStats, setShowStats] = useState<Cliente | null>(null);
   const [editing, setEditing] = useState<Cliente | null>(null);
 
   const limit = 20;
@@ -44,12 +44,6 @@ export default function ClientesPage() {
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / limit);
 
-  const { data: stats } = useQuery({
-    queryKey: ['clientes', showStats?.id, 'estadisticas'],
-    queryFn: () => clientesApi.estadisticas(showStats!.id).then((r) => r.data.data),
-    enabled: !!showStats,
-  });
-
   const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
@@ -58,7 +52,7 @@ export default function ClientesPage() {
     const todos = await fetchAllPages((p) => clientesApi.listar({ search: search || undefined, ...p }).then((r) => r.data.data));
     const rows = todos.map((c) => ({
       '#': c.id, 'Razón social': c.razonSocial, RUC: c.ruc,
-      Dirección: c.direccion, Teléfono: c.telefono ?? '', Email: c.email ?? '',
+      Dirección: c.direccion, Ubigeo: c.ubigeo ?? '', Teléfono: c.telefono ?? '', Email: c.email ?? '',
       'Cond. pago': CONDICION_PAGO_LABEL[c.condicionPago], Estado: c.activo ? 'Activo' : 'Inactivo',
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -91,6 +85,7 @@ export default function ClientesPage() {
     setValue('razonSocial', c.razonSocial);
     setValue('ruc', c.ruc);
     setValue('direccion', c.direccion);
+    setValue('ubigeo', c.ubigeo ?? '');
     setValue('telefono', c.telefono ?? '');
     setValue('email', c.email ?? '');
     setValue('condicionPago', c.condicionPago as CondicionPago);
@@ -158,9 +153,6 @@ export default function ClientesPage() {
                 <Td><Badge value={c.activo ? 'ABIERTA' : 'CERRADA'} label={c.activo ? 'Activo' : 'Inactivo'} /></Td>
                 <Td>
                   <div className="flex items-center justify-end gap-1">
-                    <button onClick={() => setShowStats(c)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Estadísticas">
-                      <BarChart2 className="w-3.5 h-3.5" />
-                    </button>
                     <button onClick={() => openEdit(c)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Editar">
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
@@ -213,6 +205,9 @@ export default function ClientesPage() {
                 <Input placeholder="Av. Ejemplo 123, Lima" {...register('direccion')} />
               </FormField>
             </div>
+            <FormField label="Ubigeo" hint="Código INEI de 6 dígitos — se usa para autocompletar el destino en Guías" error={errors.ubigeo?.message}>
+              <Input placeholder="150101" maxLength={6} {...register('ubigeo')} />
+            </FormField>
             <FormField label="Teléfono" error={errors.telefono?.message}>
               <Input placeholder="01-234 5678" {...register('telefono')} />
             </FormField>
@@ -229,20 +224,6 @@ export default function ClientesPage() {
             </Button>
           </div>
         </form>
-      </Modal>
-
-      {/* Stats Modal */}
-      <Modal open={!!showStats} onClose={() => setShowStats(null)} title={`Estadísticas: ${showStats?.razonSocial}`}>
-        {stats ? (
-          <div className="grid grid-cols-2 gap-3">
-            <StatCard label="Total pedidos" value={stats.totalPedidos} color="default" />
-            <StatCard label="Total facturado" value={formatCurrency(stats.facturado)} color="blue" />
-            <StatCard label="Total pagado" value={formatCurrency(stats.pagado)} color="green" />
-            <StatCard label="Saldo pendiente" value={formatCurrency(stats.saldoPendiente)} color={stats.saldoPendiente > 0 ? 'yellow' : 'green'} />
-          </div>
-        ) : (
-          <div className="flex justify-center py-8"><div className="skeleton h-32 w-full rounded-xl" /></div>
-        )}
       </Modal>
     </div>
   );

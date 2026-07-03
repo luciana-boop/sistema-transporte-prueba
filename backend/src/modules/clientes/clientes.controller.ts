@@ -28,11 +28,11 @@ export class ClientesController {
 
   async crear(req: Request, res: Response): Promise<void> {
     try {
-      const { razonSocial, ruc, direccion, telefono, email, condicionPago } = req.body;
+      const { razonSocial, ruc, direccion, ubigeo, telefono, email, condicionPago } = req.body;
       if (!razonSocial || !ruc || !direccion) {
         R.badRequest(res, 'razonSocial, ruc y direccion son requeridos'); return;
       }
-      const data = await clientesService.create({ razonSocial, ruc, direccion, telefono, email, condicionPago });
+      const data = await clientesService.create({ razonSocial, ruc, direccion, ubigeo, telefono, email, condicionPago });
       R.created(res, data, 'Cliente creado correctamente');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
@@ -61,19 +61,6 @@ export class ClientesController {
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
       await clientesService.remove(id);
       R.ok(res, null, 'Cliente eliminado/desactivado correctamente');
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : '';
-      if (msg === 'Cliente no encontrado') R.notFound(res, msg);
-      else R.serverError(res, e);
-    }
-  }
-
-  async estadisticas(req: Request, res: Response): Promise<void> {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      const data = await clientesService.getEstadisticas(id);
-      R.ok(res, data);
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Cliente no encontrado') R.notFound(res, msg);
