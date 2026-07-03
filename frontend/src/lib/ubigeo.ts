@@ -50,14 +50,13 @@ export type DeteccionUbigeo =
   | { estado: 'ambiguo'; candidatos: UbigeoEntry[] }
   | { estado: 'sin_match' };
 
-// Busca nombres de distrito dentro del texto. Prioriza la coincidencia más específica (más
-// palabras: "SAN JUAN DE LURIGANCHO" antes que "LIMA"), porque una dirección formal suele
-// mencionar el distrito real antes de repetir la provincia/departamento al final (que muchas
-// veces coincide con el nombre de un distrito capital, p. ej. "Lima" o "Huaraz").
-export function detectarUbigeo(direccion: string): DeteccionUbigeo {
-  const norm = normalizar(direccion);
-  if (!norm) return { estado: 'sin_match' };
-  const tokens = norm.split(' ');
+// Busca el nombre de distrito más específico (más palabras: "SAN JUAN DE LURIGANCHO" antes que
+// "LIMA") dentro de un texto ya normalizado. Entre coincidencias de igual especificidad gana la
+// más a la izquierda, porque la convención peruana ordena "distrito, provincia, departamento"
+// (el departamento, al final, suele coincidir con el nombre de un distrito capital).
+function buscarNombreDistrito(norm: string): string | null {
+  const tokens = norm.split(' ').filter(Boolean);
+  if (!tokens.length) return null;
   const consumido = new Array(tokens.length).fill(false);
   const matches: { nombre: string; index: number; palabras: number }[] = [];
 
@@ -75,11 +74,48 @@ export function detectarUbigeo(direccion: string): DeteccionUbigeo {
     }
   }
 
-  if (!matches.length) return { estado: 'sin_match' };
+  if (!matches.length) return null;
   matches.sort((a, b) => b.palabras - a.palabras || a.index - b.index);
-  const mejorMatch = matches[0];
+  return matches[0].nombre;
+}
 
-  const candidatos = distritosPorNombre.get(mejorMatch.nombre)!;
+// Palabras que delatan el tramo de "calle" de la dirección (tiene número, o un tipo de vía).
+// Una avenida puede llamarse igual que un distrito (p. ej. "Av. Arequipa"), así que ese tramo se
+// descarta de la búsqueda cuando es identificable, y el distrito/provincia/departamento casi
+// siempre queda al final de la dirección.
+const PALABRAS_CALLE = new Set([
+  'AV', 'AVENIDA', 'JR', 'JIRON', 'CALLE', 'CAL', 'CA', 'PSJE', 'PASAJE', 'MZ', 'MZA', 'MANZANA',
+  'LOTE', 'LT', 'URB', 'URBANIZACION', 'PROL', 'PROLONGACION', 'NRO', 'KM', 'ASOC', 'AAHH', 'COOP',
+]);
+function pareceTramoDeCalle(segmentoNorm: string): boolean {
+  if (/[0-9]/.test(segmentoNorm)) return true;
+  return segmentoNorm.split(' ').some((t) => PALABRAS_CALLE.has(t));
+}
+
+export function detectarUbigeo(direccion: string): DeteccionUbigeo {
+  const norm = normalizar(direccion);
+  if (!norm) return { estado: 'sin_match' };
+
+  // Zona de búsqueda: recorta el tramo de calle (antes de la primera coma, o hasta el último
+  // número si no hay comas) cuando es identificable, para no confundir avenidas con distritos.
+  let zona = norm;
+  const idxComa = direccion.indexOf(',');
+  if (idxComa >= 0) {
+    const primerSegmento = normalizar(direccion.slice(0, idxComa));
+    if (pareceTramoDeCalle(primerSegmento)) zona = normalizar(direccion.slice(idxComa + 1));
+  } else if (pareceTramoDeCalle(norm)) {
+    const tokens = norm.split(' ');
+    let ultimoNumIdx = -1;
+    tokens.forEach((t, i) => { if (/^[0-9]+$/.test(t)) ultimoNumIdx = i; });
+    if (ultimoNumIdx >= 0 && ultimoNumIdx < tokens.length - 1) {
+      zona = tokens.slice(ultimoNumIdx + 1).join(' ');
+    }
+  }
+
+  const nombre = buscarNombreDistrito(zona) ?? buscarNombreDistrito(norm);
+  if (!nombre) return { estado: 'sin_match' };
+
+  const candidatos = distritosPorNombre.get(nombre)!;
   if (candidatos.length === 1) return { estado: 'encontrado', entry: candidatos[0] };
 
   // Desambiguar por provincia/departamento mencionados en el resto de la dirección
