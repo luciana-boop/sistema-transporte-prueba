@@ -323,6 +323,7 @@ model Vehiculo {
 
   combustibles         Combustible[]
   guias                Guia[]
+  guiasComoCarreta     Guia[]       @relation("GuiaVehiculoCarreta")
 
   @@map("vehiculos")
 }
@@ -689,9 +690,10 @@ model Guia {
   razonSocialTransportista String?   @map("razon_social_transportista")
   numRegistroMTC           String?   @map("num_registro_mtc")
   placaTransportista       String?   @map("placa_transportista")
-  // Modalidad privada — conductor y vehículo propios
+  // Modalidad privada — conductor y vehículo propios (tracto + carreta opcional)
   conductorId              Int?      @map("conductor_id")
   vehiculoId               Int?      @map("vehiculo_id")
+  vehiculoCarretaId        Int?      @map("vehiculo_carreta_id")
   conductorNombre          String?   @map("conductor_nombre")
   conductorDni             String?   @map("conductor_dni")
   conductorLicencia        String?   @map("conductor_licencia")
@@ -716,8 +718,9 @@ model Guia {
   cliente   Cliente?   @relation("GuiaDestinatario", fields: [clienteId], references: [id])
   remitente Cliente?   @relation("GuiaRemitente", fields: [remitenteId], references: [id])
   usuario   Usuario    @relation(fields: [usuarioId], references: [id])
-  conductor Conductor? @relation(fields: [conductorId], references: [id])
-  vehiculo  Vehiculo?  @relation(fields: [vehiculoId], references: [id])
+  conductor       Conductor? @relation(fields: [conductorId], references: [id])
+  vehiculo        Vehiculo?  @relation(fields: [vehiculoId], references: [id])
+  vehiculoCarreta Vehiculo?  @relation("GuiaVehiculoCarreta", fields: [vehiculoCarretaId], references: [id])
 
   detalles                   GuiaDetalle[]
   transportistasAdicionales  GuiaTransportistaAdicional[]

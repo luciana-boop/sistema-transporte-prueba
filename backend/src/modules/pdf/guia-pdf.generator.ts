@@ -125,7 +125,9 @@ export async function generarPdfGuia(guia: any): Promise<string> {
 
     // ── Caja DATOS DEL TRANSPORTE ─────────────────────────────────────────────
     const esPublico = guia.modalidadTransporte === '01';
-    const filasTransp = esPublico ? ((guia.transportistasAdicionales?.length ?? 0) > 0 ? 2 : 1.5) : 2;
+    const filasTransp = esPublico
+      ? ((guia.transportistasAdicionales?.length ?? 0) > 0 ? 2 : 1.5)
+      : (guia.vehiculoCarreta ? 3 : 2);
     const yTranspH = ALTO_BARRA + ALTO_FILA * filasTransp;
     const yTranspContenido = dibujarCajaTitulada(doc, M, y, ANCHO, yTranspH, 'DATOS DEL TRANSPORTE', color);
     if (esPublico) {
@@ -143,7 +145,11 @@ export async function generarPdfGuia(guia: any): Promise<string> {
       const vehiculoTxt = guia.vehiculo ? `${guia.vehiculo.placa} ${guia.vehiculo.marca ?? ''} ${guia.vehiculo.modelo ?? ''}`.trim() : (guia.placaTransportista ?? '—');
       filaTexto(M + 8, yTranspContenido, ANCHO / 2 - 16, 'Conductor (DNI)', `${conductorNombre} (${conductorDni})`);
       filaTexto(col2, yTranspContenido, ANCHO / 2 - 16, 'Licencia', conductorLicencia);
-      filaTexto(M + 8, yTranspContenido + ALTO_FILA, ANCHO / 2 - 16, 'Vehículo', vehiculoTxt);
+      filaTexto(M + 8, yTranspContenido + ALTO_FILA, ANCHO / 2 - 16, 'Vehículo (tracto)', vehiculoTxt);
+      if (guia.vehiculoCarreta) {
+        const carretaTxt = `${guia.vehiculoCarreta.placa} ${guia.vehiculoCarreta.marca ?? ''} ${guia.vehiculoCarreta.modelo ?? ''}`.trim();
+        filaTexto(M + 8, yTranspContenido + ALTO_FILA * 2, ANCHO / 2 - 16, 'Carreta', carretaTxt);
+      }
     }
     y = y + yTranspH + 10;
 

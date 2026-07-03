@@ -176,7 +176,7 @@ export const guiasApi = {
     ubigeoOrigen?: string; direccionPartida?: string; ubigeoDestino?: string; direccionEntrega?: string;
     rucTransportista?: string; razonSocialTransportista?: string; numRegistroMTC?: string; placaTransportista?: string;
     transportistasAdicionales?: Array<{ placa: string; numRegistroMTC: string }>;
-    conductorId?: number; vehiculoId?: number;
+    conductorId?: number; vehiculoId?: number; vehiculoCarretaId?: number;
     conductorNombre?: string; conductorDni?: string; conductorLicencia?: string;
     pesoTotal?: number; observaciones?: string;
     detalles: Array<{ descripcion: string; cantidad: number; unidadMedida?: string }>;

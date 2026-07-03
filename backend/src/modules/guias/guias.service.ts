@@ -58,9 +58,10 @@ export interface CreateGuiaDto {
   placaTransportista?: string;
   // Modalidad pública (01): placas/MTC adicionales más allá del transportista principal
   transportistasAdicionales?: TransportistaAdicionalDto[];
-  // Conductor/vehículo privado
+  // Conductor/vehículo privado (tracto + carreta opcional)
   conductorId?: number;
   vehiculoId?: number;
+  vehiculoCarretaId?: number;
   conductorNombre?: string;
   conductorDni?: string;
   conductorLicencia?: string;
@@ -124,6 +125,7 @@ export const guiasService = {
           usuario:   { select: { id: true, nombre: true } },
           conductor: { select: { id: true, nombre: true, dni: true, licencia: true } },
           vehiculo:  { select: { id: true, placa: true, marca: true, modelo: true } },
+          vehiculoCarreta: { select: { id: true, placa: true, marca: true, modelo: true } },
           _count:    { select: { detalles: true } },
         },
       }),
@@ -142,6 +144,7 @@ export const guiasService = {
         usuario:   { select: { id: true, nombre: true } },
         conductor: { select: { id: true, nombre: true, dni: true, licencia: true } },
         vehiculo:  { select: { id: true, placa: true, marca: true, modelo: true } },
+        vehiculoCarreta: { select: { id: true, placa: true, marca: true, modelo: true } },
         transportistasAdicionales: true,
         detalles: true,
       },
@@ -219,6 +222,12 @@ export const guiasService = {
       if (!vehiculo) throw new Error('Vehículo no encontrado');
     }
 
+    if (dto.vehiculoCarretaId) {
+      const carreta = await prisma.vehiculo.findUnique({ where: { id: dto.vehiculoCarretaId } });
+      if (!carreta) throw new Error('Carreta no encontrada');
+      if (carreta.tipo !== 'CARRETA') throw new Error('El vehículo seleccionado como carreta no es de tipo CARRETA');
+    }
+
     // Autocompletar origen/destino — siguen siendo editables desde el DTO,
     // esto es solo el valor por defecto cuando no llegan.
     const direccionEmpresa = await configuracionService.getParametro('empresa_direccion');
@@ -259,6 +268,7 @@ export const guiasService = {
           placaTransportista: dto.placaTransportista,
           conductorId: dto.conductorId,
           vehiculoId: dto.vehiculoId,
+          vehiculoCarretaId: dto.vehiculoCarretaId,
           conductorNombre: dto.conductorNombre,
           conductorDni: dto.conductorDni,
           conductorLicencia: dto.conductorLicencia,
@@ -280,6 +290,7 @@ export const guiasService = {
           transportistasAdicionales: true,
           conductor: { select: { id: true, nombre: true, dni: true, licencia: true } },
           vehiculo:  { select: { id: true, placa: true, marca: true, modelo: true } },
+          vehiculoCarreta: { select: { id: true, placa: true, marca: true, modelo: true } },
           remitente: { select: { id: true, razonSocial: true, ruc: true } },
         },
       });

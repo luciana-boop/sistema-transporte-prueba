@@ -580,6 +580,7 @@ export interface Guia {
   placaTransportista?: string | null;
   conductorId?: number | null;
   vehiculoId?: number | null;
+  vehiculoCarretaId?: number | null;
   conductorNombre?: string | null;
   conductorDni?: string | null;
   conductorLicencia?: string | null;
@@ -600,6 +601,7 @@ export interface Guia {
   usuario?: { id: number; nombre: string };
   conductor?: { id: number; nombre: string; dni: string; licencia: string } | null;
   vehiculo?: { id: number; placa: string; marca: string; modelo: string } | null;
+  vehiculoCarreta?: { id: number; placa: string; marca: string; modelo: string } | null;
   detalles?: GuiaDetalle[];
   transportistasAdicionales?: GuiaTransportistaAdicional[];
 }

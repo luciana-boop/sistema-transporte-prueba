@@ -76,6 +76,7 @@ const guiaSchema = z.object({
   // Transporte privado (siempre obligatorio en modalidad Transportista)
   conductorId: z.string().optional(),
   vehiculoId: z.string().optional(),
+  vehiculoCarretaId: z.string().optional(),
   // Carga
   pesoTotal: z.string().optional(),
   observaciones: z.string().optional(),
@@ -290,6 +291,7 @@ export default function GuiasPage() {
         : undefined,
       conductorId: mostrarConductorVehiculo && d.conductorId ? parseInt(d.conductorId) : undefined,
       vehiculoId: mostrarConductorVehiculo && d.vehiculoId ? parseInt(d.vehiculoId) : undefined,
+      vehiculoCarretaId: mostrarConductorVehiculo && d.vehiculoCarretaId ? parseInt(d.vehiculoCarretaId) : undefined,
       pesoTotal: d.pesoTotal ? parseFloat(d.pesoTotal) : undefined,
       observaciones: d.observaciones || undefined,
       detalles: d.detalles.map(det => ({
@@ -655,7 +657,7 @@ export default function GuiasPage() {
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <FormField label="Conductor" error={errors.conductorId?.message}>
                   <Select {...register('conductorId')}>
                     <option value="">{esTransportista ? 'Seleccione un conductor' : 'Sin conductor'}</option>
@@ -664,10 +666,18 @@ export default function GuiasPage() {
                     ))}
                   </Select>
                 </FormField>
-                <FormField label="Vehículo" error={errors.vehiculoId?.message}>
+                <FormField label="Tracto" error={errors.vehiculoId?.message}>
                   <Select {...register('vehiculoId')}>
-                    <option value="">{esTransportista ? 'Seleccione un vehículo' : 'Sin vehículo'}</option>
-                    {(vehiculosList as any[]).map((v: any) => (
+                    <option value="">{esTransportista ? 'Seleccione un tracto' : 'Sin vehículo'}</option>
+                    {(vehiculosList as any[]).filter((v: any) => v.tipo === 'TRACTO').map((v: any) => (
+                      <option key={v.id} value={v.id}>{v.placa} — {v.marca} {v.modelo}</option>
+                    ))}
+                  </Select>
+                </FormField>
+                <FormField label="Carreta" error={errors.vehiculoCarretaId?.message}>
+                  <Select {...register('vehiculoCarretaId')}>
+                    <option value="">Sin carreta</option>
+                    {(vehiculosList as any[]).filter((v: any) => v.tipo === 'CARRETA').map((v: any) => (
                       <option key={v.id} value={v.id}>{v.placa} — {v.marca} {v.modelo}</option>
                     ))}
                   </Select>
@@ -770,7 +780,8 @@ export default function GuiasPage() {
               ) : (
                 <>
                   {viewing.conductor && <div><span className="text-muted-foreground">Conductor:</span> {viewing.conductor.nombre} (DNI: {viewing.conductor.dni})</div>}
-                  {viewing.vehiculo && <div><span className="text-muted-foreground">Vehículo:</span> {viewing.vehiculo.placa} — {viewing.vehiculo.marca} {viewing.vehiculo.modelo}</div>}
+                  {viewing.vehiculo && <div><span className="text-muted-foreground">Tracto:</span> {viewing.vehiculo.placa} — {viewing.vehiculo.marca} {viewing.vehiculo.modelo}</div>}
+                  {viewing.vehiculoCarreta && <div><span className="text-muted-foreground">Carreta:</span> {viewing.vehiculoCarreta.placa} — {viewing.vehiculoCarreta.marca} {viewing.vehiculoCarreta.modelo}</div>}
                 </>
               )}
               {viewing.pedido && (
