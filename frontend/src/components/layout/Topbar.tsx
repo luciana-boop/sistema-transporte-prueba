@@ -32,7 +32,7 @@ export function Topbar() {
   const { theme, setTheme } = useTheme();
   const usuario      = useAuthStore((s) => s.usuario);
   const _hasHydrated = useAuthStore((s) => s._hasHydrated);
-  const { notifications, unreadCount, markAllRead, markRead } = useNotifications();
+  const { notifications, unreadCount, marcarTodasLeidas, marcarLeida, posponer } = useNotifications();
   const [showNotif, setShowNotif] = useState(false);
 
   const [themeMounted, setThemeMounted] = useState(false);
@@ -75,8 +75,9 @@ export function Topbar() {
             <NotificationsPanel
               notifications={notifications}
               onClose={() => setShowNotif(false)}
-              onMarkAllRead={markAllRead}
-              onMarkRead={markRead}
+              onLeerTodas={marcarTodasLeidas}
+              onLeer={marcarLeida}
+              onPosponer={posponer}
             />
           )}
         </div>

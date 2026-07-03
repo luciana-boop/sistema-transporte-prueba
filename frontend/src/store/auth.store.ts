@@ -2,6 +2,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Usuario } from '@/types';
+import { limpiarPospuestas } from '@/lib/notificationsStorage';
 
 interface AuthStore {
   usuario: Usuario | null;
@@ -30,6 +31,9 @@ export const useAuthStore = create<AuthStore>()(
 
       setAuth: (usuario, csrfToken) => {
         set({ usuario, isAuthenticated: true, isTokenVerified: true, csrfToken });
+        // Las notificaciones pospuestas ("recordar más tarde") vuelven a
+        // aparecer en cada nuevo inicio de sesión de este usuario.
+        limpiarPospuestas(usuario.id);
       },
 
       logout: () => {

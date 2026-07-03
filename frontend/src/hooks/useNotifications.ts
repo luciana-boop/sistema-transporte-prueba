@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { vehiculosApi, conductoresApi, facturacionApi, configuracionApi, usuariosApi } from '@/services/api';
 import { useAuthStore } from '@/store/auth.store';
+import { obtenerOcultos, registrarVistos, marcarLeida, marcarTodasLeidas, posponer } from '@/lib/notificationsStorage';
 
 export interface Notification {
   id: string;
@@ -12,7 +13,6 @@ export interface Notification {
   category: 'soat' | 'licencia' | 'revision' | 'cobranza' | 'mantenimiento' | 'seguridad';
   title: string;
   message: string;
-  read: boolean;
 }
 
 function diasHasta(fechaStr: string): number {
@@ -28,8 +28,6 @@ function esReciente(fechaHoraStr: string, horas = 24): boolean {
 }
 
 export function useNotifications() {
-  const [readIds, setReadIds] = useState<Set<string>>(new Set());
-
   // ── NUEVO: queries solo se ejecutan cuando auth está confirmada ──
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const _hasHydrated    = useAuthStore((s) => s._hasHydrated);
@@ -88,7 +86,7 @@ export function useNotifications() {
     return map;
   }, [alertasConfig]);
 
-  const notifications = useMemo<Notification[]>(() => {
+  const itemsCrudos = useMemo<Notification[]>(() => {
     const items: Notification[] = [];
     const cfg = (clave: string) => alertaMap[clave] ?? { dias: 30, activo: true, nivel: 'warning' };
 
@@ -104,7 +102,6 @@ export function useNotifications() {
               category: 'soat',
               title: `SOAT ${dias <= 0 ? 'vencido' : 'por vencer'}`,
               message: `Vehículo ${v.placa}: ${dias <= 0 ? `vencido hace ${Math.abs(dias)}d` : `vence en ${dias}d`}`,
-              read: false,
             });
           }
         }
@@ -123,7 +120,6 @@ export function useNotifications() {
               category: 'revision',
               title: `Rev. técnica ${dias <= 0 ? 'vencida' : 'por vencer'}`,
               message: `Vehículo ${v.placa}: ${dias <= 0 ? `vencida hace ${Math.abs(dias)}d` : `vence en ${dias}d`}`,
-              read: false,
             });
           }
         }
@@ -142,7 +138,6 @@ export function useNotifications() {
               category: 'mantenimiento',
               title: 'Mantenimiento próximo',
               message: `Vehículo ${v.placa}: mantenimiento en ${dias}d`,
-              read: false,
             });
           }
         }
@@ -161,7 +156,6 @@ export function useNotifications() {
               category: 'licencia',
               title: `Licencia ${dias <= 0 ? 'vencida' : 'por vencer'}`,
               message: `${c.nombre}: ${dias <= 0 ? `vencida hace ${Math.abs(dias)}d` : `vence en ${dias}d`}`,
-              read: false,
             });
           }
         }
@@ -183,7 +177,6 @@ export function useNotifications() {
           category: 'cobranza',
           title: 'Facturas vencidas',
           message: `${vencidas.length} factura${vencidas.length > 1 ? 's' : ''} con saldo pendiente y vencidas`,
-          read: false,
         });
       }
     }
@@ -198,17 +191,50 @@ export function useNotifications() {
           category: 'seguridad',
           title: `${recientes.length} intento${recientes.length > 1 ? 's' : ''} de acceso fuera de horario`,
           message: `Últimas 24h: ${nombres.join(', ')}`,
-          read: false,
         });
       }
     }
 
-    return items.map((n) => ({ ...n, read: readIds.has(n.id) }));
-  }, [vehiculos, conductores, facturasPendientes, alertaMap, intentosFueraHorario, esAdmin, readIds]);
+    return items;
+  }, [vehiculos, conductores, facturasPendientes, alertaMap, intentosFueraHorario, esAdmin]);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
-  const markRead    = (id: string) => setReadIds((prev) => new Set([...prev, id]));
-  const markAllRead = () => setReadIds(new Set(notifications.map((n) => n.id)));
+  const usuarioId = usuario?.id;
 
-  return { notifications, unreadCount, markRead, markAllRead };
+  // ── Estado local (por usuario): oculta leídas/pospuestas y ordena "nuevas arriba" ──
+  const [version, setVersion] = useState(0);
+
+  const notifications = useMemo(() => {
+    if (!usuarioId) return [];
+    const ocultos = obtenerOcultos(usuarioId);
+    const visibles = itemsCrudos.filter((n) => !ocultos.has(n.id));
+    const vistos = registrarVistos(usuarioId, visibles.map((n) => n.id));
+    return [...visibles].sort((a, b) => (vistos[b.id] ?? 0) - (vistos[a.id] ?? 0));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemsCrudos, usuarioId, version]);
+
+  const leer = (id: string) => {
+    if (!usuarioId) return;
+    marcarLeida(usuarioId, id);
+    setVersion((v) => v + 1);
+  };
+
+  const leerTodas = () => {
+    if (!usuarioId) return;
+    marcarTodasLeidas(usuarioId, notifications.map((n) => n.id));
+    setVersion((v) => v + 1);
+  };
+
+  const posponerNotificacion = (id: string) => {
+    if (!usuarioId) return;
+    posponer(usuarioId, id);
+    setVersion((v) => v + 1);
+  };
+
+  return {
+    notifications,
+    unreadCount: notifications.length,
+    marcarLeida: leer,
+    marcarTodasLeidas: leerTodas,
+    posponer: posponerNotificacion,
+  };
 }

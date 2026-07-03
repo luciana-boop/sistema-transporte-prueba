@@ -1,7 +1,7 @@
 // FILE: src/app/(dashboard)/clientes/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { Plus, Search, Edit2, Trash2, Download } from 'lucide-react';
 import { clientesApi, fetchAllPages } from '@/services/api';
 import { getErrorMessage, CONDICION_PAGO_LABEL } from '@/lib/utils';
+import { buscarPorCodigo, detectarUbigeo, type UbigeoEntry } from '@/lib/ubigeo';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
   EmptyState, Modal, FormField, Input, Select,
@@ -44,9 +45,28 @@ export default function ClientesPage() {
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / limit);
 
-  const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<FormData>({
+  const { register, handleSubmit, reset, setValue, watch, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
+
+  const direccionVal = watch('direccion');
+  const ubigeoVal = watch('ubigeo');
+  const [candidatosUbigeo, setCandidatosUbigeo] = useState<UbigeoEntry[]>([]);
+
+  // Autocompleta el ubigeo detectando el nombre del distrito dentro de la dirección escrita.
+  // Solo actúa si el ubigeo sigue vacío (no pisa un valor ya ingresado/editado).
+  useEffect(() => {
+    if (ubigeoVal || !direccionVal || direccionVal.trim().length < 6) { setCandidatosUbigeo([]); return; }
+    const t = setTimeout(() => {
+      const res = detectarUbigeo(direccionVal);
+      if (res.estado === 'encontrado') { setValue('ubigeo', res.entry.ubigeo); setCandidatosUbigeo([]); }
+      else if (res.estado === 'ambiguo') setCandidatosUbigeo(res.candidatos);
+      else setCandidatosUbigeo([]);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [direccionVal, ubigeoVal, setValue]);
+
+  const ubigeoResuelto = buscarPorCodigo(ubigeoVal);
 
   const exportExcel = async () => {
     const todos = await fetchAllPages((p) => clientesApi.listar({ search: search || undefined, ...p }).then((r) => r.data.data));
@@ -205,8 +225,30 @@ export default function ClientesPage() {
                 <Input placeholder="Av. Ejemplo 123, Lima" {...register('direccion')} />
               </FormField>
             </div>
-            <FormField label="Ubigeo" hint="Código INEI de 6 dígitos — se usa para autocompletar el destino en Guías" error={errors.ubigeo?.message}>
+            <FormField label="Ubigeo" hint="Código INEI de 6 dígitos — se detecta desde la dirección o se puede escribir a mano" error={errors.ubigeo?.message}>
               <Input placeholder="150101" maxLength={6} {...register('ubigeo')} />
+              {ubigeoVal?.length === 6 && (
+                <p className={`text-xs ${ubigeoResuelto ? 'text-emerald-600' : 'text-amber-600'}`}>
+                  {ubigeoResuelto
+                    ? `✓ ${ubigeoResuelto.distrito}, ${ubigeoResuelto.provincia}, ${ubigeoResuelto.departamento}`
+                    : 'Código no reconocido en el padrón INEI'}
+                </p>
+              )}
+              {candidatosUbigeo.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="text-xs text-muted-foreground">¿Cuál distrito?</span>
+                  {candidatosUbigeo.slice(0, 5).map((c) => (
+                    <button
+                      key={c.ubigeo}
+                      type="button"
+                      onClick={() => { setValue('ubigeo', c.ubigeo); setCandidatosUbigeo([]); }}
+                      className="text-xs px-2 py-0.5 rounded-full border border-border hover:bg-accent"
+                    >
+                      {c.distrito} ({c.provincia})
+                    </button>
+                  ))}
+                </div>
+              )}
             </FormField>
             <FormField label="Teléfono" error={errors.telefono?.message}>
               <Input placeholder="01-234 5678" {...register('telefono')} />

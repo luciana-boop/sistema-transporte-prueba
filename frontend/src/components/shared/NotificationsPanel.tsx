@@ -1,7 +1,7 @@
 // FILE: src/components/shared/NotificationsPanel.tsx
 'use client';
 
-import { AlertTriangle, XCircle, Info, CheckCheck, X } from 'lucide-react';
+import { AlertTriangle, XCircle, Info, CheckCheck, Check, Clock, X } from 'lucide-react';
 import type { Notification } from '@/hooks/useNotifications';
 import { cn } from '@/lib/utils';
 
@@ -21,12 +21,13 @@ const typeIcon = {
 };
 
 export function NotificationsPanel({
-  notifications, onClose, onMarkAllRead, onMarkRead,
+  notifications, onClose, onLeerTodas, onLeer, onPosponer,
 }: {
   notifications: Notification[];
   onClose: () => void;
-  onMarkAllRead: () => void;
-  onMarkRead: (id: string) => void;
+  onLeerTodas: () => void;
+  onLeer: (id: string) => void;
+  onPosponer: (id: string) => void;
 }) {
   return (
     <>
@@ -38,10 +39,11 @@ export function NotificationsPanel({
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <p className="text-sm font-semibold">Notificaciones</p>
           <div className="flex items-center gap-2">
-            {notifications.some((n) => !n.read) && (
+            {notifications.length > 0 && (
               <button
-                onClick={onMarkAllRead}
+                onClick={onLeerTodas}
                 className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                title="Marcar todas como leídas"
               >
                 <CheckCheck className="w-3.5 h-3.5" /> Marcar todas
               </button>
@@ -52,7 +54,7 @@ export function NotificationsPanel({
           </div>
         </div>
 
-        {/* List */}
+        {/* List (más nuevas arriba) */}
         <div className="max-h-96 overflow-y-auto">
           {notifications.length === 0 ? (
             <div className="flex flex-col items-center py-10 gap-2 text-muted-foreground">
@@ -61,12 +63,10 @@ export function NotificationsPanel({
             </div>
           ) : (
             notifications.map((n) => (
-              <button
+              <div
                 key={n.id}
-                onClick={() => onMarkRead(n.id)}
                 className={cn(
-                  'w-full text-left flex items-start gap-3 px-4 py-3 border-b border-border last:border-0 hover:bg-muted/30 transition-colors',
-                  n.read && 'opacity-50'
+                  'w-full flex items-start gap-3 px-4 py-3 border-b border-border last:border-0 hover:bg-muted/30 transition-colors'
                 )}
               >
                 {typeIcon[n.type]}
@@ -79,8 +79,23 @@ export function NotificationsPanel({
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{n.message}</p>
                 </div>
-                {!n.read && <div className="w-2 h-2 rounded-full bg-primary shrink-0 mt-1" />}
-              </button>
+                <div className="flex flex-col items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => onLeer(n.id)}
+                    title="Marcar como leída"
+                    className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-emerald-600 transition-colors"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => onPosponer(n.id)}
+                    title="Recordar más tarde (vuelve a aparecer en el próximo inicio de sesión)"
+                    className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
             ))
           )}
         </div>

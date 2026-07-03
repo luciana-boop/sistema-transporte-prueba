@@ -15,6 +15,7 @@ import { Plus, Eye, X, Download, Send } from 'lucide-react';
 import api, { guiasApi, pedidosApi, clientesApi, conductoresApi, vehiculosApi, configuracionApi } from '@/services/api';
 import { useConfig } from '@/hooks/useConfig';
 import { getErrorMessage, formatDate, formatCurrency } from '@/lib/utils';
+import { buscarPorCodigo, detectarUbigeo, type UbigeoEntry } from '@/lib/ubigeo';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
   EmptyState, Modal, FormField, Input, Select, Textarea, SmartSearchInput,
@@ -161,6 +162,38 @@ export default function GuiasPage() {
   const mostrarConductorVehiculo = esTransportista || !esPublico;
   const serieVal = watch('serie');
   const direccionPartidaVal = watch('direccionPartida');
+  const direccionEntregaVal = watch('direccionEntrega');
+  const ubigeoOrigenVal = watch('ubigeoOrigen');
+  const ubigeoDestinoVal = watch('ubigeoDestino');
+  const [candidatosOrigen, setCandidatosOrigen] = useState<UbigeoEntry[]>([]);
+  const [candidatosDestino, setCandidatosDestino] = useState<UbigeoEntry[]>([]);
+
+  // Autocompleta el ubigeo de partida/llegada detectando el nombre del distrito en la
+  // dirección escrita. Solo actúa si el ubigeo correspondiente sigue vacío.
+  useEffect(() => {
+    if (ubigeoOrigenVal || !direccionPartidaVal || direccionPartidaVal.trim().length < 6) { setCandidatosOrigen([]); return; }
+    const t = setTimeout(() => {
+      const res = detectarUbigeo(direccionPartidaVal);
+      if (res.estado === 'encontrado') { setValue('ubigeoOrigen', res.entry.ubigeo); setCandidatosOrigen([]); }
+      else if (res.estado === 'ambiguo') setCandidatosOrigen(res.candidatos);
+      else setCandidatosOrigen([]);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [direccionPartidaVal, ubigeoOrigenVal, setValue]);
+
+  useEffect(() => {
+    if (ubigeoDestinoVal || !direccionEntregaVal || direccionEntregaVal.trim().length < 6) { setCandidatosDestino([]); return; }
+    const t = setTimeout(() => {
+      const res = detectarUbigeo(direccionEntregaVal);
+      if (res.estado === 'encontrado') { setValue('ubigeoDestino', res.entry.ubigeo); setCandidatosDestino([]); }
+      else if (res.estado === 'ambiguo') setCandidatosDestino(res.candidatos);
+      else setCandidatosDestino([]);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [direccionEntregaVal, ubigeoDestinoVal, setValue]);
+
+  const ubigeoOrigenResuelto = buscarPorCodigo(ubigeoOrigenVal);
+  const ubigeoDestinoResuelto = buscarPorCodigo(ubigeoDestinoVal);
 
   // Series con tipoDocumento = 'GUIA' — selector + precarga de la primera.
   const { data: seriesGuia = [] } = useQuery({
@@ -521,8 +554,30 @@ export default function GuiasPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-3">
                 <p className="text-xs font-medium text-muted-foreground">Punto de partida</p>
-                <FormField label="Ubigeo origen (6 dígitos)">
+                <FormField label="Ubigeo origen (6 dígitos)" hint="Se detecta desde la dirección o se puede escribir a mano">
                   <Input placeholder="150101" maxLength={6} {...register('ubigeoOrigen')} />
+                  {ubigeoOrigenVal?.length === 6 && (
+                    <p className={`text-xs ${ubigeoOrigenResuelto ? 'text-emerald-600' : 'text-amber-600'}`}>
+                      {ubigeoOrigenResuelto
+                        ? `✓ ${ubigeoOrigenResuelto.distrito}, ${ubigeoOrigenResuelto.provincia}, ${ubigeoOrigenResuelto.departamento}`
+                        : 'Código no reconocido en el padrón INEI'}
+                    </p>
+                  )}
+                  {candidatosOrigen.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="text-xs text-muted-foreground">¿Cuál distrito?</span>
+                      {candidatosOrigen.slice(0, 5).map((c) => (
+                        <button
+                          key={c.ubigeo}
+                          type="button"
+                          onClick={() => { setValue('ubigeoOrigen', c.ubigeo); setCandidatosOrigen([]); }}
+                          className="text-xs px-2 py-0.5 rounded-full border border-border hover:bg-accent"
+                        >
+                          {c.distrito} ({c.provincia})
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </FormField>
                 <FormField label="Dirección partida">
                   <Input placeholder="Av. Ejemplo 123, Lima" {...register('direccionPartida')} />
@@ -530,8 +585,30 @@ export default function GuiasPage() {
               </div>
               <div className="space-y-3">
                 <p className="text-xs font-medium text-muted-foreground">Punto de llegada</p>
-                <FormField label="Ubigeo destino (6 dígitos)">
+                <FormField label="Ubigeo destino (6 dígitos)" hint="Se detecta desde la dirección o se puede escribir a mano">
                   <Input placeholder="150201" maxLength={6} {...register('ubigeoDestino')} />
+                  {ubigeoDestinoVal?.length === 6 && (
+                    <p className={`text-xs ${ubigeoDestinoResuelto ? 'text-emerald-600' : 'text-amber-600'}`}>
+                      {ubigeoDestinoResuelto
+                        ? `✓ ${ubigeoDestinoResuelto.distrito}, ${ubigeoDestinoResuelto.provincia}, ${ubigeoDestinoResuelto.departamento}`
+                        : 'Código no reconocido en el padrón INEI'}
+                    </p>
+                  )}
+                  {candidatosDestino.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="text-xs text-muted-foreground">¿Cuál distrito?</span>
+                      {candidatosDestino.slice(0, 5).map((c) => (
+                        <button
+                          key={c.ubigeo}
+                          type="button"
+                          onClick={() => { setValue('ubigeoDestino', c.ubigeo); setCandidatosDestino([]); }}
+                          className="text-xs px-2 py-0.5 rounded-full border border-border hover:bg-accent"
+                        >
+                          {c.distrito} ({c.provincia})
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </FormField>
                 <FormField label="Dirección entrega">
                   <Input placeholder="Calle Destino 456" {...register('direccionEntrega')} />
