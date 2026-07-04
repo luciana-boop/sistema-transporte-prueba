@@ -23,8 +23,12 @@ import type {
   IntentoFueraHorario,
 } from '@/types';
 
+// baseURL vacío/relativo a propósito: las peticiones van a rutas propias
+// ('/api/...') que Next.js reenvía al backend real vía rewrite (ver
+// next.config.js). Así el navegador solo ve un origen (el del frontend) y la
+// cookie de sesión queda de primera parte — Safari/iOS bloquea por completo
+// las cookies de terceros aunque sean SameSite=None; Secure.
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001',
   timeout: 30000,
   withCredentials: true,
 });

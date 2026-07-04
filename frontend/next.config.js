@@ -34,6 +34,18 @@ const csp = [
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Proxea /api/* al backend (mismo origen desde la perspectiva del navegador).
+  // Necesario porque frontend (Vercel) y backend (Render) son dominios
+  // distintos: Safari/iOS bloquea por completo las cookies de terceros
+  // (la cookie de sesión httpOnly, aunque sea SameSite=None; Secure), lo que
+  // hacía que el login pareciera exitoso pero la sesión nunca persistiera.
+  // Con este rewrite, el navegador solo habla con su propio origen y la
+  // cookie que llega en la respuesta se guarda como de primera parte.
+  async rewrites() {
+    return [
+      { source: '/api/:path*', destination: `${apiOrigin}/api/:path*` },
+    ];
+  },
   async headers() {
     return [
       {
