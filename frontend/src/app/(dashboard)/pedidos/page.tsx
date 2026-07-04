@@ -10,7 +10,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, Edit2, XCircle, Download, Eye, X } from 'lucide-react';
-import { pedidosApi, clientesApi, fetchAllPages } from '@/services/api';
+import { pedidosApi, clientesApi, vehiculosApi, configuracionApi, fetchAllPages } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage, ESTADO_PEDIDO_LABEL } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -26,6 +26,7 @@ const schema = z.object({
   origen: z.string().min(2, 'Origen requerido'),
   destino: z.string().min(2, 'Destino requerido'),
   tipoCarga: z.string().min(2, 'Tipo de carga requerido'),
+  vehiculoId: z.string().optional(),
   tarifa: z.string().min(1, 'Tarifa requerida'),
   observaciones: z.string().optional(),
 });
@@ -70,6 +71,17 @@ export default function PedidosPage() {
     queryFn: () => clientesApi.listar({ limit: 100 }).then((r) => r.data.data.items),
   });
 
+  const { data: vehiculos = [] } = useQuery({
+    queryKey: ['vehiculos', 'activos'],
+    queryFn: () => vehiculosApi.listar({ activo: true, limit: 100 }).then((r) => r.data.data.items),
+  });
+
+  const { data: tiposCarga = [] } = useQuery({
+    queryKey: ['tablas', 'tipo_carga'],
+    queryFn: () => configuracionApi.getTablaMaestra('tipo_carga').then((r) => r.data.data),
+    staleTime: 10 * 60 * 1000,
+  });
+
   const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
@@ -80,6 +92,7 @@ export default function PedidosPage() {
     mutationFn: (d: FormData) => pedidosApi.crear({
       clienteId: parseInt(d.clienteId),
       origen: d.origen, destino: d.destino, tipoCarga: d.tipoCarga,
+      vehiculoId: d.vehiculoId ? parseInt(d.vehiculoId) : undefined,
       tarifa: parseFloat(d.tarifa), observaciones: d.observaciones,
     }),
     onSuccess: () => { toast.success('Pedido creado'); setShowForm(false); reset(); invalidate(); },
@@ -89,6 +102,7 @@ export default function PedidosPage() {
   const updateMutation = useMutation({
     mutationFn: (d: FormData) => pedidosApi.actualizar(editing!.id, {
       origen: d.origen, destino: d.destino, tipoCarga: d.tipoCarga,
+      vehiculoId: d.vehiculoId ? parseInt(d.vehiculoId) : null,
       tarifa: parseFloat(d.tarifa), observaciones: d.observaciones,
     }),
     onSuccess: () => { toast.success('Pedido actualizado'); setEditing(null); reset(); invalidate(); },
@@ -106,6 +120,7 @@ export default function PedidosPage() {
     setValue('clienteId', String(p.clienteId));
     setValue('origen', p.origen); setValue('destino', p.destino);
     setValue('tipoCarga', p.tipoCarga); setValue('tarifa', String(p.tarifa));
+    setValue('vehiculoId', p.vehiculoId ? String(p.vehiculoId) : '');
     setValue('observaciones', p.observaciones ?? '');
   };
 
@@ -273,6 +288,10 @@ export default function PedidosPage() {
                 <p className="text-xs text-muted-foreground mb-1">Tarifa</p>
                 <p className="font-semibold text-lg">{formatCurrency(Number(viewing.tarifa))}</p>
               </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Vehículo</p>
+                <p className="font-medium">{viewing.vehiculo?.placa ?? 'Sin vehículo asignado'}</p>
+              </div>
             </div>
 
             {/* Rentabilidad — P5: por conductor (ganancia = facturado del pedido,
@@ -369,10 +388,23 @@ export default function PedidosPage() {
               <Input placeholder="Trujillo" {...register('destino')} />
             </FormField>
             <FormField label="Tipo de carga" required error={errors.tipoCarga?.message}>
-              <Input placeholder="Mercadería general" {...register('tipoCarga')} />
+              <Select {...register('tipoCarga')}>
+                <option value="">Seleccionar tipo de carga</option>
+                {tiposCarga.map((t) => (
+                  <option key={t.codigo} value={t.codigo}>{t.nombre}</option>
+                ))}
+              </Select>
             </FormField>
             <FormField label="Tarifa (S/)" required error={errors.tarifa?.message}>
               <Input type="number" step="0.01" placeholder="1500.00" {...register('tarifa')} />
+            </FormField>
+            <FormField label="Vehículo" error={errors.vehiculoId?.message} hint="Placa asignada al viaje (opcional)">
+              <Select {...register('vehiculoId')}>
+                <option value="">Sin vehículo asignado</option>
+                {vehiculos.map((v) => (
+                  <option key={v.id} value={v.id}>{v.placa} — {v.marca} {v.modelo}</option>
+                ))}
+              </Select>
             </FormField>
           </div>
           <FormField label="Observaciones"><Textarea placeholder="Notas..." {...register('observaciones')} /></FormField>

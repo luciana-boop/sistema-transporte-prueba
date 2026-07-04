@@ -4,10 +4,10 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { CheckCircle2, Unlink, Download } from 'lucide-react';
-import { cobranzaApi, clientesApi } from '@/services/api';
+import { CheckCircle2, Unlink, Download, FileText } from 'lucide-react';
+import api, { cobranzaApi, clientesApi } from '@/services/api';
 import {
-  PageHeader, Button, Table, Th, Td, Tr,
+  PageHeader, Button, Table, Th, Td, Tr, Badge,
   Modal, FormField, Input, Select, StatCard,
   TableSkeleton, EmptyState,
 } from '@/components/shared';
@@ -16,7 +16,7 @@ import { useAuthStore } from '@/store/auth.store';
 import type { MovimientoCobranza } from '@/types';
 import * as XLSX from 'xlsx';
 
-type Tab = 'por_aplicar' | 'aplicado';
+type Tab = 'por_aplicar' | 'aplicado' | 'por_cobrar';
 
 export default function CobranzaPage() {
   const { usuario } = useAuthStore();
@@ -39,7 +39,7 @@ export default function CobranzaPage() {
   });
 
   const filtrosActivos = {
-    estado: tab,
+    estado: tab === 'por_cobrar' ? undefined : tab,
     desde: desde || undefined,
     hasta: hasta || undefined,
     clienteId: clienteId ? parseInt(clienteId) : undefined,
@@ -49,6 +49,7 @@ export default function CobranzaPage() {
   const { data: pagos, isLoading } = useQuery({
     queryKey: ['cobranza', filtrosActivos],
     queryFn: () => cobranzaApi.listar(filtrosActivos).then((r) => r.data.data),
+    enabled: tab !== 'por_cobrar',
   });
 
   const exportarExcel = () => {
@@ -106,20 +107,105 @@ export default function CobranzaPage() {
     ? (pagos ?? []).reduce((s, p) => s + saldoPorAplicar(p), 0)
     : 0;
 
+  // ── Facturas por cobrar (todas, o filtradas por cliente) ─────────────────
+  const { data: facturasPorCobrar = [], isLoading: loadingFacturasPorCobrar } = useQuery({
+    queryKey: ['cobranza', 'facturas-pendientes-todas', clienteId],
+    queryFn: () => cobranzaApi.facturasPendientesTodas({
+      clienteId: clienteId ? parseInt(clienteId) : undefined,
+    }).then((r) => r.data.data),
+    enabled: tab === 'por_cobrar',
+  });
+
+  const exportarFacturasPorCobrarExcel = () => {
+    const rows = facturasPorCobrar.map((f) => ({
+      Cliente: f.cliente?.razonSocial ?? '',
+      'N° Factura': f.numeroFactura,
+      Vencimiento: formatDate(f.fechaVencimiento),
+      'Saldo pendiente': f.saldoPendiente,
+      Estado: f.vencida ? 'Vencida' : 'Vigente',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Facturas por cobrar');
+    XLSX.writeFile(wb, `facturas_por_cobrar_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  // ── Estado de cuenta (de un cliente) ──────────────────────────────────────
+  const [estadoCuentaClienteId, setEstadoCuentaClienteId] = useState<number | null>(null);
+  const { data: estadoCuenta, isLoading: loadingEstadoCuenta } = useQuery({
+    queryKey: ['cobranza', 'estado-cuenta', estadoCuentaClienteId],
+    queryFn: () => cobranzaApi.estadoCuenta(estadoCuentaClienteId!).then((r) => r.data.data),
+    enabled: !!estadoCuentaClienteId,
+  });
+
+  const exportarEstadoCuentaExcel = () => {
+    if (!estadoCuenta) return;
+    const filas = (grupo: 'vencidas' | 'porVencer') => estadoCuenta[grupo].map((f) => ({
+      'N° Factura': f.numeroFactura,
+      Vencimiento: formatDate(f.fechaVencimiento),
+      'Saldo pendiente': f.saldoPendiente,
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filas('vencidas')), 'Vencidas');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filas('porVencer')), 'Por vencer');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
+      { Concepto: 'Total vencidas', Monto: estadoCuenta.totalVencidas },
+      { Concepto: 'Total por vencer', Monto: estadoCuenta.totalPorVencer },
+      { Concepto: 'Total general', Monto: estadoCuenta.totalGeneral },
+    ]), 'Totales');
+    XLSX.writeFile(wb, `estado_cuenta_${estadoCuenta.cliente.razonSocial}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const [descargandoPdf, setDescargandoPdf] = useState(false);
+  const exportarEstadoCuentaPdf = async () => {
+    if (!estadoCuentaClienteId || !estadoCuenta) return;
+    setDescargandoPdf(true);
+    try {
+      const res = await api.get(`/api/cobranza/${estadoCuentaClienteId}/estado-cuenta/pdf`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `estado_cuenta_${estadoCuenta.cliente.razonSocial}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error(getErrorMessage(e));
+    } finally {
+      setDescargandoPdf(false);
+    }
+  };
+
   return (
     <div className="page-container">
       <PageHeader
         title="Cobranza"
         description="Aplica los pagos de clientes (categoría Pago de factura) a una o más facturas"
         action={
-          <Button variant="secondary" onClick={exportarExcel} disabled={!pagos?.length}>
-            <Download className="w-4 h-4" /> Exportar Excel
-          </Button>
+          tab === 'por_cobrar' ? (
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={exportarFacturasPorCobrarExcel} disabled={!facturasPorCobrar.length}>
+                <Download className="w-4 h-4" /> Exportar Excel
+              </Button>
+              <Button
+                onClick={() => setEstadoCuentaClienteId(clienteId ? parseInt(clienteId) : null)}
+                disabled={!clienteId}
+              >
+                <FileText className="w-4 h-4" /> Generar estado de cuenta
+              </Button>
+            </div>
+          ) : (
+            <Button variant="secondary" onClick={exportarExcel} disabled={!pagos?.length}>
+              <Download className="w-4 h-4" /> Exportar Excel
+            </Button>
+          )
         }
       />
 
       <div className="flex gap-1 border-b border-border">
-        {(['por_aplicar', 'aplicado'] as Tab[]).map((t) => (
+        {(['por_aplicar', 'aplicado', 'por_cobrar'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -127,24 +213,30 @@ export default function CobranzaPage() {
               tab === t ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
-            {t === 'por_aplicar' ? 'Pagos por aplicar' : 'Pagos aplicados'}
+            {t === 'por_aplicar' ? 'Pagos por aplicar' : t === 'aplicado' ? 'Pagos aplicados' : 'Facturas por cobrar'}
           </button>
         ))}
       </div>
 
       {/* Filtros */}
       <div className="flex flex-wrap gap-3 items-end">
-        <FormField label="Desde"><Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></FormField>
-        <FormField label="Hasta"><Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></FormField>
+        {tab !== 'por_cobrar' && (
+          <>
+            <FormField label="Desde"><Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></FormField>
+            <FormField label="Hasta"><Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></FormField>
+          </>
+        )}
         <FormField label="Cliente">
           <Select value={clienteId} onChange={(e) => setClienteId(e.target.value)} className="w-56">
             <option value="">Todos</option>
             {clientesFiltro.map((c: any) => <option key={c.id} value={c.id}>{c.razonSocial}</option>)}
           </Select>
         </FormField>
-        <FormField label="Buscar">
-          <Input placeholder="Cliente o RUC..." value={search} onChange={(e) => setSearch(e.target.value)} />
-        </FormField>
+        {tab !== 'por_cobrar' && (
+          <FormField label="Buscar">
+            <Input placeholder="Cliente o RUC..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          </FormField>
+        )}
       </div>
 
       {tab === 'por_aplicar' && (
@@ -154,7 +246,43 @@ export default function CobranzaPage() {
         </div>
       )}
 
-      {isLoading ? <TableSkeleton rows={6} cols={5} /> : (
+      {tab === 'por_cobrar' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <StatCard label="Facturas con saldo pendiente" value={String(facturasPorCobrar.length)} />
+          <StatCard
+            label="Saldo total pendiente"
+            value={formatCurrency(facturasPorCobrar.reduce((s, f) => s + f.saldoPendiente, 0))}
+            color="yellow"
+          />
+        </div>
+      )}
+
+      {tab === 'por_cobrar' ? (
+        loadingFacturasPorCobrar ? <TableSkeleton rows={6} cols={5} /> : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Cliente</Th>
+                <Th>N° Factura</Th>
+                <Th>Vencimiento</Th>
+                <Th className="text-right">Saldo pendiente</Th>
+                <Th>Estado</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {facturasPorCobrar.length ? facturasPorCobrar.map((f) => (
+                <Tr key={f.id}>
+                  <Td><span className="text-sm font-medium">{f.cliente?.razonSocial}</span></Td>
+                  <Td><span className="text-sm">{f.numeroFactura}</span></Td>
+                  <Td><span className="text-sm">{formatDate(f.fechaVencimiento)}</span></Td>
+                  <Td className="text-right"><span className="font-semibold text-amber-500">{formatCurrency(f.saldoPendiente)}</span></Td>
+                  <Td><Badge value={f.vencida ? 'ANULADA' : 'PAGADA'} label={f.vencida ? 'Vencida' : 'Vigente'} /></Td>
+                </Tr>
+              )) : <tr><td colSpan={5}><EmptyState message="Sin facturas con saldo pendiente" /></td></tr>}
+            </tbody>
+          </Table>
+        )
+      ) : isLoading ? <TableSkeleton rows={6} cols={5} /> : (
         <Table>
           <thead>
             <tr>
@@ -249,6 +377,68 @@ export default function CobranzaPage() {
                   Aplicar
                 </Button>
               </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal: Estado de cuenta */}
+      <Modal open={!!estadoCuentaClienteId} onClose={() => setEstadoCuentaClienteId(null)} title="Estado de cuenta" maxWidth="max-w-2xl">
+        {loadingEstadoCuenta ? (
+          <TableSkeleton rows={4} cols={3} />
+        ) : estadoCuenta && (
+          <div className="flex flex-col gap-5">
+            <div className="bg-muted/50 rounded-lg p-3 text-sm">
+              <p className="font-medium">{estadoCuenta.cliente.razonSocial}</p>
+              <p className="text-muted-foreground">RUC: {estadoCuenta.cliente.ruc}</p>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Facturas vencidas</p>
+              {estadoCuenta.vencidas.length ? (
+                <div className="flex flex-col gap-1">
+                  {estadoCuenta.vencidas.map((f) => (
+                    <div key={f.id} className="flex items-center justify-between text-sm bg-red-500/5 rounded px-3 py-1.5">
+                      <span>{f.numeroFactura} · vence {formatDate(f.fechaVencimiento)}</span>
+                      <span className="font-semibold text-red-500">{formatCurrency(f.saldoPendiente)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="text-xs text-muted-foreground">Sin facturas vencidas.</p>}
+              <div className="flex justify-end mt-1">
+                <span className="text-sm font-semibold">Total vencidas: {formatCurrency(estadoCuenta.totalVencidas)}</span>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Facturas por vencer</p>
+              {estadoCuenta.porVencer.length ? (
+                <div className="flex flex-col gap-1">
+                  {estadoCuenta.porVencer.map((f) => (
+                    <div key={f.id} className="flex items-center justify-between text-sm bg-muted/20 rounded px-3 py-1.5">
+                      <span>{f.numeroFactura} · vence {formatDate(f.fechaVencimiento)}</span>
+                      <span className="font-semibold">{formatCurrency(f.saldoPendiente)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="text-xs text-muted-foreground">Sin facturas por vencer.</p>}
+              <div className="flex justify-end mt-1">
+                <span className="text-sm font-semibold">Total por vencer: {formatCurrency(estadoCuenta.totalPorVencer)}</span>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-border">
+              <span className="text-base font-bold">Total general: {formatCurrency(estadoCuenta.totalGeneral)}</span>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={exportarEstadoCuentaExcel}>
+                <Download className="w-4 h-4" /> Excel
+              </Button>
+              <Button variant="secondary" loading={descargandoPdf} onClick={exportarEstadoCuentaPdf}>
+                <FileText className="w-4 h-4" /> PDF
+              </Button>
+              <Button onClick={() => setEstadoCuentaClienteId(null)}>Cerrar</Button>
             </div>
           </div>
         )}

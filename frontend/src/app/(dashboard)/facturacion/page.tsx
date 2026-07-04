@@ -1200,7 +1200,7 @@ export default function FacturacionPage() {
                   <option value="">{loadingPedidos ? 'Cargando...' : 'Sin pedido'}</option>
                   {pedidosParaSelect.map((p) => (
                     <option key={p.id} value={p.id}>
-                      #{p.id} — {p.origen} → {p.destino}
+                      #{p.id} — {p.cliente?.razonSocial} · {p.vehiculo?.placa ?? 'sin vehículo'}
                     </option>
                   ))}
                   {!loadingPedidos && pedidosParaSelect.length === 0 && (
@@ -1803,7 +1803,7 @@ export default function FacturacionPage() {
               <Select value={pedidoAsociarId} onChange={(e) => setPedidoAsociarId(e.target.value)}>
                 <option value="">Sin pedido asociado</option>
                 {pedidosParaSelectRapido.map((p: any) => (
-                  <option key={p.id} value={p.id}>#{p.id} — {p.origen} → {p.destino}</option>
+                  <option key={p.id} value={p.id}>#{p.id} — {p.cliente?.razonSocial} · {p.vehiculo?.placa ?? 'sin vehículo'}</option>
                 ))}
               </Select>
             </FormField>

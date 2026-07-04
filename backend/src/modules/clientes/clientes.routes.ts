@@ -16,4 +16,8 @@ router.post('/', clientesController.crear.bind(clientesController));
 router.put('/:id', clientesController.actualizar.bind(clientesController));
 router.delete('/:id', clientesController.eliminar.bind(clientesController));
 
+router.post('/:id/contactos', clientesController.agregarContacto.bind(clientesController));
+router.put('/contactos/:contactoId', clientesController.actualizarContacto.bind(clientesController));
+router.delete('/contactos/:contactoId', clientesController.eliminarContacto.bind(clientesController));
+
 export default router;

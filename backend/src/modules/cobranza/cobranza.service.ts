@@ -59,13 +59,14 @@ export class CobranzaService {
     return conSaldo;
   }
 
-  async facturasPendientes(clienteId: number) {
+  async facturasPendientes(filtros: { clienteId?: number } = {}) {
     const facturas = await prisma.factura.findMany({
       where: {
-        clienteId,
+        ...(filtros.clienteId ? { clienteId: filtros.clienteId } : {}),
         estado: { in: [EstadoFactura.EMITIDA, EstadoFactura.PENDIENTE, EstadoFactura.PARCIAL] },
       },
       orderBy: { fechaVencimiento: 'asc' },
+      include: { cliente: { select: { id: true, razonSocial: true } } },
     });
 
     return facturas.map((f) => {
@@ -74,6 +75,7 @@ export class CobranzaService {
       return {
         id: f.id,
         numeroFactura: f.numeroFactura,
+        cliente: f.cliente,
         total: Number(f.total),
         pagado,
         saldoPendiente: saldo,
@@ -82,6 +84,30 @@ export class CobranzaService {
         vencida: f.fechaVencimiento < new Date(),
       };
     }).filter((f) => f.saldoPendiente > 0.01);
+  }
+
+  /**
+   * Estado de cuenta de un cliente: separa las facturas pendientes en
+   * vencidas / por vencer, con el total de cada grupo y el total general.
+   */
+  async estadoCuenta(clienteId: number) {
+    const cliente = await prisma.cliente.findUnique({ where: { id: clienteId } });
+    if (!cliente) throw new Error('Cliente no encontrado');
+
+    const facturas = await this.facturasPendientes({ clienteId });
+    const vencidas = facturas.filter((f) => f.vencida);
+    const porVencer = facturas.filter((f) => !f.vencida);
+    const totalVencidas = vencidas.reduce((s, f) => s + f.saldoPendiente, 0);
+    const totalPorVencer = porVencer.reduce((s, f) => s + f.saldoPendiente, 0);
+
+    return {
+      cliente: { id: cliente.id, razonSocial: cliente.razonSocial, ruc: cliente.ruc },
+      vencidas,
+      porVencer,
+      totalVencidas,
+      totalPorVencer,
+      totalGeneral: totalVencidas + totalPorVencer,
+    };
   }
 
   private async _recalcularFactura(tx: any, facturaId: number) {

@@ -2,6 +2,7 @@
 
 import { Request, Response } from 'express';
 import { cobranzaService } from './cobranza.service';
+import { generarPdfEstadoCuenta } from './estado-cuenta-pdf.generator';
 import * as R from '../../utils/response';
 
 export class CobranzaController {
@@ -16,8 +17,50 @@ export class CobranzaController {
     try {
       const clienteId = parseInt(req.params.clienteId);
       if (isNaN(clienteId)) { R.badRequest(res, 'ID inválido'); return; }
-      R.ok(res, await cobranzaService.facturasPendientes(clienteId));
+      R.ok(res, await cobranzaService.facturasPendientes({ clienteId }));
     } catch (e) { R.serverError(res, e); }
+  }
+
+  /**
+   * GET /api/cobranza/facturas-pendientes?clienteId=
+   * Igual que facturasPendientes pero sin cliente obligatorio en la ruta —
+   * alimenta la pestaña "Facturas por cobrar" (todas o filtradas por cliente).
+   */
+  async facturasPendientesTodas(req: Request, res: Response): Promise<void> {
+    try {
+      const { clienteId } = req.query as Record<string, string>;
+      R.ok(res, await cobranzaService.facturasPendientes({
+        clienteId: clienteId ? parseInt(clienteId) : undefined,
+      }));
+    } catch (e) { R.serverError(res, e); }
+  }
+
+  async estadoCuenta(req: Request, res: Response): Promise<void> {
+    try {
+      const clienteId = parseInt(req.params.clienteId);
+      if (isNaN(clienteId)) { R.badRequest(res, 'ID inválido'); return; }
+      R.ok(res, await cobranzaService.estadoCuenta(clienteId));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'Cliente no encontrado') R.notFound(res, msg);
+      else R.serverError(res, e);
+    }
+  }
+
+  async estadoCuentaPdf(req: Request, res: Response): Promise<void> {
+    try {
+      const clienteId = parseInt(req.params.clienteId);
+      if (isNaN(clienteId)) { R.badRequest(res, 'ID inválido'); return; }
+      const estadoCuenta = await cobranzaService.estadoCuenta(clienteId);
+      const buffer = await generarPdfEstadoCuenta(estadoCuenta);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="estado_cuenta_${clienteId}.pdf"`);
+      res.send(buffer);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'Cliente no encontrado') R.notFound(res, msg);
+      else R.serverError(res, e);
+    }
   }
 
   async aplicar(req: Request, res: Response): Promise<void> {

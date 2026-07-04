@@ -9,6 +9,7 @@ export interface CreatePedidoDto {
   origen: string;
   destino: string;
   tipoCarga: string;
+  vehiculoId?: number | null;
   tarifa: number;
   observaciones?: string;
 }
@@ -53,6 +54,7 @@ export class PedidosService {
         include: {
           cliente: { select: { id: true, razonSocial: true, ruc: true } },
           usuario: { select: { id: true, nombre: true } },
+          vehiculo: { select: { id: true, placa: true, tipo: true } },
           creadoPor: { select: { id: true, nombre: true } },
           actualizadoPor: { select: { id: true, nombre: true } },
         },
@@ -82,6 +84,7 @@ export class PedidosService {
       orderBy: { fechaPedido: 'desc' },
       include: {
         cliente: { select: { id: true, razonSocial: true, ruc: true } },
+        vehiculo: { select: { id: true, placa: true, tipo: true } },
       },
     });
   }
@@ -92,6 +95,7 @@ export class PedidosService {
       include: {
         cliente: true,
         usuario: { select: { id: true, nombre: true, email: true } },
+        vehiculo: { select: { id: true, placa: true, tipo: true } },
         creadoPor: { select: { id: true, nombre: true } },
         actualizadoPor: { select: { id: true, nombre: true } },
         facturas: { select: { id: true, numeroFactura: true, total: true, estado: true } },
@@ -108,7 +112,7 @@ export class PedidosService {
 
     return prisma.pedido.create({
       data: { ...dto, usuarioId, estado: EstadoPedido.ACTIVO, creadoPorId: usuarioId },
-      include: { cliente: { select: { id: true, razonSocial: true } } },
+      include: { cliente: { select: { id: true, razonSocial: true } }, vehiculo: { select: { id: true, placa: true, tipo: true } } },
     });
   }
 
@@ -123,7 +127,7 @@ export class PedidosService {
     return prisma.pedido.update({
       where: { id },
       data: { ...dto, actualizadoPorId: usuarioId },
-      include: { cliente: { select: { id: true, razonSocial: true } } },
+      include: { cliente: { select: { id: true, razonSocial: true } }, vehiculo: { select: { id: true, placa: true, tipo: true } } },
     });
   }
 

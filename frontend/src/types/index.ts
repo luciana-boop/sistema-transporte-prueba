@@ -58,6 +58,18 @@ export interface Cliente {
   actualizadoPor?: { id: number; nombre: string } | null;
   actualizadoEn?: string | null;
   _count?: { pedidos: number; facturas: number };
+  contactos?: ClienteContacto[];
+  pedidos?: { id: number; origen: string; destino: string; tarifa: number; estado: string; fechaPedido: string }[];
+  facturas?: { id: number; numeroFactura: string; total: number; estado: string; fechaEmision: string }[];
+}
+
+export interface ClienteContacto {
+  id: number;
+  clienteId: number;
+  nombre: string;
+  telefono?: string | null;
+  email?: string | null;
+  creadoEn: string;
 }
 
 export interface Pedido {
@@ -67,6 +79,8 @@ export interface Pedido {
   origen: string;
   destino: string;
   tipoCarga: string;
+  vehiculoId?: number | null;
+  vehiculo?: { id: number; placa: string; tipo: string } | null;
   tarifa: number;
   estado: EstadoPedido;
   observaciones?: string;

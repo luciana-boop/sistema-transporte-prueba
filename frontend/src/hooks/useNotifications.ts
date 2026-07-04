@@ -3,7 +3,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import { vehiculosApi, conductoresApi, facturacionApi, configuracionApi, usuariosApi } from '@/services/api';
+import { vehiculosApi, conductoresApi, cobranzaApi, configuracionApi, usuariosApi } from '@/services/api';
 import { useAuthStore } from '@/store/auth.store';
 import { obtenerOcultos, registrarVistos, marcarLeida, marcarTodasLeidas, posponer } from '@/lib/notificationsStorage';
 
@@ -50,9 +50,11 @@ export function useNotifications() {
     enabled: canFetch, // ← NUEVO
   });
 
+  // Trae directamente las facturas con saldo pendiente (sin límite de página fijo,
+  // así no se pierden facturas vencidas si hay más de 100 activas).
   const { data: facturasPendientes = [] } = useQuery({
     queryKey: ['facturas-pendientes-notif'],
-    queryFn: () => facturacionApi.listar({ limit: 100 }).then((r) => r.data.data.items).catch(() => []),
+    queryFn: () => cobranzaApi.facturasPendientesTodas().then((r) => r.data.data).catch(() => []),
     staleTime: 5 * 60 * 1000,
     enabled: canFetch, // ← NUEVO
   });
@@ -164,12 +166,10 @@ export function useNotifications() {
 
     const cfgFac = cfg('factura_vencida');
     if (cfgFac.activo) {
-      const hoy = new Date();
-      const vencidas = facturasPendientes.filter((f: any) =>
-        f.estado !== 'PAGADA' && f.estado !== 'ANULADA' &&
-        Number(f.total) - Number(f.totalPagado || 0) > 0.01 &&
-        new Date(f.fechaVencimiento) < hoy
-      );
+      // facturasPendientes ya viene filtrada a estado EMITIDA/PENDIENTE/PARCIAL
+      // con saldo pendiente > 0 (ver cobranzaApi.facturasPendientesTodas), y
+      // cada factura trae su propio flag `vencida` calculado en el backend.
+      const vencidas = facturasPendientes.filter((f: any) => f.vencida);
       if (vencidas.length > 0) {
         items.push({
           id: 'facturas-vencidas',

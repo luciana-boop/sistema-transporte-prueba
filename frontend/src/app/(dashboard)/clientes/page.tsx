@@ -7,9 +7,9 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Search, Edit2, Trash2, Download } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Download, Eye, UserPlus } from 'lucide-react';
 import { clientesApi, fetchAllPages } from '@/services/api';
-import { getErrorMessage, CONDICION_PAGO_LABEL } from '@/lib/utils';
+import { getErrorMessage, CONDICION_PAGO_LABEL, formatCurrency, formatDate } from '@/lib/utils';
 import { buscarPorCodigo, detectarUbigeo, type UbigeoEntry } from '@/lib/ubigeo';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -17,6 +17,13 @@ import {
 } from '@/components/shared';
 import type { Cliente, CondicionPago } from '@/types';
 import * as XLSX from 'xlsx';
+
+const contactoSchema = z.object({
+  nombre: z.string().min(2, 'Nombre requerido'),
+  telefono: z.string().optional(),
+  email: z.string().email('Email inválido').optional().or(z.literal('')),
+});
+type ContactoFormData = z.infer<typeof contactoSchema>;
 
 const schema = z.object({
   razonSocial: z.string().min(2, 'Mínimo 2 caracteres'),
@@ -35,6 +42,8 @@ export default function ClientesPage() {
   const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Cliente | null>(null);
+  const [viewingId, setViewingId] = useState<number | null>(null);
+  const [showContactoForm, setShowContactoForm] = useState(false);
 
   const limit = 20;
   const { data, isLoading } = useQuery({
@@ -44,6 +53,17 @@ export default function ClientesPage() {
   const clientes = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / limit);
+
+  const { data: viewing } = useQuery({
+    queryKey: ['cliente-detalle', viewingId],
+    queryFn: () => clientesApi.obtener(viewingId!).then((r) => r.data.data),
+    enabled: !!viewingId,
+  });
+
+  const {
+    register: registerContacto, handleSubmit: handleSubmitContacto, reset: resetContacto,
+    formState: { errors: errorsContacto, isSubmitting: isSubmittingContacto },
+  } = useForm<ContactoFormData>({ resolver: zodResolver(contactoSchema) });
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -97,6 +117,20 @@ export default function ClientesPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: number) => clientesApi.eliminar(id),
     onSuccess: () => { toast.success('Cliente eliminado'); invalidate(); },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  const invalidateDetalle = () => qc.invalidateQueries({ queryKey: ['cliente-detalle', viewingId] });
+
+  const agregarContactoMutation = useMutation({
+    mutationFn: (d: ContactoFormData) => clientesApi.agregarContacto(viewingId!, d),
+    onSuccess: () => { toast.success('Contacto agregado'); setShowContactoForm(false); resetContacto(); invalidateDetalle(); },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  const eliminarContactoMutation = useMutation({
+    mutationFn: (contactoId: number) => clientesApi.eliminarContacto(contactoId),
+    onSuccess: () => { toast.success('Contacto eliminado'); invalidateDetalle(); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
@@ -173,6 +207,9 @@ export default function ClientesPage() {
                 <Td><Badge value={c.activo ? 'ABIERTA' : 'CERRADA'} label={c.activo ? 'Activo' : 'Inactivo'} /></Td>
                 <Td>
                   <div className="flex items-center justify-end gap-1">
+                    <button onClick={() => setViewingId(c.id)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Ver detalle">
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
                     <button onClick={() => openEdit(c)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Editar">
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
@@ -200,6 +237,146 @@ export default function ClientesPage() {
           </Button>
         </div>
       )}
+
+      {/* Ver cliente (solo lectura) */}
+      <Modal
+        open={!!viewingId}
+        onClose={() => { setViewingId(null); setShowContactoForm(false); resetContacto(); }}
+        title={viewing ? viewing.razonSocial : 'Cliente'}
+        maxWidth="max-w-2xl"
+      >
+        {viewing && (
+          <div className="flex flex-col gap-5">
+            <div className="flex items-center justify-between">
+              <Badge value={viewing.activo ? 'ABIERTA' : 'CERRADA'} label={viewing.activo ? 'Activo' : 'Inactivo'} />
+              <span className="text-sm text-muted-foreground">{CONDICION_PAGO_LABEL[viewing.condicionPago]}</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground mb-1">Razón social</p>
+                <p className="font-semibold">{viewing.razonSocial}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">RUC</p>
+                <p className="font-medium font-mono text-sm">{viewing.ruc}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Ubigeo</p>
+                <p className="font-medium">{viewing.ubigeo ?? '—'}</p>
+              </div>
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground mb-1">Dirección</p>
+                <p className="font-medium">{viewing.direccion}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Teléfono</p>
+                <p className="font-medium">{viewing.telefono ?? '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Email</p>
+                <p className="font-medium">{viewing.email ?? '—'}</p>
+              </div>
+            </div>
+
+            {/* Contactos */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contactos</p>
+                <Button size="sm" variant="secondary" onClick={() => setShowContactoForm((v) => !v)}>
+                  <UserPlus className="w-3.5 h-3.5" /> Agregar contacto
+                </Button>
+              </div>
+
+              {showContactoForm && (
+                <form
+                  onSubmit={handleSubmitContacto((d) => agregarContactoMutation.mutate(d))}
+                  className="grid grid-cols-3 gap-2 items-start bg-muted/30 rounded-lg p-3 mb-2"
+                >
+                  <FormField label="Nombre" error={errorsContacto.nombre?.message}>
+                    <Input placeholder="Nombre del contacto" {...registerContacto('nombre')} />
+                  </FormField>
+                  <FormField label="Teléfono" error={errorsContacto.telefono?.message}>
+                    <Input placeholder="01-234 5678" {...registerContacto('telefono')} />
+                  </FormField>
+                  <FormField label="Correo" error={errorsContacto.email?.message}>
+                    <Input type="email" placeholder="correo@empresa.com" {...registerContacto('email')} />
+                  </FormField>
+                  <div className="col-span-3 flex justify-end gap-2">
+                    <Button type="button" size="sm" variant="secondary" onClick={() => { setShowContactoForm(false); resetContacto(); }}>Cancelar</Button>
+                    <Button type="submit" size="sm" loading={isSubmittingContacto || agregarContactoMutation.isPending}>Guardar contacto</Button>
+                  </div>
+                </form>
+              )}
+
+              {viewing.contactos && viewing.contactos.length > 0 ? (
+                <div className="flex flex-col gap-1">
+                  {viewing.contactos.map((ct) => (
+                    <div key={ct.id} className="flex items-center justify-between text-sm bg-muted/20 rounded px-3 py-2">
+                      <div>
+                        <p className="font-medium">{ct.nombre}</p>
+                        <p className="text-xs text-muted-foreground">{[ct.telefono, ct.email].filter(Boolean).join(' · ') || '—'}</p>
+                      </div>
+                      <button
+                        onClick={() => { if (confirm('¿Eliminar contacto?')) eliminarContactoMutation.mutate(ct.id); }}
+                        className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                        title="Eliminar contacto"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                !showContactoForm && <p className="text-xs text-muted-foreground">Sin contactos adicionales registrados.</p>
+              )}
+            </div>
+
+            {/* Pedidos y facturas recientes */}
+            {viewing.pedidos && viewing.pedidos.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Últimos pedidos</p>
+                <div className="flex flex-col gap-1">
+                  {viewing.pedidos.map((p) => (
+                    <div key={p.id} className="flex items-center justify-between text-sm bg-muted/20 rounded px-3 py-1.5">
+                      <span className="text-xs text-muted-foreground">#{p.id} · {p.origen} → {p.destino} · {formatDate(p.fechaPedido)}</span>
+                      <span className="font-medium">{formatCurrency(Number(p.tarifa))}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {viewing.facturas && viewing.facturas.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Últimas facturas</p>
+                <div className="flex flex-col gap-1">
+                  {viewing.facturas.map((f) => (
+                    <div key={f.id} className="flex items-center justify-between text-sm bg-muted/20 rounded px-3 py-1.5">
+                      <span className="text-xs text-muted-foreground">{f.numeroFactura} · {formatDate(f.fechaEmision)}</span>
+                      <span className="font-medium">{formatCurrency(Number(f.total))}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <AuditInfo
+              creadoPor={viewing.creadoPor}
+              creadoEn={viewing.creadoEn}
+              actualizadoPor={viewing.actualizadoPor}
+              actualizadoEn={viewing.actualizadoEn}
+            />
+
+            <div className="flex justify-between pt-2 border-t border-border">
+              <Button size="sm" variant="secondary" onClick={() => { const c = viewing; setViewingId(null); openEdit(c); }}>
+                <Edit2 className="w-3.5 h-3.5" /> Editar
+              </Button>
+              <Button variant="secondary" onClick={() => setViewingId(null)} className="ml-auto">Cerrar</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Create/Edit Modal */}
       <Modal open={modalOpen} onClose={() => { setShowForm(false); setEditing(null); reset(); }} title={editing ? 'Editar cliente' : 'Nuevo cliente'}>

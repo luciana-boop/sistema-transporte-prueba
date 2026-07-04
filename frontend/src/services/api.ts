@@ -20,7 +20,7 @@ import type {
   MovimientosCajaResponse, MovimientosGlobalResponse,
   PaginatedResponse, EgresoCombustibleDisponible, EgresoCajaDisponible,
   Guia, GuiaPendienteSunat, EstadoGuia,
-  IntentoFueraHorario,
+  IntentoFueraHorario, ClienteContacto,
 } from '@/types';
 
 // baseURL vacío/relativo a propósito: las peticiones van a rutas propias
@@ -95,6 +95,10 @@ export const clientesApi = {
   actualizar: (id: number, data: Partial<Cliente>) =>
     api.put<ApiResponse<Cliente>>(`/api/clientes/${id}`, data),
   eliminar: (id: number) => api.delete<ApiResponse<null>>(`/api/clientes/${id}`),
+  agregarContacto: (clienteId: number, data: { nombre: string; telefono?: string; email?: string }) =>
+    api.post<ApiResponse<ClienteContacto>>(`/api/clientes/${clienteId}/contactos`, data),
+  eliminarContacto: (contactoId: number) =>
+    api.delete<ApiResponse<null>>(`/api/clientes/contactos/${contactoId}`),
 };
 
 // ─── PEDIDOS ──────────────────────────────────────────────────────────────────
@@ -118,9 +122,9 @@ export const pedidosApi = {
     }>>(`/api/pedidos/${id}/rentabilidad`),
   crear: (data: {
     clienteId: number; origen: string; destino: string;
-    tipoCarga: string; tarifa: number; observaciones?: string;
+    tipoCarga: string; vehiculoId?: number; tarifa: number; observaciones?: string;
   }) => api.post<ApiResponse<Pedido>>('/api/pedidos', data),
-  actualizar: (id: number, data: Partial<Pedido>) =>
+  actualizar: (id: number, data: Partial<Pedido> & { vehiculoId?: number | null }) =>
     api.put<ApiResponse<Pedido>>(`/api/pedidos/${id}`, data),
   anular: (id: number) => api.patch<ApiResponse<Pedido>>(`/api/pedidos/${id}/anular`, {}),
   eliminar: (id: number) => api.delete<ApiResponse<null>>(`/api/pedidos/${id}`),
@@ -260,14 +264,30 @@ export const movimientosApi = {
 };
 
 // ─── COBRANZA ────────────────────────────────────────────────────────────────
+export interface FacturaPendiente {
+  id: number; numeroFactura: string; cliente?: { id: number; razonSocial: string };
+  total: number; pagado: number;
+  saldoPendiente: number; estado: string; fechaVencimiento: string; vencida: boolean;
+}
+
+export interface EstadoCuentaCliente {
+  cliente: { id: number; razonSocial: string; ruc: string };
+  vencidas: FacturaPendiente[];
+  porVencer: FacturaPendiente[];
+  totalVencidas: number;
+  totalPorVencer: number;
+  totalGeneral: number;
+}
+
 export const cobranzaApi = {
   listar: (params?: { estado?: 'por_aplicar' | 'aplicado'; desde?: string; hasta?: string; clienteId?: number; search?: string }) =>
     api.get<ApiResponse<MovimientoCobranza[]>>('/api/cobranza', { params }),
   facturasPendientes: (clienteId: number) =>
-    api.get<ApiResponse<Array<{
-      id: number; numeroFactura: string; total: number; pagado: number;
-      saldoPendiente: number; estado: string; fechaVencimiento: string; vencida: boolean;
-    }>>>(`/api/cobranza/${clienteId}/facturas-pendientes`),
+    api.get<ApiResponse<FacturaPendiente[]>>(`/api/cobranza/${clienteId}/facturas-pendientes`),
+  facturasPendientesTodas: (params?: { clienteId?: number }) =>
+    api.get<ApiResponse<FacturaPendiente[]>>('/api/cobranza/facturas-pendientes', { params }),
+  estadoCuenta: (clienteId: number) =>
+    api.get<ApiResponse<EstadoCuentaCliente>>(`/api/cobranza/${clienteId}/estado-cuenta`),
   aplicar: (pagoId: number, data: { aplicaciones: Array<{ facturaId: number; monto: number }> }) =>
     api.post<ApiResponse<MovimientoCobranza>>(`/api/cobranza/${pagoId}/aplicar`, data),
   quitarAplicacion: (aplicacionId: number) =>

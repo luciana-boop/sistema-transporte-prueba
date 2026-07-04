@@ -81,6 +81,13 @@ model Usuario {
   conductorId Int?       @unique @map("conductor_id")
   conductor   Conductor? @relation("UsuarioChofer", fields: [conductorId], references: [id])
 
+  // ── Link/QR fijo de acceso (solo rol CHOFER) ─────────────────────────────
+  // Hash SHA-256 del token opaco que se entrega como link/QR permanente para
+  // que el chofer entre directo a Guías sin escribir usuario/contraseña. Se
+  // guarda hasheado (no el token en texto plano) para que un volcado de la
+  // base de datos no exponga credenciales usables directamente.
+  accessTokenHash String? @unique @map("access_token_hash")
+
   pedidos  Pedido[]
   facturas Factura[]
   cajas    Caja[]
@@ -159,12 +166,29 @@ model Cliente {
   pedidos        Pedido[]
   facturas       Factura[]
   pagosV2        PagoV2[]
+  contactos      ClienteContacto[]
   guias          Guia[]    @relation("GuiaDestinatario")
   guiasRemitente Guia[]    @relation("GuiaRemitente")
   creadoPor      Usuario?  @relation("ClienteCreadoPor", fields: [creadoPorId], references: [id])
   actualizadoPor Usuario?  @relation("ClienteActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("clientes")
+}
+
+// Contactos adicionales de un cliente (nombre, teléfono, correo). El
+// teléfono/email "principal" sigue viviendo en Cliente.telefono/email; esta
+// tabla permite registrar contactos extra sin perder esos campos existentes.
+model ClienteContacto {
+  id        Int      @id @default(autoincrement())
+  clienteId Int      @map("cliente_id")
+  nombre    String
+  telefono  String?
+  email     String?
+  creadoEn  DateTime @default(now()) @map("creado_en")
+
+  cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  @@map("clientes_contactos")
 }
 
 model Pedido {
@@ -174,6 +198,7 @@ model Pedido {
   origen           String
   destino          String
   tipoCarga        String       @map("tipo_carga")
+  vehiculoId       Int?         @map("vehiculo_id")
   tarifa           Decimal      @db.Decimal(10, 2)
   estado           EstadoPedido @default(ACTIVO)
   observaciones    String?
@@ -185,6 +210,7 @@ model Pedido {
 
   cliente        Cliente             @relation(fields: [clienteId], references: [id])
   usuario        Usuario             @relation(fields: [usuarioId], references: [id])
+  vehiculo       Vehiculo?           @relation(fields: [vehiculoId], references: [id])
   facturas       Factura[]
   // NUEVO: relación con liquidaciones
   liquidaciones  LiquidacionPedido[]
@@ -405,6 +431,7 @@ model Vehiculo {
   guias            Guia[]
   guiasComoCarreta Guia[]                 @relation("GuiaVehiculoCarreta")
   mantenimientos   MantenimientoDetalle[]
+  pedidos          Pedido[]
   creadoPor        Usuario?               @relation("VehiculoCreadoPor", fields: [creadoPorId], references: [id])
   actualizadoPor   Usuario?               @relation("VehiculoActualizadoPor", fields: [actualizadoPorId], references: [id])
 

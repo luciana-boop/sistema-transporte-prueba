@@ -67,6 +67,48 @@ export class ClientesController {
       else R.serverError(res, e);
     }
   }
+
+  async agregarContacto(req: Request, res: Response): Promise<void> {
+    try {
+      const clienteId = parseInt(req.params.id);
+      if (isNaN(clienteId)) { R.badRequest(res, 'ID inválido'); return; }
+      const { nombre, telefono, email } = req.body;
+      if (!nombre) { R.badRequest(res, 'nombre es requerido'); return; }
+      const data = await clientesService.agregarContacto(clienteId, { nombre, telefono, email });
+      R.created(res, data, 'Contacto agregado');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'Cliente no encontrado') R.notFound(res, msg);
+      else R.serverError(res, e);
+    }
+  }
+
+  async actualizarContacto(req: Request, res: Response): Promise<void> {
+    try {
+      const contactoId = parseInt(req.params.contactoId);
+      if (isNaN(contactoId)) { R.badRequest(res, 'ID inválido'); return; }
+      const { nombre, telefono, email } = req.body;
+      const data = await clientesService.actualizarContacto(contactoId, { nombre, telefono, email });
+      R.ok(res, data, 'Contacto actualizado');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'Contacto no encontrado') R.notFound(res, msg);
+      else R.serverError(res, e);
+    }
+  }
+
+  async eliminarContacto(req: Request, res: Response): Promise<void> {
+    try {
+      const contactoId = parseInt(req.params.contactoId);
+      if (isNaN(contactoId)) { R.badRequest(res, 'ID inválido'); return; }
+      await clientesService.eliminarContacto(contactoId);
+      R.ok(res, null, 'Contacto eliminado');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'Contacto no encontrado') R.notFound(res, msg);
+      else R.serverError(res, e);
+    }
+  }
 }
 
 export const clientesController = new ClientesController();

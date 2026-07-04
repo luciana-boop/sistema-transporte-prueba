@@ -42,13 +42,17 @@ export class PedidosController {
 
   async crear(req: Request, res: Response): Promise<void> {
     try {
-      const { clienteId, origen, destino, tipoCarga, tarifa, observaciones } = req.body;
+      const { clienteId, origen, destino, tipoCarga, vehiculoId, tarifa, observaciones } = req.body;
       if (!clienteId || !origen || !destino || !tipoCarga || !tarifa) {
         R.badRequest(res, 'clienteId, origen, destino, tipoCarga y tarifa son requeridos'); return;
       }
       R.created(res,
         await pedidosService.create(
-          { clienteId: parseInt(clienteId), origen, destino, tipoCarga, tarifa: parseFloat(tarifa), observaciones },
+          {
+            clienteId: parseInt(clienteId), origen, destino, tipoCarga,
+            vehiculoId: vehiculoId ? parseInt(vehiculoId) : null,
+            tarifa: parseFloat(tarifa), observaciones,
+          },
           req.usuario!.id
         ),
         'Pedido creado'
@@ -64,7 +68,17 @@ export class PedidosController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      R.ok(res, await pedidosService.update(id, req.body, req.usuario!.id), 'Pedido actualizado');
+      const { clienteId, origen, destino, tipoCarga, vehiculoId, tarifa, observaciones } = req.body;
+      const dto = {
+        ...(clienteId !== undefined && { clienteId: parseInt(clienteId) }),
+        ...(origen !== undefined && { origen }),
+        ...(destino !== undefined && { destino }),
+        ...(tipoCarga !== undefined && { tipoCarga }),
+        ...(vehiculoId !== undefined && { vehiculoId: vehiculoId ? parseInt(vehiculoId) : null }),
+        ...(tarifa !== undefined && { tarifa: parseFloat(tarifa) }),
+        ...(observaciones !== undefined && { observaciones }),
+      };
+      R.ok(res, await pedidosService.update(id, dto, req.usuario!.id), 'Pedido actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Pedido no encontrado') R.notFound(res, msg);

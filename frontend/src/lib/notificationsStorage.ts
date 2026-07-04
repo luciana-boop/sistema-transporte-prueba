@@ -1,9 +1,13 @@
 // FILE: src/lib/notificationsStorage.ts
 // Persistencia local (localStorage) del estado de notificaciones, por usuario.
-// - "leída": se oculta para siempre (hasta que la condición que la genera
-//   cambie y produzca un id distinto).
-// - "pospuesta" (recordar más tarde): se oculta solo hasta el próximo inicio
-//   de sesión — ver auth.store.ts (setAuth), que limpia las pospuestas ahí.
+// - "leída" y "pospuesta" (recordar más tarde) se ocultan solo hasta el
+//   próximo inicio de sesión — ver auth.store.ts (setAuth), que llama a
+//   reiniciarEstadoSesion() ahí. Así, una alerta de vencimiento (SOAT,
+//   revisión técnica, licencia, mantenimiento, facturas vencidas) marcada
+//   como leída vuelve a aparecer en la siguiente sesión si la condición que
+//   la generó (el mismo id) sigue vigente; si ya se resolvió (se pagó, se
+//   renovó, etc.), useNotifications ya no vuelve a generar ese id y no
+//   reaparece.
 
 interface EstadoNotificaciones {
   vistos: Record<string, number>;
@@ -79,10 +83,12 @@ export function posponer(usuarioId: number, id: string): void {
   guardarEstado(usuarioId, estado);
 }
 
-// Se llama al iniciar sesión: las notificaciones pospuestas vuelven a aparecer.
-export function limpiarPospuestas(usuarioId: number): void {
+// Se llama al iniciar sesión: tanto las notificaciones leídas como las
+// pospuestas vuelven a aparecer (si la condición que las generó sigue vigente).
+export function reiniciarEstadoSesion(usuarioId: number): void {
   const estado = leerEstado(usuarioId);
-  if (estado.pospuestas.length === 0) return;
+  if (estado.leidas.length === 0 && estado.pospuestas.length === 0) return;
+  estado.leidas = [];
   estado.pospuestas = [];
   guardarEstado(usuarioId, estado);
 }

@@ -18,6 +18,12 @@ export interface UpdateClienteDto extends Partial<CreateClienteDto> {
   activo?: boolean;
 }
 
+export interface ClienteContactoDto {
+  nombre: string;
+  telefono?: string;
+  email?: string;
+}
+
 export class ClientesService {
   async findAll(query: { activo?: string; search?: string } & PaginacionQuery) {
     const where: any = {};
@@ -62,6 +68,7 @@ export class ClientesService {
       include: {
         creadoPor: { select: { id: true, nombre: true } },
         actualizadoPor: { select: { id: true, nombre: true } },
+        contactos: { orderBy: { creadoEn: 'asc' } },
         pedidos: {
           orderBy: { creadoEn: 'desc' },
           take: 10,
@@ -125,6 +132,23 @@ export class ClientesService {
     }
 
     return prisma.cliente.delete({ where: { id } });
+  }
+
+  async agregarContacto(clienteId: number, dto: ClienteContactoDto) {
+    await this.findById(clienteId);
+    return prisma.clienteContacto.create({ data: { ...dto, clienteId } });
+  }
+
+  async actualizarContacto(contactoId: number, dto: Partial<ClienteContactoDto>) {
+    const existente = await prisma.clienteContacto.findUnique({ where: { id: contactoId } });
+    if (!existente) throw new Error('Contacto no encontrado');
+    return prisma.clienteContacto.update({ where: { id: contactoId }, data: dto });
+  }
+
+  async eliminarContacto(contactoId: number) {
+    const existente = await prisma.clienteContacto.findUnique({ where: { id: contactoId } });
+    if (!existente) throw new Error('Contacto no encontrado');
+    return prisma.clienteContacto.delete({ where: { id: contactoId } });
   }
 }
 

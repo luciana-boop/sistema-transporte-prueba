@@ -18,7 +18,10 @@ const aplicarValidations = [
 ];
 
 router.get('/', cobranzaController.listar.bind(cobranzaController));
+router.get('/facturas-pendientes', cobranzaController.facturasPendientesTodas.bind(cobranzaController));
 router.get('/:clienteId/facturas-pendientes', cobranzaController.facturasPendientes.bind(cobranzaController));
+router.get('/:clienteId/estado-cuenta', cobranzaController.estadoCuenta.bind(cobranzaController));
+router.get('/:clienteId/estado-cuenta/pdf', cobranzaController.estadoCuentaPdf.bind(cobranzaController));
 router.post('/:pagoId/aplicar', validate(aplicarValidations), cobranzaController.aplicar.bind(cobranzaController));
 router.delete('/aplicaciones/:id', cobranzaController.quitarAplicacion.bind(cobranzaController));
 
