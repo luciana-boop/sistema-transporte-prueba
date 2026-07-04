@@ -21,6 +21,7 @@ export interface CreateUsuarioDto extends HorarioAccesoDto {
   email: string;
   password: string;
   rol: Rol;
+  conductorId?: number | null;
 }
 
 export interface UpdateUsuarioDto extends HorarioAccesoDto {
@@ -28,6 +29,7 @@ export interface UpdateUsuarioDto extends HorarioAccesoDto {
   email?: string;
   rol?: Rol;
   activo?: boolean;
+  conductorId?: number | null;
 }
 
 export class UsuariosService {
@@ -48,6 +50,7 @@ export class UsuariosService {
           diasPermitidos: true,
           horaInicio: true,
           horaFin: true,
+          conductorId: true,
         },
         orderBy: { creadoEn: 'desc' },
         skip,
@@ -73,15 +76,34 @@ export class UsuariosService {
         diasPermitidos: true,
         horaInicio: true,
         horaFin: true,
+        conductorId: true,
       },
     });
     if (!usuario) throw new Error('Usuario no encontrado');
     return usuario;
   }
 
+  // Un CHOFER debe estar vinculado a una ficha de Conductor existente y sin
+  // otro usuario ya asociado (Usuario.conductorId es @unique).
+  private async validarConductorParaChofer(conductorId: number | null | undefined, usuarioIdActual?: number) {
+    if (!conductorId) throw new Error('conductorId es requerido cuando el rol es CHOFER');
+    const conductor = await prisma.conductor.findUnique({
+      where: { id: conductorId },
+      include: { usuarioChofer: { select: { id: true } } },
+    });
+    if (!conductor) throw new Error('Conductor no encontrado');
+    if (conductor.usuarioChofer && conductor.usuarioChofer.id !== usuarioIdActual) {
+      throw new Error('Ese conductor ya tiene un usuario vinculado');
+    }
+  }
+
   async create(dto: CreateUsuarioDto) {
     const existente = await prisma.usuario.findUnique({ where: { email: dto.email } });
     if (existente) throw new Error(`El email ${dto.email} ya está registrado`);
+
+    if (dto.rol === Rol.CHOFER) {
+      await this.validarConductorParaChofer(dto.conductorId);
+    }
 
     const rounds = parseInt(process.env.BCRYPT_ROUNDS || '12');
     const passwordHash = await bcrypt.hash(dto.password, rounds);
@@ -96,6 +118,7 @@ export class UsuariosService {
         diasPermitidos: dto.diasPermitidos,
         horaInicio: dto.horaInicio,
         horaFin: dto.horaFin,
+        conductorId: dto.rol === Rol.CHOFER ? dto.conductorId : undefined,
       },
       select: {
         id: true,
@@ -108,13 +131,16 @@ export class UsuariosService {
         diasPermitidos: true,
         horaInicio: true,
         horaFin: true,
+        conductorId: true,
       },
     });
 
-    // ── NUEVO: inicializar permisos por defecto para secretarios ──
+    // ── Inicializar permisos por defecto según el rol ──
     // ADMIN no necesita registros en BD (siempre tiene todo).
     if (dto.rol === Rol.SECRETARIO) {
       await permisosService.inicializarPermisos(usuario.id);
+    } else if (dto.rol === Rol.CHOFER) {
+      await permisosService.inicializarPermisosChofer(usuario.id);
     }
     // ─────────────────────────────────────────────────────────────
 
@@ -131,9 +157,16 @@ export class UsuariosService {
       if (existente) throw new Error(`El email ${dto.email} ya está en uso`);
     }
 
+    if (dto.rol === Rol.CHOFER) {
+      await this.validarConductorParaChofer(dto.conductorId, id);
+    }
+
     return prisma.usuario.update({
       where: { id },
-      data: dto,
+      data: {
+        ...dto,
+        conductorId: dto.rol === Rol.CHOFER ? dto.conductorId : (dto.rol ? null : undefined),
+      },
       select: {
         id: true,
         nombre: true,
@@ -145,6 +178,7 @@ export class UsuariosService {
         diasPermitidos: true,
         horaInicio: true,
         horaFin: true,
+        conductorId: true,
       },
     });
   }

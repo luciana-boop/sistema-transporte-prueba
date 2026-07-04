@@ -2,6 +2,7 @@
 
 import prisma from '../../prisma/client';
 import {
+  MODULOS,
   TODOS_LOS_MODULOS,
   TODAS_LAS_ACCIONES,
   ModuloKey,
@@ -164,6 +165,32 @@ export class PermisosService {
           where:  { usuarioId_accionKey: { usuarioId, accionKey: key } },
           create: { usuarioId, accionKey: key, habilitado: false },
           update: {}, // si ya existe, no cambiar
+        })
+      ),
+    ]);
+  }
+
+  // ─── Inicializar permisos por defecto para un CHOFER ────────────────────────
+  // A diferencia de inicializarPermisos() (SECRETARIO: todos los módulos
+  // habilitados), un CHOFER solo debe poder ver "Guías (Chofer)". Se crean
+  // registros explícitos en false para el resto para que la pantalla de
+  // permisos del admin no muestre el default engañoso (ver
+  // obtenerPermisosCompletos) y para que un "Guardar" sin cambios no termine
+  // habilitando todo.
+  async inicializarPermisosChofer(usuarioId: number): Promise<void> {
+    await Promise.all([
+      ...TODOS_LOS_MODULOS.map((key) =>
+        prisma.permisoModulo.upsert({
+          where:  { usuarioId_moduloKey: { usuarioId, moduloKey: key } },
+          create: { usuarioId, moduloKey: key, habilitado: key === MODULOS.GUIAS_CHOFER },
+          update: {},
+        })
+      ),
+      ...TODAS_LAS_ACCIONES.map((key) =>
+        prisma.permisoAccion.upsert({
+          where:  { usuarioId_accionKey: { usuarioId, accionKey: key } },
+          create: { usuarioId, accionKey: key, habilitado: false },
+          update: {},
         })
       ),
     ]);

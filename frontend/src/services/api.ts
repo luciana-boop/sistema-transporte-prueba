@@ -195,6 +195,28 @@ export const guiasApi = {
     api.post<ApiResponse<{ enviados: number; errores: Array<{ id: number; numero: string; error: string }> }>>('/api/guias/enviar-sunat/lote', { ids }),
 };
 
+// ─── GUÍAS (CHOFER) ──────────────────────────────────────────────────────────
+// Formulario reducido para el rol CHOFER — ver guias-chofer.routes.ts. El
+// conductor sale de Usuario.conductorId en el backend, nunca se manda desde acá.
+export const guiasChoferApi = {
+  crear: (data: {
+    clienteId?: number; clienteNombre?: string; clienteNumDoc?: string;
+    motivoTraslado?: string; fechaInicioTraslado?: string;
+    ubigeoDestino?: string; direccionEntrega?: string;
+    vehiculoId: number; vehiculoCarretaId?: number;
+    pesoTotal?: number; observaciones?: string;
+    detalles: Array<{ descripcion: string; cantidad: number; unidadMedida?: string }>;
+  }) => api.post<ApiResponse<Guia>>('/api/guias-chofer', data),
+  mias: (params?: { page?: number; limit?: number }) =>
+    api.get<ApiResponse<PaginatedResponse<{
+      id: number; numero: string; fechaEmision: string; estado: string;
+      estadoSunat: string | null; motivoRechazoSunat: string | null; anulado: boolean;
+      cliente: { razonSocial: string } | null; clienteNombre: string | null;
+    }>>>('/api/guias-chofer/mias', { params }),
+  vehiculosActivos: () =>
+    api.get<ApiResponse<Array<{ id: number; placa: string; tipo: 'TRACTO' | 'CARRETA'; marca: string; modelo: string }>>>('/api/guias-chofer/vehiculos-activos'),
+};
+
 // ─── MOVIMIENTOS ─────────────────────────────────────────────────────────────
 export const movimientosApi = {
   listar: (params?: { tipo?: 'INGRESO' | 'EGRESO'; cuentaId?: number; desde?: string; hasta?: string; search?: string; page?: number; limit?: number }) =>
@@ -450,9 +472,9 @@ export const usuariosApi = {
   listar: (params?: { page?: number; limit?: number }) =>
     api.get<ApiResponse<PaginatedResponse<Usuario>>>('/api/usuarios', { params }),
   obtener: (id: number) => api.get<ApiResponse<Usuario>>(`/api/usuarios/${id}`),
-  crear: (data: { nombre: string; email: string; password: string; rol: Rol } & HorarioAccesoData) =>
+  crear: (data: { nombre: string; email: string; password: string; rol: Rol; conductorId?: number } & HorarioAccesoData) =>
     api.post<ApiResponse<Usuario>>('/api/usuarios', data),
-  actualizar: (id: number, data: { nombre?: string; email?: string; rol?: Rol; activo?: boolean } & HorarioAccesoData) =>
+  actualizar: (id: number, data: { nombre?: string; email?: string; rol?: Rol; activo?: boolean; conductorId?: number } & HorarioAccesoData) =>
     api.put<ApiResponse<Usuario>>(`/api/usuarios/${id}`, data),
   cambiarPassword: (id: number, data: { password: string }) =>
     api.patch<ApiResponse<null>>(`/api/usuarios/${id}/password`, data),

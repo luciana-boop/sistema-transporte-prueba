@@ -3,7 +3,7 @@
 export interface JwtPayload {
   id: number;
   email: string;
-  rol: 'ADMIN' | 'SECRETARIO';
+  rol: 'ADMIN' | 'SECRETARIO' | 'CHOFER';
   nombre: string;
 }
 

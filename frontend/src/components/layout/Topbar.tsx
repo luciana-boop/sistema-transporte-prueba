@@ -3,9 +3,10 @@
 
 import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
-import { Moon, Sun, Bell } from 'lucide-react';
+import { Moon, Sun, Bell, Menu } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useAuthStore } from '@/store/auth.store';
+import { useSidebarStore } from '@/store/sidebar.store';
 import { useNotifications } from '@/hooks/useNotifications';
 import { NotificationsPanel } from '@/components/shared/NotificationsPanel';
 
@@ -16,6 +17,8 @@ const ROUTE_LABELS: Record<string, string> = {
   '/conductores':   'Conductores',
   '/vehiculos':     'Vehículos',
   '/facturacion':   'Facturación',
+  '/guias':         'Guías',
+  '/guias-chofer':  'Guías (Chofer)',
   '/cobranza':      'Cobranza',
   '/liquidaciones': 'Liquidaciones',
   '/combustible':   'Combustible',
@@ -34,6 +37,7 @@ export function Topbar() {
   const _hasHydrated = useAuthStore((s) => s._hasHydrated);
   const { notifications, unreadCount, marcarTodasLeidas, marcarLeida, posponer } = useNotifications();
   const [showNotif, setShowNotif] = useState(false);
+  const toggleSidebar = useSidebarStore((s) => s.toggle);
 
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => { setThemeMounted(true); }, []);
@@ -42,7 +46,16 @@ export function Topbar() {
   const label = ROUTE_LABELS[base] || 'Panel';
 
   return (
-    <header className="h-[60px] border-b border-border bg-card flex items-center px-6 gap-4 shrink-0 relative">
+    <header className="h-[60px] border-b border-border bg-card flex items-center px-4 md:px-6 gap-3 md:gap-4 shrink-0 relative">
+
+      {/* Hamburguesa: solo mobile */}
+      <button
+        onClick={toggleSidebar}
+        className="md:hidden w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+        aria-label="Abrir menú"
+      >
+        <Menu className="w-5 h-5" />
+      </button>
 
       {/* Title + Date */}
       <div className="flex-1 min-w-0">

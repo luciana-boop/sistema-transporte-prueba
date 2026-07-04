@@ -85,6 +85,24 @@ export interface CreateGuiaDto {
   detalles: GuiaDetalleDto[];
 }
 
+// Formulario reducido para el rol CHOFER: siempre guía Remitente, modalidad
+// privada, con conductor tomado de Usuario.conductorId (nunca del body) y
+// origen autocompletado desde Configuración — ver crearParaChofer().
+export interface CrearGuiaChoferDto {
+  clienteId?: number;
+  clienteNombre?: string;
+  clienteNumDoc?: string;
+  motivoTraslado?: string;
+  fechaInicioTraslado?: string;
+  ubigeoDestino?: string;
+  direccionEntrega?: string;
+  vehiculoId: number;
+  vehiculoCarretaId?: number;
+  pesoTotal?: number;
+  observaciones?: string;
+  detalles: GuiaDetalleDto[];
+}
+
 // Tipo de documento de identidad SUNAT inferido del número: 11 dígitos = RUC (6),
 // otro caso = DNI (1). Este sistema no guarda tipoDocumento en Cliente.
 function tipoDocPorNumero(numDoc: string | null | undefined): string {
@@ -347,6 +365,63 @@ export const guiasService = {
     }
 
     return guia;
+  },
+
+  // Crea una guía desde el formulario reducido de chofer (rol CHOFER, ver
+  // guias-chofer.routes.ts). El conductor sale de Usuario.conductorId — nunca
+  // del body — para que un chofer no pueda emitir guías a nombre de otro.
+  // Reusa crear() íntegramente: mismas validaciones, correlativo y envío a SUNAT.
+  async crearParaChofer(usuarioId: number, dto: CrearGuiaChoferDto) {
+    const usuario = await prisma.usuario.findUnique({ where: { id: usuarioId }, select: { conductorId: true } });
+    if (!usuario?.conductorId) {
+      throw new Error('Tu cuenta no está vinculada a un conductor. Contactá al administrador.');
+    }
+    if (!dto.vehiculoId) {
+      throw new Error('Debe seleccionar un vehículo (tracto)');
+    }
+
+    return this.crear({
+      tipoGuia: 'REMITENTE',
+      modalidadTransporte: '02',
+      conductorId: usuario.conductorId,
+      clienteId: dto.clienteId,
+      clienteNombre: dto.clienteNombre,
+      clienteNumDoc: dto.clienteNumDoc,
+      motivoTraslado: dto.motivoTraslado,
+      fechaInicioTraslado: dto.fechaInicioTraslado,
+      ubigeoDestino: dto.ubigeoDestino,
+      direccionEntrega: dto.direccionEntrega,
+      vehiculoId: dto.vehiculoId,
+      vehiculoCarretaId: dto.vehiculoCarretaId,
+      pesoTotal: dto.pesoTotal,
+      observaciones: dto.observaciones,
+      detalles: dto.detalles,
+    }, usuarioId);
+  },
+
+  // Historial acotado a las guías que el propio chofer creó.
+  async misGuias(usuarioId: number, query: PaginacionQuery = {}) {
+    const { skip, take, page, limit } = paginar(query);
+    const [total, items] = await Promise.all([
+      prisma.guia.count({ where: { usuarioId } }),
+      prisma.guia.findMany({
+        where: { usuarioId },
+        orderBy: { creadoEn: 'desc' },
+        skip, take,
+        select: {
+          id: true,
+          numero: true,
+          fechaEmision: true,
+          estado: true,
+          estadoSunat: true,
+          motivoRechazoSunat: true,
+          anulado: true,
+          cliente: { select: { razonSocial: true } },
+          clienteNombre: true,
+        },
+      }),
+    ]);
+    return { items, total, page, limit };
   },
 
   // Envía la guía recién emitida al servicio de facturación electrónica. GRE es

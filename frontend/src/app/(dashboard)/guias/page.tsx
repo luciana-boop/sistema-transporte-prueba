@@ -16,24 +16,13 @@ import api, { guiasApi, pedidosApi, clientesApi, conductoresApi, vehiculosApi, c
 import { useConfig } from '@/hooks/useConfig';
 import { getErrorMessage, formatDate, formatCurrency } from '@/lib/utils';
 import { buscarPorCodigo, detectarUbigeo, type UbigeoEntry } from '@/lib/ubigeo';
+import { MOTIVOS_TRASLADO } from '@/lib/sunatCatalogos';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
   EmptyState, Modal, FormField, Input, Select, Textarea, SmartSearchInput,
 } from '@/components/shared';
 import type { Guia, Pedido, EstadoGuia } from '@/types';
 import * as XLSX from 'xlsx';
-
-// Catálogo SUNAT 20 — Motivo de traslado
-const MOTIVOS_TRASLADO = [
-  { code: '01', label: '01 - Venta' },
-  { code: '02', label: '02 - Compra' },
-  { code: '04', label: '04 - Traslado entre establecimientos' },
-  { code: '08', label: '08 - Importación' },
-  { code: '09', label: '09 - Exportación' },
-  { code: '13', label: '13 - Otros' },
-  { code: '14', label: '14 - Venta sujeta a confirmación' },
-  { code: '18', label: '18 - Traslado emisor itinerante' },
-];
 
 const detalleSchema = z.object({
   descripcion: z.string().min(1, 'Requerido'),

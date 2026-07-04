@@ -3,6 +3,7 @@
 
 import { Request, Response } from 'express';
 import { guiasService } from './guias.service';
+import { vehiculosService } from '../vehiculos/vehiculos.service';
 import * as R from '../../utils/response';
 
 const parseId = (req: Request, res: Response): number | null => {
@@ -17,7 +18,8 @@ const handle = (res: Response, e: unknown) => {
   if (
     msg.includes('al menos') || msg.includes('anulad') ||
     msg.includes('ya fue') || msg.includes('Ya existe') ||
-    msg.includes('obligatorio') || msg.includes('Indique un cliente')
+    msg.includes('obligatorio') || msg.includes('Indique un cliente') ||
+    msg.includes('vinculada a un conductor') || msg.includes('Debe seleccionar')
   ) return R.badRequest(res, msg);
   R.serverError(res, e);
 };
@@ -30,18 +32,22 @@ export const guiasController = {
     } catch (e) { R.serverError(res, e); }
   },
 
+  async _streamPdf(res: Response, doc: any): Promise<void> {
+    const fs = require('fs');
+    const path = require('path');
+    const { generarPdfGuia } = await import('../pdf/guia-pdf.generator');
+    const rutaRel = await generarPdfGuia(doc);
+    const rutaAbs = path.join(process.cwd(), rutaRel);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${doc.numero}.pdf"`);
+    fs.createReadStream(rutaAbs).pipe(res);
+  },
+
   async generarPdf(req: Request, res: Response): Promise<void> {
     try {
       const id = parseId(req, res); if (id === null) return;
       const doc = await guiasService.obtener(id);
-      const fs = require('fs');
-      const path = require('path');
-      const { generarPdfGuia } = await import('../pdf/guia-pdf.generator');
-      const rutaRel = await generarPdfGuia(doc);
-      const rutaAbs = path.join(process.cwd(), rutaRel);
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `inline; filename="${(doc as any).numero}.pdf"`);
-      fs.createReadStream(rutaAbs).pipe(res);
+      await this._streamPdf(res, doc);
     } catch (e) { handle(res, e); }
   },
 
@@ -99,6 +105,43 @@ export const guiasController = {
       if (ids.length === 0) { R.badRequest(res, 'Se requiere un array de ids'); return; }
       const resultado = await guiasService.enviarLoteSunat(ids);
       R.ok(res, resultado, `${resultado.enviados} guía(s) enviada(s) a SUNAT`);
+    } catch (e) { R.serverError(res, e); }
+  },
+
+  // ── Rol CHOFER: formulario reducido desde el celular ─────────────────────────
+  async crearReducida(req: Request, res: Response): Promise<void> {
+    try {
+      const { clienteId, clienteNombre, clienteNumDoc, vehiculoId, detalles } = req.body;
+      if ((!clienteId && !(clienteNombre && clienteNumDoc)) || !vehiculoId || !Array.isArray(detalles) || detalles.length === 0) {
+        R.badRequest(res, 'Indique clienteId o (clienteNombre + clienteNumDoc), vehiculoId, y detalles (array)'); return;
+      }
+      const guia = await guiasService.crearParaChofer(req.usuario!.id, req.body);
+      R.created(res, guia, 'Guía creada');
+    } catch (e) { handle(res, e); }
+  },
+
+  async misGuias(req: Request, res: Response): Promise<void> {
+    try {
+      const { page, limit } = req.query as Record<string, string>;
+      R.ok(res, await guiasService.misGuias(req.usuario!.id, { page, limit }));
+    } catch (e) { R.serverError(res, e); }
+  },
+
+  async pdfPropio(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseId(req, res); if (id === null) return;
+      const doc: any = await guiasService.obtener(id);
+      if (doc.usuarioId !== req.usuario!.id) { R.notFound(res, 'Guía no encontrada'); return; }
+      await this._streamPdf(res, doc);
+    } catch (e) { handle(res, e); }
+  },
+
+  // Vehículos activos para poblar el select de tracto/carreta del formulario
+  // de chofer (el rol CHOFER no tiene permiso sobre el módulo 'vehiculos').
+  async vehiculosActivos(req: Request, res: Response): Promise<void> {
+    try {
+      const { items } = await vehiculosService.findAll({ activo: 'true', limit: '500' });
+      R.ok(res, items.map((v: any) => ({ id: v.id, placa: v.placa, tipo: v.tipo, marca: v.marca, modelo: v.modelo })));
     } catch (e) { R.serverError(res, e); }
   },
 };

@@ -51,7 +51,7 @@ export class UsuariosController {
 
   async crear(req: Request, res: Response): Promise<void> {
     try {
-      const { nombre, email, password, rol, restriccionHorarioActiva, diasPermitidos, horaInicio, horaFin } = req.body;
+      const { nombre, email, password, rol, restriccionHorarioActiva, diasPermitidos, horaInicio, horaFin, conductorId } = req.body;
       if (!nombre || !email || !password || !rol) {
         R.badRequest(res, 'nombre, email, password y rol son requeridos'); return;
       }
@@ -65,12 +65,14 @@ export class UsuariosController {
       if (errorHorario) { R.badRequest(res, errorHorario); return; }
       const data = await usuariosService.create({
         nombre, email, password, rol, restriccionHorarioActiva, diasPermitidos, horaInicio, horaFin,
+        conductorId: conductorId ? Number(conductorId) : undefined,
       });
       R.created(res, data, 'Usuario creado correctamente');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('ya está registrado')) R.badRequest(res, msg);
-      else R.serverError(res, e);
+      if (msg.includes('ya está registrado') || msg.includes('conductorId es requerido') || msg === 'Conductor no encontrado' || msg.includes('ya tiene un usuario vinculado')) {
+        R.badRequest(res, msg);
+      } else R.serverError(res, e);
     }
   }
 
@@ -78,18 +80,20 @@ export class UsuariosController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      const { nombre, email, rol, activo, restriccionHorarioActiva, diasPermitidos, horaInicio, horaFin } = req.body;
+      const { nombre, email, rol, activo, restriccionHorarioActiva, diasPermitidos, horaInicio, horaFin, conductorId } = req.body;
       const errorHorario = validarHorario(req.body);
       if (errorHorario) { R.badRequest(res, errorHorario); return; }
       const data = await usuariosService.update(id, {
         nombre, email, rol, activo, restriccionHorarioActiva, diasPermitidos, horaInicio, horaFin,
+        conductorId: conductorId ? Number(conductorId) : conductorId,
       });
       R.ok(res, data, 'Usuario actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Usuario no encontrado') R.notFound(res, msg);
-      else if (msg.includes('ya está en uso')) R.badRequest(res, msg);
-      else R.serverError(res, e);
+      else if (msg.includes('ya está en uso') || msg.includes('conductorId es requerido') || msg === 'Conductor no encontrado' || msg.includes('ya tiene un usuario vinculado')) {
+        R.badRequest(res, msg);
+      } else R.serverError(res, e);
     }
   }
 

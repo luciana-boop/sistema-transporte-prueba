@@ -19,6 +19,7 @@ datasource db {
 enum Rol {
   ADMIN
   SECRETARIO
+  CHOFER
 }
 
 enum EstadoPedido {
@@ -73,6 +74,12 @@ model Usuario {
   diasPermitidos           Int[]   @default([1, 2, 3, 4, 5]) @map("dias_permitidos")
   horaInicio               String? @map("hora_inicio")
   horaFin                  String? @map("hora_fin")
+
+  // ── Vínculo Usuario (rol CHOFER) ↔ Conductor ─────────────────────────────
+  // Permite que la cuenta de login de un chofer sepa qué ficha de Conductor
+  // le corresponde (para preasignarlo en las guías que crea desde el celular).
+  conductorId Int?       @unique @map("conductor_id")
+  conductor   Conductor? @relation("UsuarioChofer", fields: [conductorId], references: [id])
 
   pedidos  Pedido[]
   facturas Factura[]
@@ -362,6 +369,7 @@ model Conductor {
   mantenimientos MantenimientoDetalle[]
   creadoPor      Usuario?               @relation("ConductorCreadoPor", fields: [creadoPorId], references: [id])
   actualizadoPor Usuario?               @relation("ConductorActualizadoPor", fields: [actualizadoPorId], references: [id])
+  usuarioChofer  Usuario?               @relation("UsuarioChofer")
 
   @@map("conductores")
 }

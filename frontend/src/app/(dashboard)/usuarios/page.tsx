@@ -8,7 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Edit2, Trash2, Key, ShieldAlert, ShieldCheck, Clock } from 'lucide-react';
-import { usuariosApi } from '@/services/api';
+import { usuariosApi, conductoresApi } from '@/services/api';
 import { formatDatetime, getErrorMessage, cn } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -49,26 +49,34 @@ function validarHorarioCampos(
   }
 }
 
+function validarConductorChofer(d: { rol: string; conductorId?: string }, ctx: z.RefinementCtx) {
+  if (d.rol === 'CHOFER' && !d.conductorId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['conductorId'], message: 'Seleccioná el conductor vinculado' });
+  }
+}
+
 const createSchema = z.object({
   nombre: z.string().min(2, 'Mínimo 2 caracteres'),
   email: z.string().email('Email inválido'),
   password: z.string().min(6, 'Mínimo 6 caracteres'),
-  rol: z.enum(['ADMIN', 'SECRETARIO']),
+  rol: z.enum(['ADMIN', 'SECRETARIO', 'CHOFER']),
+  conductorId: z.string().optional(),
   restriccionHorarioActiva: z.boolean(),
   diasPermitidos: z.array(z.number()),
   horaInicio: z.string(),
   horaFin: z.string(),
-}).superRefine(validarHorarioCampos);
+}).superRefine((d, ctx) => { validarHorarioCampos(d, ctx); validarConductorChofer(d, ctx); });
 const editSchema = z.object({
   nombre: z.string().min(2),
   email: z.string().email(),
-  rol: z.enum(['ADMIN', 'SECRETARIO']),
+  rol: z.enum(['ADMIN', 'SECRETARIO', 'CHOFER']),
+  conductorId: z.string().optional(),
   activo: z.boolean(),
   restriccionHorarioActiva: z.boolean(),
   diasPermitidos: z.array(z.number()),
   horaInicio: z.string(),
   horaFin: z.string(),
-}).superRefine(validarHorarioCampos);
+}).superRefine((d, ctx) => { validarHorarioCampos(d, ctx); validarConductorChofer(d, ctx); });
 const passSchema = z.object({
   password: z.string().min(6, 'Mínimo 6 caracteres'),
   confirmar: z.string().min(6),
@@ -139,16 +147,30 @@ export default function UsuariosPage() {
   const editForm = useForm<EditForm>({ resolver: zodResolver(editSchema) });
   const passForm = useForm<PassForm>({ resolver: zodResolver(passSchema) });
 
+  // Conductores activos, para vincular a un usuario CHOFER. Solo se necesita
+  // mientras alguno de los modales de alta/edición está abierto.
+  const { data: conductoresList = [] } = useQuery({
+    queryKey: ['conductores', 'activos'],
+    queryFn: () => conductoresApi.listar({ activo: true, limit: 200 }).then((r) => r.data.data?.items ?? []),
+    enabled: showCreate || !!editing,
+  });
+
   const invalidate = () => qc.invalidateQueries({ queryKey: ['usuarios'] });
 
   const createMutation = useMutation({
-    mutationFn: (d: CreateForm) => usuariosApi.crear(d),
+    mutationFn: (d: CreateForm) => usuariosApi.crear({
+      ...d,
+      conductorId: d.rol === 'CHOFER' && d.conductorId ? Number(d.conductorId) : undefined,
+    }),
     onSuccess: () => { toast.success('Usuario creado'); setShowCreate(false); createForm.reset(); invalidate(); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   const editMutation = useMutation({
-    mutationFn: (d: EditForm) => usuariosApi.actualizar(editing!.id, d),
+    mutationFn: (d: EditForm) => usuariosApi.actualizar(editing!.id, {
+      ...d,
+      conductorId: d.rol === 'CHOFER' && d.conductorId ? Number(d.conductorId) : undefined,
+    }),
     onSuccess: () => { toast.success('Usuario actualizado'); setEditing(null); editForm.reset(); invalidate(); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
@@ -170,6 +192,7 @@ export default function UsuariosPage() {
     editForm.setValue('nombre', u.nombre);
     editForm.setValue('email', u.email);
     editForm.setValue('rol', u.rol);
+    editForm.setValue('conductorId', u.conductorId ? String(u.conductorId) : '');
     editForm.setValue('activo', u.activo);
     editForm.setValue('restriccionHorarioActiva', u.restriccionHorarioActiva ?? false);
     editForm.setValue('diasPermitidos', u.diasPermitidos ?? [1, 2, 3, 4, 5]);
@@ -313,11 +336,22 @@ export default function UsuariosPage() {
               <Select {...createForm.register('rol')}>
                 <option value="SECRETARIO">Secretario</option>
                 <option value="ADMIN">Administrador</option>
+                <option value="CHOFER">Chofer</option>
               </Select>
             </FormField>
           </div>
 
-          {createForm.watch('rol') === 'SECRETARIO' && (
+          {createForm.watch('rol') === 'CHOFER' && (
+            <FormField label="Conductor vinculado" required error={createForm.formState.errors.conductorId?.message}
+              hint="El chofer solo podrá crear guías con este conductor preasignado">
+              <Select {...createForm.register('conductorId')}>
+                <option value="">Seleccionar…</option>
+                {conductoresList.map((c) => <option key={c.id} value={c.id}>{c.nombre} — {c.dni}</option>)}
+              </Select>
+            </FormField>
+          )}
+
+          {createForm.watch('rol') !== 'ADMIN' && (
             <div className="flex flex-col gap-3 border border-border rounded-lg p-3 bg-muted/20">
               <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
                 <input type="checkbox" className="rounded border-border" {...createForm.register('restriccionHorarioActiva')} />
@@ -369,6 +403,7 @@ export default function UsuariosPage() {
               <Select {...editForm.register('rol')}>
                 <option value="SECRETARIO">Secretario</option>
                 <option value="ADMIN">Administrador</option>
+                <option value="CHOFER">Chofer</option>
               </Select>
             </FormField>
             <FormField label="Estado">
@@ -379,7 +414,17 @@ export default function UsuariosPage() {
             </FormField>
           </div>
 
-          {editForm.watch('rol') === 'SECRETARIO' && (
+          {editForm.watch('rol') === 'CHOFER' && (
+            <FormField label="Conductor vinculado" required error={editForm.formState.errors.conductorId?.message}
+              hint="El chofer solo podrá crear guías con este conductor preasignado">
+              <Select {...editForm.register('conductorId')}>
+                <option value="">Seleccionar…</option>
+                {conductoresList.map((c) => <option key={c.id} value={c.id}>{c.nombre} — {c.dni}</option>)}
+              </Select>
+            </FormField>
+          )}
+
+          {editForm.watch('rol') !== 'ADMIN' && (
             <div className="flex flex-col gap-3 border border-border rounded-lg p-3 bg-muted/20">
               <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
                 <input type="checkbox" className="rounded border-border" {...editForm.register('restriccionHorarioActiva')} />

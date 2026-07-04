@@ -41,6 +41,7 @@ export type CondicionPago = typeof CondicionPago[keyof typeof CondicionPago];
 export const Rol = {
   ADMIN:      'ADMIN',
   SECRETARIO: 'SECRETARIO',
+  CHOFER:     'CHOFER',
 } as const;
 export type Rol = typeof Rol[keyof typeof Rol];
 

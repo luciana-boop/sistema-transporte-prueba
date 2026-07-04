@@ -1,7 +1,7 @@
 // FILE: src/types/index.ts
 // CAMBIO: Agrega MovimientoEnriquecido y actualiza Caja con saldoActual
 
-export type Rol = 'ADMIN' | 'SECRETARIO';
+export type Rol = 'ADMIN' | 'SECRETARIO' | 'CHOFER';
 
 export interface Usuario {
   id: number;
@@ -15,6 +15,7 @@ export interface Usuario {
   diasPermitidos?: number[];
   horaInicio?: string | null;
   horaFin?: string | null;
+  conductorId?: number | null;
 }
 
 // Registro de un intento de acceso denegado por horario (LogActividad),

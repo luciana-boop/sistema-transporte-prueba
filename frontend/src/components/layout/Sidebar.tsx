@@ -5,12 +5,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Package, FileText, ArrowLeftRight,
-  Wallet, BarChart3, UserCog, Truck, LogOut,
+  Wallet, BarChart3, UserCog, Truck, LogOut, X,
   UserCheck, Car, ClipboardList, Fuel, Archive, Settings2, FileOutput,
-  HandCoins, Wrench,
+  HandCoins, Wrench, Smartphone,
 } from 'lucide-react';
 import { useAuthStore }      from '@/store/auth.store';
 import { usePermisosStore }  from '@/store/permisos.store';
+import { useSidebarStore }   from '@/store/sidebar.store';
 import { usePermisos }       from '@/hooks/usePermisos';
 import { useConfig }         from '@/hooks/useConfig';
 import { useRouter }         from 'next/navigation';
@@ -38,6 +39,7 @@ const navGroups: {
     items: [
       { href: '/facturacion',   label: 'Facturación',   icon: FileText,     moduloKey: 'facturacion'   },
       { href: '/guias',         label: 'Guías',         icon: FileOutput,   moduloKey: 'guias'         },
+      { href: '/guias-chofer',  label: 'Guías (Chofer)', icon: Smartphone,  moduloKey: 'guias_chofer'  },
       { href: '/movimientos',   label: 'Movimientos',   icon: ArrowLeftRight, moduloKey: 'movimientos' },
       { href: '/cobranza',      label: 'Cobranza',      icon: HandCoins,    moduloKey: 'cobranza'      },
       { href: '/mantenimiento', label: 'Mantenimiento', icon: Wrench,       moduloKey: 'mantenimiento' },
@@ -70,6 +72,9 @@ export function Sidebar() {
   const tieneModulo   = usePermisosStore((s) => s.tieneModulo);
   const resetPermisos = usePermisosStore((s) => s.resetPermisos);
 
+  const isOpen       = useSidebarStore((s) => s.isOpen);
+  const closeSidebar = useSidebarStore((s) => s.close);
+
   usePermisos();
 
   const handleLogout = async () => {
@@ -96,7 +101,23 @@ export function Sidebar() {
     : [];
 
   return (
-    <aside className="w-[236px] flex flex-col h-full bg-sidebar border-r border-sidebar-border shrink-0">
+    <>
+      {/* Overlay: solo visible en mobile con el drawer abierto */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-30 md:hidden"
+          onClick={closeSidebar}
+        />
+      )}
+
+      <aside
+        className={cn(
+          'w-[236px] flex flex-col h-full bg-sidebar border-r border-sidebar-border shrink-0',
+          'fixed inset-y-0 left-0 z-40 transition-transform duration-200 ease-in-out',
+          'md:relative md:z-auto md:translate-x-0',
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        )}
+      >
 
       {/* Logo */}
       <div className="flex items-center gap-3 px-5 h-[60px] border-b border-sidebar-border shrink-0">
@@ -105,10 +126,17 @@ export function Sidebar() {
         </div>
         {config.isLoading || !_hasHydrated
           ? <div className="h-3 w-24 rounded bg-sidebar-accent animate-pulse" />
-          : <span className="font-semibold text-sidebar-foreground text-[13.5px] truncate">
+          : <span className="font-semibold text-sidebar-foreground text-[13.5px] truncate flex-1">
               {config.nombreEmpresa}
             </span>
         }
+        <button
+          onClick={closeSidebar}
+          className="md:hidden p-1 rounded-md text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors shrink-0"
+          aria-label="Cerrar menú"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Nav */}
@@ -138,6 +166,7 @@ export function Sidebar() {
                 <Link
                   key={item.href}
                   href={item.href}
+                  onClick={closeSidebar}
                   className={cn(
                     'flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg text-[13.5px] transition-colors group',
                     active
@@ -193,6 +222,7 @@ export function Sidebar() {
         </button>
       </div>
 
-    </aside>
+      </aside>
+    </>
   );
 }
