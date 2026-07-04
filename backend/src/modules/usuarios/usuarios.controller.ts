@@ -120,6 +120,33 @@ export class UsuariosController {
     }
   }
 
+  async generarLinkAcceso(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
+      const token = await usuariosService.generarLinkAcceso(id);
+      R.ok(res, { token });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'Usuario no encontrado') R.notFound(res, msg);
+      else if (msg.includes('solo aplica')) R.badRequest(res, msg);
+      else R.serverError(res, e);
+    }
+  }
+
+  async revocarLinkAcceso(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
+      await usuariosService.revocarLinkAcceso(id);
+      R.ok(res, null, 'Link de acceso revocado');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'Usuario no encontrado') R.notFound(res, msg);
+      else R.serverError(res, e);
+    }
+  }
+
   async eliminar(req: Request, res: Response): Promise<void> {
     try {
       const id = parseInt(req.params.id);

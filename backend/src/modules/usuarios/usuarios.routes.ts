@@ -16,6 +16,8 @@ router.get('/:id', usuariosController.obtener.bind(usuariosController));
 router.post('/', usuariosController.crear.bind(usuariosController));
 router.put('/:id', usuariosController.actualizar.bind(usuariosController));
 router.patch('/:id/password', usuariosController.cambiarPassword.bind(usuariosController));
+router.post('/:id/link-acceso', usuariosController.generarLinkAcceso.bind(usuariosController));
+router.delete('/:id/link-acceso', usuariosController.revocarLinkAcceso.bind(usuariosController));
 router.delete('/:id', usuariosController.eliminar.bind(usuariosController));
 
 export default router;

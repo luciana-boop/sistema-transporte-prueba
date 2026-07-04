@@ -7,6 +7,10 @@ import { duracionAMs } from '../utils/duration';
 
 const esProduccion = process.env.NODE_ENV === 'production';
 const COOKIE_MAX_AGE = duracionAMs(process.env.JWT_EXPIRES_IN || '2h', 2 * 60 * 60 * 1000);
+const LINK_FIJO_COOKIE_MAX_AGE = duracionAMs(
+  process.env.LINK_FIJO_EXPIRES_IN || '90d',
+  90 * 24 * 60 * 60 * 1000,
+);
 
 export class AuthController {
   async login(req: Request, res: Response): Promise<void> {
@@ -41,6 +45,45 @@ export class AuthController {
         secure: esProduccion,
         sameSite: esProduccion ? 'none' : 'lax',
         maxAge: COOKIE_MAX_AGE,
+        path: '/',
+      });
+
+      res.json({
+        success: true,
+        message: 'Sesión iniciada correctamente',
+        data: { usuario, csrfToken },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error al iniciar sesión';
+      res.status(401).json({ success: false, error: message });
+    }
+  }
+
+  // POST /api/auth/acceso/:token — canjea el link/QR fijo de un chofer por
+  // una sesión real. Mismo mecanismo de cookies que login(), pero con una
+  // duración propia (LINK_FIJO_EXPIRES_IN) pensada para no requerir re-escaneo.
+  async accesoLinkFijo(req: Request, res: Response): Promise<void> {
+    try {
+      const { token } = req.params;
+
+      const { token: jwtToken, csrfToken, usuario } = await authService.loginConLinkFijo({
+        tokenPlano: token,
+        ip: req.ip,
+      });
+
+      res.cookie('token', jwtToken, {
+        httpOnly: true,
+        secure: esProduccion,
+        sameSite: esProduccion ? 'none' : 'lax',
+        maxAge: LINK_FIJO_COOKIE_MAX_AGE,
+        path: '/',
+      });
+
+      res.cookie('csrf_token', csrfToken, {
+        httpOnly: false,
+        secure: esProduccion,
+        sameSite: esProduccion ? 'none' : 'lax',
+        maxAge: LINK_FIJO_COOKIE_MAX_AGE,
         path: '/',
       });
 

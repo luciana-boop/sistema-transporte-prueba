@@ -13,6 +13,11 @@ export interface LoginDto {
   ip?: string;
 }
 
+export interface AccesoLinkFijoDto {
+  tokenPlano: string;
+  ip?: string;
+}
+
 export interface AuthResponse {
   token: string;
   csrfToken: string;

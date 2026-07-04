@@ -16,6 +16,7 @@ export interface Usuario {
   horaInicio?: string | null;
   horaFin?: string | null;
   conductorId?: number | null;
+  tieneLinkAcceso?: boolean;
 }
 
 // Registro de un intento de acceso denegado por horario (LogActividad),

@@ -14,6 +14,11 @@ router.post('/login', loginLimiter, authController.login.bind(authController));
 // POST /api/auth/logout — limpia las cookies de sesión
 router.post('/logout', authController.logout.bind(authController));
 
+// POST /api/auth/acceso/:token — canjea el link/QR fijo de un chofer por una
+// sesión real (ver auth.service.ts → loginConLinkFijo). Sin verificarToken:
+// el "secreto" acá es el propio token de la URL.
+router.post('/acceso/:token', loginLimiter, authController.accesoLinkFijo.bind(authController));
+
 // GET /api/auth/perfil  (sin cambios)
 router.get('/perfil', verificarToken, authController.perfil.bind(authController));
 

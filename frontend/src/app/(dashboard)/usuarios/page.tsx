@@ -7,7 +7,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, Key, ShieldAlert, ShieldCheck, Clock } from 'lucide-react';
+import { Plus, Edit2, Trash2, Key, ShieldAlert, ShieldCheck, Clock, QrCode, Copy, RefreshCw, Ban } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { usuariosApi, conductoresApi } from '@/services/api';
 import { formatDatetime, getErrorMessage, cn } from '@/lib/utils';
 import {
@@ -118,6 +119,16 @@ export default function UsuariosPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<Usuario | null>(null);
   const [changingPass, setChangingPass] = useState<number | null>(null);
+  const [linkAccesoUser, setLinkAccesoUser] = useState<Usuario | null>(null);
+  const [linkGenerado, setLinkGenerado] = useState<string | null>(null);
+  const [tieneLinkAcceso, setTieneLinkAcceso] = useState(false);
+
+  const openLinkAcceso = (u: Usuario) => {
+    setLinkAccesoUser(u);
+    setLinkGenerado(null);
+    setTieneLinkAcceso(!!u.tieneLinkAcceso);
+  };
+  const closeLinkAcceso = () => { setLinkAccesoUser(null); setLinkGenerado(null); };
 
   useEffect(() => {
     if (usuario?.rol !== 'ADMIN') router.replace('/dashboard');
@@ -184,6 +195,18 @@ export default function UsuariosPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: number) => usuariosApi.eliminar(id),
     onSuccess: () => { toast.success('Usuario eliminado'); invalidate(); },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  const generarLinkMutation = useMutation({
+    mutationFn: (id: number) => usuariosApi.generarLinkAcceso(id),
+    onSuccess: (res) => { setLinkGenerado(res.data.data.token); setTieneLinkAcceso(true); invalidate(); },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  const revocarLinkMutation = useMutation({
+    mutationFn: (id: number) => usuariosApi.revocarLinkAcceso(id),
+    onSuccess: () => { toast.success('Link de acceso revocado'); setLinkGenerado(null); setTieneLinkAcceso(false); invalidate(); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
@@ -288,6 +311,15 @@ export default function UsuariosPage() {
                     >
                       <ShieldCheck className="w-3.5 h-3.5" />
                     </button>
+                    {u.rol === 'CHOFER' && (
+                      <button
+                        onClick={() => openLinkAcceso(u)}
+                        className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
+                        title="Link de acceso"
+                      >
+                        <QrCode className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     {u.id !== usuario.id && (
                       <button
                         onClick={() => { if (confirm(`¿Eliminar a ${u.nombre}?`)) deleteMutation.mutate(u.id); }}
@@ -476,6 +508,78 @@ export default function UsuariosPage() {
             <Button type="submit" loading={passMutation.isPending}>Actualizar contraseña</Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Link de acceso fijo (chofer) */}
+      <Modal open={!!linkAccesoUser} onClose={closeLinkAcceso} title={`Link de acceso — ${linkAccesoUser?.nombre ?? ''}`}>
+        <div className="flex flex-col gap-4">
+          {linkGenerado ? (
+            <>
+              <div className="flex justify-center p-4 bg-white rounded-lg">
+                <QRCodeSVG value={`${window.location.origin}/acceso/${linkGenerado}`} size={200} />
+              </div>
+              <div className="flex items-center gap-2">
+                <Input readOnly value={`${window.location.origin}/acceso/${linkGenerado}`} className="text-xs" />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard.writeText(`${window.location.origin}/acceso/${linkGenerado}`);
+                    toast.success('Link copiado');
+                  }}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+              <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                Guardá este link ahora — no se va a volver a mostrar. Cualquiera que lo tenga
+                entra directo como este chofer, sin usuario ni contraseña.
+              </p>
+            </>
+          ) : tieneLinkAcceso ? (
+            <p className="text-sm text-muted-foreground">
+              Este chofer ya tiene un link de acceso generado. Por seguridad no se puede
+              volver a mostrar — si lo perdió, regenerelo (esto invalida el anterior).
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Este chofer todavía no tiene un link de acceso. Generalo para que pueda
+              entrar a sus guías sin usuario ni contraseña.
+            </p>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            Cualquiera con este enlace puede ingresar como este chofer. Entregáselo solo a
+            él (por ejemplo agregándolo a la pantalla de inicio de su celular) y revocalo
+            si pierde el teléfono.
+          </p>
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-border">
+            <Button variant="secondary" type="button" onClick={closeLinkAcceso}>Cerrar</Button>
+            {tieneLinkAcceso && (
+              <Button
+                variant="secondary"
+                type="button"
+                loading={revocarLinkMutation.isPending}
+                onClick={() => { if (confirm('¿Revocar el link de acceso? El chofer no podrá volver a usarlo.')) revocarLinkMutation.mutate(linkAccesoUser!.id); }}
+              >
+                <Ban className="w-3.5 h-3.5" /> Revocar
+              </Button>
+            )}
+            <Button
+              type="button"
+              loading={generarLinkMutation.isPending}
+              onClick={() => {
+                if (!tieneLinkAcceso || confirm('Esto invalida el link anterior. ¿Continuar?')) {
+                  generarLinkMutation.mutate(linkAccesoUser!.id);
+                }
+              }}
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> {tieneLinkAcceso ? 'Regenerar' : 'Generar link'}
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

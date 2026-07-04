@@ -5,6 +5,7 @@
 
 import prisma from '../../prisma/client';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { Rol } from '../../utils/enums';
 import { permisosService } from '../permisos/permisos.service';
 import { paginar, PaginacionQuery } from '../../utils/pagination';
@@ -51,13 +52,14 @@ export class UsuariosService {
           horaInicio: true,
           horaFin: true,
           conductorId: true,
+          accessTokenHash: true,
         },
         orderBy: { creadoEn: 'desc' },
         skip,
         take,
       }),
     ]);
-    return { items, total, page, limit };
+    return { items: items.map(this.ocultarAccessTokenHash), total, page, limit };
   }
 
   async findById(id: number) {
@@ -77,10 +79,20 @@ export class UsuariosService {
         horaInicio: true,
         horaFin: true,
         conductorId: true,
+        accessTokenHash: true,
       },
     });
     if (!usuario) throw new Error('Usuario no encontrado');
-    return usuario;
+    return this.ocultarAccessTokenHash(usuario);
+  }
+
+  // El hash del link fijo nunca sale de este service — solo se expone si el
+  // usuario tiene uno generado (tieneLinkAcceso), nunca el valor en sí.
+  private ocultarAccessTokenHash<T extends { accessTokenHash: string | null }>(
+    usuario: T,
+  ): Omit<T, 'accessTokenHash'> & { tieneLinkAcceso: boolean } {
+    const { accessTokenHash, ...resto } = usuario;
+    return { ...resto, tieneLinkAcceso: !!accessTokenHash };
   }
 
   // Un CHOFER debe estar vinculado a una ficha de Conductor existente y sin
@@ -201,6 +213,28 @@ export class UsuariosService {
     const passwordHash = await bcrypt.hash(nuevaPassword, rounds);
     await prisma.usuario.update({ where: { id }, data: { passwordHash } });
     return { message: 'Contraseña actualizada correctamente' };
+  }
+
+  // Genera (o regenera) el link/QR fijo de acceso de un chofer. Devuelve el
+  // token en texto plano UNA sola vez — solo se guarda su hash SHA-256.
+  // Regenerar invalida automáticamente el link anterior (se sobreescribe el hash).
+  async generarLinkAcceso(id: number): Promise<string> {
+    const usuario = await prisma.usuario.findUnique({ where: { id } });
+    if (!usuario) throw new Error('Usuario no encontrado');
+    if (usuario.rol !== Rol.CHOFER) {
+      throw new Error('El link de acceso solo aplica a usuarios con rol CHOFER');
+    }
+
+    const tokenPlano = crypto.randomBytes(32).toString('hex');
+    const accessTokenHash = crypto.createHash('sha256').update(tokenPlano).digest('hex');
+
+    await prisma.usuario.update({ where: { id }, data: { accessTokenHash } });
+    return tokenPlano;
+  }
+
+  async revocarLinkAcceso(id: number): Promise<void> {
+    await this.findById(id);
+    await prisma.usuario.update({ where: { id }, data: { accessTokenHash: null } });
   }
 
   async remove(id: number, adminId: number) {

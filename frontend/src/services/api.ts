@@ -81,6 +81,8 @@ export const authApi = {
     api.post<ApiResponse<{ usuario: Usuario; csrfToken: string }>>('/api/auth/login', { email, password }),
   logout: () => api.post<ApiResponse<null>>('/api/auth/logout'),
   me: () => api.get<ApiResponse<{ usuario: Usuario; csrfToken: string }>>('/api/auth/me'),
+  accesoLinkFijo: (token: string) =>
+    api.post<ApiResponse<{ usuario: Usuario; csrfToken: string }>>(`/api/auth/acceso/${token}`),
 };
 
 // ─── CLIENTES ─────────────────────────────────────────────────────────────────
@@ -510,6 +512,10 @@ export const usuariosApi = {
   eliminar: (id: number) => api.delete<ApiResponse<null>>(`/api/usuarios/${id}`),
   intentosFueraHorario: () =>
     api.get<ApiResponse<IntentoFueraHorario[]>>('/api/usuarios/intentos-fuera-horario'),
+  generarLinkAcceso: (id: number) =>
+    api.post<ApiResponse<{ token: string }>>(`/api/usuarios/${id}/link-acceso`),
+  revocarLinkAcceso: (id: number) =>
+    api.delete<ApiResponse<null>>(`/api/usuarios/${id}/link-acceso`),
 };
 
 // ─── CONDUCTORES ─────────────────────────────────────────────────────────────
