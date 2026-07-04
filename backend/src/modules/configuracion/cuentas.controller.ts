@@ -33,7 +33,7 @@ export class CuentasController {
       if (!codigo || !nombre || !simbolo) {
         R.badRequest(res, 'codigo, nombre y simbolo son requeridos'); return;
       }
-      R.created(res, await cuentasService.createMoneda({ codigo, nombre, simbolo, esPorDefecto }), 'Moneda creada');
+      R.created(res, await cuentasService.createMoneda({ codigo, nombre, simbolo, esPorDefecto }, req.usuario!.id), 'Moneda creada');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('ya existe')) R.badRequest(res, msg);
@@ -45,7 +45,7 @@ export class CuentasController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      R.ok(res, await cuentasService.updateMoneda(id, req.body), 'Moneda actualizada');
+      R.ok(res, await cuentasService.updateMoneda(id, req.body, req.usuario!.id), 'Moneda actualizada');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Moneda no encontrada') R.notFound(res, msg);
@@ -82,7 +82,7 @@ export class CuentasController {
     try {
       const { codigo, nombre, descripcion, orden } = req.body;
       if (!codigo || !nombre) { R.badRequest(res, 'codigo y nombre son requeridos'); return; }
-      R.created(res, await cuentasService.createTipoPago({ codigo, nombre, descripcion, orden: orden ? parseInt(orden) : undefined }), 'Tipo de pago creado');
+      R.created(res, await cuentasService.createTipoPago({ codigo, nombre, descripcion, orden: orden ? parseInt(orden) : undefined }, req.usuario!.id), 'Tipo de pago creado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('ya existe')) R.badRequest(res, msg);
@@ -96,7 +96,7 @@ export class CuentasController {
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
       const dto = { ...req.body };
       if (dto.orden) dto.orden = parseInt(dto.orden);
-      R.ok(res, await cuentasService.updateTipoPago(id, dto), 'Tipo de pago actualizado');
+      R.ok(res, await cuentasService.updateTipoPago(id, dto, req.usuario!.id), 'Tipo de pago actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Tipo de pago no encontrado') R.notFound(res, msg);
@@ -148,7 +148,7 @@ export class CuentasController {
         nombre, tipoCuenta, monedaId: parseInt(monedaId),
         saldoInicial: saldoInicial ? parseFloat(saldoInicial) : 0,
         descripcion, banco, numeroCuenta,
-      }), 'Cuenta creada');
+      }, req.usuario!.id), 'Cuenta creada');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('no encontrada')) R.badRequest(res, msg);
@@ -162,7 +162,7 @@ export class CuentasController {
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
       const dto = { ...req.body };
       if (dto.monedaId) dto.monedaId = parseInt(dto.monedaId);
-      R.ok(res, await cuentasService.updateCuenta(id, dto), 'Cuenta actualizada');
+      R.ok(res, await cuentasService.updateCuenta(id, dto, req.usuario!.id), 'Cuenta actualizada');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Cuenta no encontrada') R.notFound(res, msg);
@@ -245,7 +245,7 @@ export class CuentasController {
         referencia,
         fecha,
         tipoPagoId: tipoPagoId !== undefined ? (tipoPagoId ? parseInt(tipoPagoId) : null) : undefined,
-      }), 'Movimiento actualizado');
+      }, req.usuario!.id), 'Movimiento actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Movimiento no encontrado') R.notFound(res, msg);

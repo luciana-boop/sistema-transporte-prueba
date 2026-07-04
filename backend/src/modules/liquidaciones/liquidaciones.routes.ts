@@ -47,7 +47,8 @@ const rendirValidations = [
 ];
 
 const cerrarValidations = [
-  body('cajaId').isInt({ gt: 0 }).withMessage('cajaId inválido'),
+  body('cuentaId').isInt({ gt: 0 }).withMessage('cuentaId inválido'),
+  body('numeroOperacion').optional({ values: 'falsy' }).isString().isLength({ max: 255 }).withMessage('N° de operación inválido'),
   body('fecha').optional({ values: 'falsy' }).isISO8601().withMessage('fecha inválida'),
 ];
 

@@ -1,6 +1,8 @@
 // FILE: prisma/schema.prisma
-// CAMBIO: Agrega modelo LiquidacionPedido para la relación N:M entre
-// Liquidacion y Pedido. El resto del schema no se modifica.
+// CAMBIO: Cobranza (aplicación de pagos a múltiples facturas), Mantenimiento
+// (relación de egresos a vehículo/conductor/motivo), categoría de ingreso en
+// MovimientoCuentaV2 y auditoría (creadoPor/actualizadoPor) en todos los
+// modelos de primer nivel.
 
 generator client {
   provider = "prisma-client-js"
@@ -53,184 +55,245 @@ enum CondicionPago {
 // ─── MODELOS ─────────────────────────────────────────────────────────────────
 
 model Usuario {
-  id             Int      @id @default(autoincrement())
-  nombre         String
-  email          String   @unique
-  passwordHash   String   @map("password_hash")
-  rol            Rol      @default(SECRETARIO)
-  activo         Boolean  @default(true)
-  ultimoAcceso   DateTime? @map("ultimo_acceso")
-  creadoEn       DateTime @default(now()) @map("creado_en")
-  actualizadoEn  DateTime @updatedAt @map("actualizado_en")
+  id            Int       @id @default(autoincrement())
+  nombre        String
+  email         String    @unique
+  passwordHash  String    @map("password_hash")
+  rol           Rol       @default(SECRETARIO)
+  activo        Boolean   @default(true)
+  ultimoAcceso  DateTime? @map("ultimo_acceso")
+  creadoEn      DateTime  @default(now()) @map("creado_en")
+  actualizadoEn DateTime  @updatedAt @map("actualizado_en")
 
   // ── Restricción de horario de acceso (por usuario) ──────────────────────
   // Si restriccionHorarioActiva es true, el usuario solo puede iniciar sesión
   // y usar el sistema dentro de diasPermitidos (1=Lunes...7=Domingo) y entre
   // horaInicio y horaFin ("HH:mm", hora Perú). ADMIN nunca se restringe.
-  restriccionHorarioActiva Boolean  @default(false) @map("restriccion_horario_activa")
-  diasPermitidos           Int[]    @default([1, 2, 3, 4, 5]) @map("dias_permitidos")
-  horaInicio               String?  @map("hora_inicio")
-  horaFin                  String?  @map("hora_fin")
+  restriccionHorarioActiva Boolean @default(false) @map("restriccion_horario_activa")
+  diasPermitidos           Int[]   @default([1, 2, 3, 4, 5]) @map("dias_permitidos")
+  horaInicio               String? @map("hora_inicio")
+  horaFin                  String? @map("hora_fin")
 
-  pedidos        Pedido[]
-  facturas       Factura[]
-  cajas          Caja[]
-  logs           LogActividad[]
+  pedidos  Pedido[]
+  facturas Factura[]
+  cajas    Caja[]
+  logs     LogActividad[]
 
-  permisosModulos  PermisoModulo[]
-  permisosAcciones PermisoAccion[]
+  permisosModulos     PermisoModulo[]
+  permisosAcciones    PermisoAccion[]
   movimientosCuentaV2 MovimientoCuentaV2[]
-  pagosV2          PagoV2[]
-  guias            Guia[]
+  pagosV2             PagoV2[]
+  guias               Guia[]
+
+  // ── Auditoría: back-relations de "creado por" / "actualizado por" ────────
+  clientesCreados               Cliente[]                 @relation("ClienteCreadoPor")
+  clientesActualizados          Cliente[]                 @relation("ClienteActualizadoPor")
+  pedidosCreados                Pedido[]                  @relation("PedidoCreadoPor")
+  pedidosActualizados           Pedido[]                  @relation("PedidoActualizadoPor")
+  facturasCreadas               Factura[]                 @relation("FacturaCreadoPor")
+  facturasActualizadas          Factura[]                 @relation("FacturaActualizadoPor")
+  vehiculosCreados              Vehiculo[]                @relation("VehiculoCreadoPor")
+  vehiculosActualizados         Vehiculo[]                @relation("VehiculoActualizadoPor")
+  conductoresCreados            Conductor[]               @relation("ConductorCreadoPor")
+  conductoresActualizados       Conductor[]               @relation("ConductorActualizadoPor")
+  cuentasCreadas                CuentaDinero[]            @relation("CuentaDineroCreadoPor")
+  cuentasActualizadas           CuentaDinero[]            @relation("CuentaDineroActualizadoPor")
+  movimientosCuentaCreados      MovimientoCuentaV2[]      @relation("MovimientoCuentaV2CreadoPor")
+  movimientosCuentaActualizados MovimientoCuentaV2[]      @relation("MovimientoCuentaV2ActualizadoPor")
+  pagosV2Creados                PagoV2[]                  @relation("PagoV2CreadoPor")
+  pagosV2Actualizados           PagoV2[]                  @relation("PagoV2ActualizadoPor")
+  aplicacionesFacturaCreadas    PagoV2AplicacionFactura[] @relation("AplicacionFacturaCreadoPor")
+  liquidacionesCreadas          Liquidacion[]             @relation("LiquidacionCreadoPor")
+  liquidacionesActualizadas     Liquidacion[]             @relation("LiquidacionActualizadoPor")
+  cajasCreadas                  Caja[]                    @relation("CajaCreadoPor")
+  cajasActualizadas             Caja[]                    @relation("CajaActualizadoPor")
+  movimientosCajaCreados        MovimientoCaja[]          @relation("MovimientoCajaCreadoPor")
+  combustiblesCreados           Combustible[]             @relation("CombustibleCreadoPor")
+  combustiblesActualizados      Combustible[]             @relation("CombustibleActualizadoPor")
+  configuracionesCreadas        Configuracion[]           @relation("ConfiguracionCreadoPor")
+  configuracionesActualizadas   Configuracion[]           @relation("ConfiguracionActualizadoPor")
+  seriesFacturacionCreadas      SerieFacturacion[]        @relation("SerieFacturacionCreadoPor")
+  seriesFacturacionActualizadas SerieFacturacion[]        @relation("SerieFacturacionActualizadoPor")
+  tablasMaestrasCreadas         TablaMaestra[]            @relation("TablaMaestraCreadoPor")
+  tablasMaestrasActualizadas    TablaMaestra[]            @relation("TablaMaestraActualizadoPor")
+  alertasCreadas                ConfiguracionAlerta[]     @relation("ConfiguracionAlertaCreadoPor")
+  alertasActualizadas           ConfiguracionAlerta[]     @relation("ConfiguracionAlertaActualizadoPor")
+  tiposVehiculoCreados          TipoVehiculoConfig[]      @relation("TipoVehiculoConfigCreadoPor")
+  tiposVehiculoActualizados     TipoVehiculoConfig[]      @relation("TipoVehiculoConfigActualizadoPor")
+  monedasCreadas                Moneda[]                  @relation("MonedaCreadoPor")
+  monedasActualizadas           Moneda[]                  @relation("MonedaActualizadoPor")
+  tiposPagoCreados              TipoPago[]                @relation("TipoPagoCreadoPor")
+  tiposPagoActualizados         TipoPago[]                @relation("TipoPagoActualizadoPor")
+  guiasCreadas                  Guia[]                    @relation("GuiaCreadoPor")
+  guiasActualizadas             Guia[]                    @relation("GuiaActualizadoPor")
+  mantenimientosCreados         MantenimientoDetalle[]    @relation("MantenimientoCreadoPor")
+  mantenimientosActualizados    MantenimientoDetalle[]    @relation("MantenimientoActualizadoPor")
 
   @@map("usuarios")
 }
 
 model Cliente {
-  id             Int           @id @default(autoincrement())
-  razonSocial    String        @map("razon_social")
-  ruc            String        @unique
-  direccion      String
+  id               Int           @id @default(autoincrement())
+  razonSocial      String        @map("razon_social")
+  ruc              String        @unique
+  direccion        String
   // Ubigeo (código INEI de 6 dígitos) del cliente — se usa para autocompletar
   // el punto de llegada al seleccionar el cliente en una Guía de Remisión.
-  ubigeo         String?
-  telefono       String?
-  email          String?
-  condicionPago  CondicionPago @default(CONTADO) @map("condicion_pago")
-  activo         Boolean       @default(true)
-  creadoEn       DateTime      @default(now()) @map("creado_en")
-  actualizadoEn  DateTime      @updatedAt @map("actualizado_en")
+  ubigeo           String?
+  telefono         String?
+  email            String?
+  condicionPago    CondicionPago @default(CONTADO) @map("condicion_pago")
+  activo           Boolean       @default(true)
+  creadoEn         DateTime      @default(now()) @map("creado_en")
+  actualizadoEn    DateTime      @updatedAt @map("actualizado_en")
+  creadoPorId      Int?          @map("creado_por_id")
+  actualizadoPorId Int?          @map("actualizado_por_id")
 
   pedidos        Pedido[]
   facturas       Factura[]
   pagosV2        PagoV2[]
-  guias          Guia[]  @relation("GuiaDestinatario")
-  guiasRemitente Guia[]  @relation("GuiaRemitente")
+  guias          Guia[]    @relation("GuiaDestinatario")
+  guiasRemitente Guia[]    @relation("GuiaRemitente")
+  creadoPor      Usuario?  @relation("ClienteCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor Usuario?  @relation("ClienteActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("clientes")
 }
 
 model Pedido {
-  id             Int          @id @default(autoincrement())
-  clienteId      Int          @map("cliente_id")
-  usuarioId      Int          @map("usuario_id")
-  origen         String
-  destino        String
-  tipoCarga      String       @map("tipo_carga")
-  tarifa         Decimal      @db.Decimal(10, 2)
-  estado         EstadoPedido @default(ACTIVO)
-  observaciones  String?
-  fechaPedido    DateTime     @default(now()) @map("fecha_pedido")
-  creadoEn       DateTime     @default(now()) @map("creado_en")
-  actualizadoEn  DateTime     @updatedAt @map("actualizado_en")
+  id               Int          @id @default(autoincrement())
+  clienteId        Int          @map("cliente_id")
+  usuarioId        Int          @map("usuario_id")
+  origen           String
+  destino          String
+  tipoCarga        String       @map("tipo_carga")
+  tarifa           Decimal      @db.Decimal(10, 2)
+  estado           EstadoPedido @default(ACTIVO)
+  observaciones    String?
+  fechaPedido      DateTime     @default(now()) @map("fecha_pedido")
+  creadoEn         DateTime     @default(now()) @map("creado_en")
+  actualizadoEn    DateTime     @updatedAt @map("actualizado_en")
+  creadoPorId      Int?         @map("creado_por_id")
+  actualizadoPorId Int?         @map("actualizado_por_id")
 
-  cliente        Cliente      @relation(fields: [clienteId], references: [id])
-  usuario        Usuario      @relation(fields: [usuarioId], references: [id])
+  cliente        Cliente             @relation(fields: [clienteId], references: [id])
+  usuario        Usuario             @relation(fields: [usuarioId], references: [id])
   facturas       Factura[]
   // NUEVO: relación con liquidaciones
   liquidaciones  LiquidacionPedido[]
   guias          Guia[]
+  creadoPor      Usuario?            @relation("PedidoCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor Usuario?            @relation("PedidoActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("pedidos")
 }
 
 model Factura {
-  id               Int           @id @default(autoincrement())
-  pedidoId         Int?          @map("pedido_id")
-  clienteId        Int           @map("cliente_id")
-  usuarioId        Int           @map("usuario_id")
-  serie            String        @default("F001")
-  correlativo      Int
-  numeroFactura    String        @unique @map("numero_factura")
-  subtotal         Decimal       @db.Decimal(10, 2)
-  porcentajeIgv    Decimal       @default(18) @map("porcentaje_igv") @db.Decimal(5, 2)
-  igv              Decimal       @db.Decimal(10, 2)
-  total            Decimal       @db.Decimal(10, 2)
-  detraccion       Decimal?      @db.Decimal(10, 2)
-  porcentajeDetraccion Decimal?  @map("porcentaje_detraccion") @db.Decimal(5, 2)
-  montoDetraccion  Decimal?      @map("monto_detraccion") @db.Decimal(10, 2)
-  tipoCredito      String?       @map("tipo_credito")
-  diasCredito      Int?          @map("dias_credito")
-  guiaReferencia   String?       @map("guia_referencia")
-  peso             Decimal?      @db.Decimal(10, 2)
-  detalle          String?
-  estado           EstadoFactura @default(EMITIDA)
-  estadoSunat      String?       @map("estado_sunat")
-  xmlPath          String?       @map("xml_path")
-  pdfPath          String?       @map("pdf_path")
-  cdrPath          String?       @map("cdr_path")
-  hashXml          String?       @map("hash_xml")
-  fechaEmision     DateTime      @default(now()) @map("fecha_emision")
-  fechaVencimiento DateTime      @map("fecha_vencimiento")
-  observaciones    String?
-  totalPagado      Decimal       @default(0) @map("total_pagado") @db.Decimal(10, 2)
-  creadoEn         DateTime      @default(now()) @map("creado_en")
-  actualizadoEn    DateTime      @updatedAt @map("actualizado_en")
+  id                   Int           @id @default(autoincrement())
+  pedidoId             Int?          @map("pedido_id")
+  clienteId            Int           @map("cliente_id")
+  usuarioId            Int           @map("usuario_id")
+  serie                String        @default("F001")
+  correlativo          Int
+  numeroFactura        String        @unique @map("numero_factura")
+  subtotal             Decimal       @db.Decimal(10, 2)
+  porcentajeIgv        Decimal       @default(18) @map("porcentaje_igv") @db.Decimal(5, 2)
+  igv                  Decimal       @db.Decimal(10, 2)
+  total                Decimal       @db.Decimal(10, 2)
+  detraccion           Decimal?      @db.Decimal(10, 2)
+  porcentajeDetraccion Decimal?      @map("porcentaje_detraccion") @db.Decimal(5, 2)
+  montoDetraccion      Decimal?      @map("monto_detraccion") @db.Decimal(10, 2)
+  tipoCredito          String?       @map("tipo_credito")
+  diasCredito          Int?          @map("dias_credito")
+  guiaReferencia       String?       @map("guia_referencia")
+  peso                 Decimal?      @db.Decimal(10, 2)
+  detalle              String?
+  estado               EstadoFactura @default(EMITIDA)
+  estadoSunat          String?       @map("estado_sunat")
+  xmlPath              String?       @map("xml_path")
+  pdfPath              String?       @map("pdf_path")
+  cdrPath              String?       @map("cdr_path")
+  hashXml              String?       @map("hash_xml")
+  fechaEmision         DateTime      @default(now()) @map("fecha_emision")
+  fechaVencimiento     DateTime      @map("fecha_vencimiento")
+  observaciones        String?
+  totalPagado          Decimal       @default(0) @map("total_pagado") @db.Decimal(10, 2)
+  creadoEn             DateTime      @default(now()) @map("creado_en")
+  actualizadoEn        DateTime      @updatedAt @map("actualizado_en")
+  creadoPorId          Int?          @map("creado_por_id")
+  actualizadoPorId     Int?          @map("actualizado_por_id")
 
-  pedido         Pedido?         @relation(fields: [pedidoId], references: [id])
-  cliente        Cliente         @relation(fields: [clienteId], references: [id])
-  usuario        Usuario         @relation(fields: [usuarioId], references: [id])
-  pagosV2        PagoV2[]
-  lineas         FacturaDetalle[]
-  guias          Guia[]
+  pedido           Pedido?                   @relation(fields: [pedidoId], references: [id])
+  cliente          Cliente                   @relation(fields: [clienteId], references: [id])
+  usuario          Usuario                   @relation(fields: [usuarioId], references: [id])
+  pagosV2          PagoV2[]
+  aplicacionesPago PagoV2AplicacionFactura[]
+  lineas           FacturaDetalle[]
+  guias            Guia[]
+  creadoPor        Usuario?                  @relation("FacturaCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor   Usuario?                  @relation("FacturaActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("facturas")
 }
 
 model FacturaDetalle {
-  id             Int      @id @default(autoincrement())
-  facturaId      Int      @map("factura_id")
-  orden          Int      @default(0)
-  cantidad       Decimal  @db.Decimal(10, 3)
-  unidadMedida   String   @default("NIU") @map("unidad_medida")
-  codigo         String?
-  descripcion    String
-  valorUnitario  Decimal  @map("valor_unitario") @db.Decimal(10, 2)
-  importe        Decimal  @db.Decimal(10, 2)
-  creadoEn       DateTime @default(now()) @map("creado_en")
+  id            Int      @id @default(autoincrement())
+  facturaId     Int      @map("factura_id")
+  orden         Int      @default(0)
+  cantidad      Decimal  @db.Decimal(10, 3)
+  unidadMedida  String   @default("NIU") @map("unidad_medida")
+  codigo        String?
+  descripcion   String
+  valorUnitario Decimal  @map("valor_unitario") @db.Decimal(10, 2)
+  importe       Decimal  @db.Decimal(10, 2)
+  creadoEn      DateTime @default(now()) @map("creado_en")
 
-  factura        Factura  @relation(fields: [facturaId], references: [id], onDelete: Cascade)
+  factura Factura @relation(fields: [facturaId], references: [id], onDelete: Cascade)
 
   @@map("factura_detalles")
 }
 
 model Caja {
-  id              Int        @id @default(autoincrement())
-  usuarioId       Int        @map("usuario_id")
-  nombre          String?
-  fecha           DateTime   @db.Date
-  saldoApertura   Decimal    @default(0) @map("saldo_apertura") @db.Decimal(10, 2)
-  saldoCierre     Decimal?   @map("saldo_cierre") @db.Decimal(10, 2)
-  estado          EstadoCaja @default(ABIERTA)
-  observaciones   String?
+  id                 Int        @id @default(autoincrement())
+  usuarioId          Int        @map("usuario_id")
+  nombre             String?
+  fecha              DateTime   @db.Date
+  saldoApertura      Decimal    @default(0) @map("saldo_apertura") @db.Decimal(10, 2)
+  saldoCierre        Decimal?   @map("saldo_cierre") @db.Decimal(10, 2)
+  estado             EstadoCaja @default(ABIERTA)
+  observaciones      String?
   // Cuenta de dinero de la que se retira el efectivo de apertura (genera un
   // movimiento de salida automático en esa cuenta). Nullable solo por
   // compatibilidad con cajas históricas; el flujo de apertura la exige.
-  cuentaOrigenId  Int?       @map("cuenta_origen_id")
+  cuentaOrigenId     Int?       @map("cuenta_origen_id")
   // Cuenta destino donde se devuelve el saldo restante al cerrar la caja.
   // Si se establece, significa que ya se generó el movimiento de devolución.
-  cuentaDestinoId Int?       @map("cuenta_destino_id")
+  cuentaDestinoId    Int?       @map("cuenta_destino_id")
   // Módulo Movimientos: egreso (categoría CAJA_CHICA) del que se abrió esta caja.
   // Un mismo egreso solo puede abrir una caja (@unique). Nullable por compatibilidad
   // con cajas históricas, que generaban su propio egreso identificado por referencia.
-  movimientoCuentaId Int?    @unique @map("movimiento_cuenta_id")
+  movimientoCuentaId Int?       @unique @map("movimiento_cuenta_id")
   // Ingreso (devolución de saldo) generado automáticamente al cerrar esta caja
   // con cuenta destino. @unique porque cada cierre genera a lo más un ingreso.
   // Vía este vínculo (en vez de `referencia`) se identifica el ingreso como
   // "devolución de caja chica" — `referencia` queda libre para que el usuario
   // escriba el N° de operación bancario real de esa devolución.
-  movimientoCierreId Int?    @unique @map("movimiento_cierre_id")
-  aperturaEn      DateTime   @default(now()) @map("apertura_en")
-  cierreEn        DateTime?  @map("cierre_en")
-  creadoEn        DateTime   @default(now()) @map("creado_en")
-  actualizadoEn   DateTime   @updatedAt @map("actualizado_en")
+  movimientoCierreId Int?       @unique @map("movimiento_cierre_id")
+  aperturaEn         DateTime   @default(now()) @map("apertura_en")
+  cierreEn           DateTime?  @map("cierre_en")
+  creadoEn           DateTime   @default(now()) @map("creado_en")
+  actualizadoEn      DateTime   @updatedAt @map("actualizado_en")
+  creadoPorId        Int?       @map("creado_por_id")
+  actualizadoPorId   Int?       @map("actualizado_por_id")
 
-  usuario         Usuario       @relation(fields: [usuarioId], references: [id])
-  cuentaOrigen    CuentaDinero? @relation("CajaOrigen", fields: [cuentaOrigenId], references: [id])
-  cuentaDestino   CuentaDinero? @relation("CajaDestino", fields: [cuentaDestinoId], references: [id])
+  usuario          Usuario             @relation(fields: [usuarioId], references: [id])
+  cuentaOrigen     CuentaDinero?       @relation("CajaOrigen", fields: [cuentaOrigenId], references: [id])
+  cuentaDestino    CuentaDinero?       @relation("CajaDestino", fields: [cuentaDestinoId], references: [id])
   movimientoCuenta MovimientoCuentaV2? @relation("CajaApertura", fields: [movimientoCuentaId], references: [id])
   movimientoCierre MovimientoCuentaV2? @relation("CajaCierre", fields: [movimientoCierreId], references: [id])
-  movimientos     MovimientoCaja[]
+  movimientos      MovimientoCaja[]
+  creadoPor        Usuario?            @relation("CajaCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor   Usuario?            @relation("CajaActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("cajas")
 }
@@ -251,23 +314,25 @@ model MovimientoCaja {
   // CHAT 9: vínculo con MovimientoCuentaV2 (nullable para compatibilidad histórica)
   movimientoCuentaId Int?               @map("movimiento_cuenta_id")
   creadoEn           DateTime           @default(now()) @map("creado_en")
+  creadoPorId        Int?               @map("creado_por_id")
 
-  caja               Caja              @relation(fields: [cajaId], references: [id])
-  movimientoCuenta   MovimientoCuentaV2? @relation("MovCajaCuenta", fields: [movimientoCuentaId], references: [id])
+  caja             Caja                @relation(fields: [cajaId], references: [id])
+  movimientoCuenta MovimientoCuentaV2? @relation("MovCajaCuenta", fields: [movimientoCuentaId], references: [id])
+  creadoPor        Usuario?            @relation("MovimientoCajaCreadoPor", fields: [creadoPorId], references: [id])
 
   @@map("movimientos_caja")
 }
 
 model LogActividad {
-  id         Int      @id @default(autoincrement())
-  usuarioId  Int      @map("usuario_id")
-  accion     String
-  modulo     String
-  detalle    String?
-  ip         String?
-  fechaHora  DateTime @default(now()) @map("fecha_hora")
+  id        Int      @id @default(autoincrement())
+  usuarioId Int      @map("usuario_id")
+  accion    String
+  modulo    String
+  detalle   String?
+  ip        String?
+  fechaHora DateTime @default(now()) @map("fecha_hora")
 
-  usuario    Usuario  @relation(fields: [usuarioId], references: [id])
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
 
   @@index([fechaHora])
   @@map("log_actividad")
@@ -288,10 +353,15 @@ model Conductor {
   carretaPreferencia  String?  @map("carreta_preferencia")
   creadoEn            DateTime @default(now()) @map("creado_en")
   actualizadoEn       DateTime @updatedAt @map("actualizado_en")
+  creadoPorId         Int?     @map("creado_por_id")
+  actualizadoPorId    Int?     @map("actualizado_por_id")
 
-  liquidaciones       Liquidacion[]
-  combustibles        Combustible[]
-  guias               Guia[]
+  liquidaciones  Liquidacion[]
+  combustibles   Combustible[]
+  guias          Guia[]
+  mantenimientos MantenimientoDetalle[]
+  creadoPor      Usuario?               @relation("ConductorCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor Usuario?               @relation("ConductorActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("conductores")
 }
@@ -320,51 +390,60 @@ model Vehiculo {
   activo               Boolean      @default(true)
   creadoEn             DateTime     @default(now()) @map("creado_en")
   actualizadoEn        DateTime     @updatedAt @map("actualizado_en")
+  creadoPorId          Int?         @map("creado_por_id")
+  actualizadoPorId     Int?         @map("actualizado_por_id")
 
-  combustibles         Combustible[]
-  guias                Guia[]
-  guiasComoCarreta     Guia[]       @relation("GuiaVehiculoCarreta")
+  combustibles     Combustible[]
+  guias            Guia[]
+  guiasComoCarreta Guia[]                 @relation("GuiaVehiculoCarreta")
+  mantenimientos   MantenimientoDetalle[]
+  creadoPor        Usuario?               @relation("VehiculoCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor   Usuario?               @relation("VehiculoActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("vehiculos")
 }
 
 // ─── LIQUIDACION ──────────────────────────────────────────────────────────────
 model Liquidacion {
-  id             Int                 @id @default(autoincrement())
-  conductorId    Int                 @map("conductor_id")
-  placaTracto    String              @map("placa_tracto")
-  placaCarreta   String?             @map("placa_carreta")
-  montoEntregado Decimal             @map("monto_entregado") @db.Decimal(10, 2)
-  reciboAnticipo String?             @map("recibo_anticipo")
-  fecha          DateTime
-  guiaReferencia String?             @map("guia_referencia")
-  observaciones  String?
-  toldo          Decimal?            @db.Decimal(10, 2)
-  totalGastos    Decimal             @default(0) @map("total_gastos") @db.Decimal(10, 2)
-  devolucion     Decimal             @default(0) @db.Decimal(10, 2)
-  reintegro      Decimal             @default(0) @db.Decimal(10, 2)
+  id               Int       @id @default(autoincrement())
+  conductorId      Int       @map("conductor_id")
+  placaTracto      String    @map("placa_tracto")
+  placaCarreta     String?   @map("placa_carreta")
+  montoEntregado   Decimal   @map("monto_entregado") @db.Decimal(10, 2)
+  reciboAnticipo   String?   @map("recibo_anticipo")
+  fecha            DateTime
+  guiaReferencia   String?   @map("guia_referencia")
+  observaciones    String?
+  toldo            Decimal?  @db.Decimal(10, 2)
+  totalGastos      Decimal   @default(0) @map("total_gastos") @db.Decimal(10, 2)
+  devolucion       Decimal   @default(0) @db.Decimal(10, 2)
+  reintegro        Decimal   @default(0) @db.Decimal(10, 2)
   // Flujo: CREADA → PAGADA → RENDIDA → CERRADA
   // (legacy: PENDIENTE_RENDICION, PENDIENTE mapeados a CREADA en la lógica de servicio)
-  estado         String              @default("CREADA")
+  estado           String    @default("CREADA")
   // Campos del nuevo flujo
-  fechaPago      DateTime?           @map("fecha_pago")
-  montoPagado    Decimal?            @map("monto_pagado") @db.Decimal(10, 2)
-  fechaRendicion DateTime?           @map("fecha_rendicion")
-  montoRendido   Decimal?            @map("monto_rendido") @db.Decimal(10, 2)
-  fechaCierre    DateTime?           @map("fecha_cierre")
-  montoDevolucion Decimal?           @map("monto_devolucion") @db.Decimal(10, 2)
-  tipoAjuste     String?             @map("tipo_ajuste")
-  creadoEn       DateTime            @default(now()) @map("creado_en")
-  actualizadoEn  DateTime            @updatedAt @map("actualizado_en")
+  fechaPago        DateTime? @map("fecha_pago")
+  montoPagado      Decimal?  @map("monto_pagado") @db.Decimal(10, 2)
+  fechaRendicion   DateTime? @map("fecha_rendicion")
+  montoRendido     Decimal?  @map("monto_rendido") @db.Decimal(10, 2)
+  fechaCierre      DateTime? @map("fecha_cierre")
+  montoDevolucion  Decimal?  @map("monto_devolucion") @db.Decimal(10, 2)
+  tipoAjuste       String?   @map("tipo_ajuste")
+  creadoEn         DateTime  @default(now()) @map("creado_en")
+  actualizadoEn    DateTime  @updatedAt @map("actualizado_en")
+  creadoPorId      Int?      @map("creado_por_id")
+  actualizadoPorId Int?      @map("actualizado_por_id")
 
-  conductor      Conductor           @relation(fields: [conductorId], references: [id])
-  detalles       LiquidacionDetalle[]
+  conductor         Conductor            @relation(fields: [conductorId], references: [id])
+  detalles          LiquidacionDetalle[]
   // NUEVO: pedidos relacionados
-  pedidos        LiquidacionPedido[]
+  pedidos           LiquidacionPedido[]
   // CHAT 9: movimientos de cuenta asociados a pagos de esta liquidación
   movimientosCuenta MovimientoCuentaV2[] @relation("LiquidacionPago")
   // P4: cargas de combustible asociadas a esta liquidación
-  combustibles   Combustible[]
+  combustibles      Combustible[]
+  creadoPor         Usuario?             @relation("LiquidacionCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor    Usuario?             @relation("LiquidacionActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("liquidaciones")
 }
@@ -378,13 +457,13 @@ enum CategoriaDetalle {
 }
 
 model LiquidacionDetalle {
-  id             Int              @id @default(autoincrement())
-  liquidacionId  Int              @map("liquidacion_id")
-  categoria      CategoriaDetalle
-  descripcion    String
-  monto          Decimal          @db.Decimal(10, 2)
+  id            Int              @id @default(autoincrement())
+  liquidacionId Int              @map("liquidacion_id")
+  categoria     CategoriaDetalle
+  descripcion   String
+  monto         Decimal          @db.Decimal(10, 2)
 
-  liquidacion    Liquidacion      @relation(fields: [liquidacionId], references: [id], onDelete: Cascade)
+  liquidacion Liquidacion @relation(fields: [liquidacionId], references: [id], onDelete: Cascade)
 
   @@map("liquidacion_detalles")
 }
@@ -394,89 +473,108 @@ model LiquidacionDetalle {
 // Restricción de negocio: un pedido solo puede estar en UNA liquidación activa
 // (validado en el service, no solo aquí).
 model LiquidacionPedido {
-  id            Int         @id @default(autoincrement())
-  liquidacionId Int         @map("liquidacion_id")
-  pedidoId      Int         @map("pedido_id")
-  creadoEn      DateTime    @default(now()) @map("creado_en")
+  id            Int      @id @default(autoincrement())
+  liquidacionId Int      @map("liquidacion_id")
+  pedidoId      Int      @map("pedido_id")
+  creadoEn      DateTime @default(now()) @map("creado_en")
 
-  liquidacion   Liquidacion @relation(fields: [liquidacionId], references: [id], onDelete: Cascade)
-  pedido        Pedido      @relation(fields: [pedidoId], references: [id])
+  liquidacion Liquidacion @relation(fields: [liquidacionId], references: [id], onDelete: Cascade)
+  pedido      Pedido      @relation(fields: [pedidoId], references: [id])
 
-  @@unique([liquidacionId, pedidoId])  // no duplicar mismo pedido en la misma liquidación
+  @@unique([liquidacionId, pedidoId]) // no duplicar mismo pedido en la misma liquidación
   @@map("liquidacion_pedidos")
 }
 
 // ─── COMBUSTIBLE ──────────────────────────────────────────────────────────────
 model Combustible {
-  id            Int       @id @default(autoincrement())
-  vehiculoId    Int       @map("vehiculo_id")
-  conductorId   Int?      @map("conductor_id")
+  id               Int      @id @default(autoincrement())
+  vehiculoId       Int      @map("vehiculo_id")
+  conductorId      Int?     @map("conductor_id")
   // P4: liquidación del conductor a la que se asocia esta carga (opcional)
-  liquidacionId Int?      @map("liquidacion_id")
-  fecha         DateTime
-  galones       Decimal   @db.Decimal(10, 3)
-  monto         Decimal   @db.Decimal(10, 2)
-  kilometraje   Decimal?  @db.Decimal(10, 2)
-  grifo         String?
-  observaciones String?
-  creadoEn      DateTime  @default(now()) @map("creado_en")
-  actualizadoEn DateTime  @updatedAt @map("actualizado_en")
+  liquidacionId    Int?     @map("liquidacion_id")
+  fecha            DateTime
+  galones          Decimal  @db.Decimal(10, 3)
+  monto            Decimal  @db.Decimal(10, 2)
+  kilometraje      Decimal? @db.Decimal(10, 2)
+  grifo            String?
+  observaciones    String?
+  creadoEn         DateTime @default(now()) @map("creado_en")
+  actualizadoEn    DateTime @updatedAt @map("actualizado_en")
+  creadoPorId      Int?     @map("creado_por_id")
+  actualizadoPorId Int?     @map("actualizado_por_id")
 
   // Módulo Movimientos: egreso (categoría COMBUSTIBLE) del que se descuenta esta
   // carga. Nullable por compatibilidad con cargas históricas (creadas antes de
   // este vínculo, que generaban su propio egreso identificado por referencia).
   movimientoCuentaId Int? @map("movimiento_cuenta_id")
 
-  vehiculo      Vehiculo     @relation(fields: [vehiculoId], references: [id])
-  conductor     Conductor?   @relation(fields: [conductorId], references: [id])
-  liquidacion   Liquidacion? @relation(fields: [liquidacionId], references: [id])
+  vehiculo         Vehiculo            @relation(fields: [vehiculoId], references: [id])
+  conductor        Conductor?          @relation(fields: [conductorId], references: [id])
+  liquidacion      Liquidacion?        @relation(fields: [liquidacionId], references: [id])
   movimientoCuenta MovimientoCuentaV2? @relation(fields: [movimientoCuentaId], references: [id])
+  creadoPor        Usuario?            @relation("CombustibleCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor   Usuario?            @relation("CombustibleActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("combustible")
 }
 
 // ─── CONFIGURACIÓN: PARÁMETROS GENERALES ─────────────────────────────────────
 model Configuracion {
-  id            Int      @id @default(autoincrement())
-  clave         String   @unique
-  valor         String
-  tipo          String   @default("texto")
-  categoria     String   @default("general")
-  etiqueta      String
-  descripcion   String?
-  creadoEn      DateTime @default(now()) @map("creado_en")
-  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+  id               Int      @id @default(autoincrement())
+  clave            String   @unique
+  valor            String
+  tipo             String   @default("texto")
+  categoria        String   @default("general")
+  etiqueta         String
+  descripcion      String?
+  creadoEn         DateTime @default(now()) @map("creado_en")
+  actualizadoEn    DateTime @updatedAt @map("actualizado_en")
+  creadoPorId      Int?     @map("creado_por_id")
+  actualizadoPorId Int?     @map("actualizado_por_id")
+
+  creadoPor      Usuario? @relation("ConfiguracionCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor Usuario? @relation("ConfiguracionActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("configuraciones")
 }
 
 // ─── SERIES DE FACTURACIÓN ────────────────────────────────────────────────────
 model SerieFacturacion {
-  id                Int      @id @default(autoincrement())
-  serie             String   @unique
-  tipoDocumento     String   @default("FACTURA") @map("tipo_documento")
-  correlativoActual Int      @default(1) @map("correlativo_actual")
-  correlativoInicial Int     @default(1) @map("correlativo_inicial")
-  activo            Boolean  @default(true)
-  descripcion       String?
-  creadoEn          DateTime @default(now()) @map("creado_en")
-  actualizadoEn     DateTime @updatedAt @map("actualizado_en")
+  id                 Int      @id @default(autoincrement())
+  serie              String   @unique
+  tipoDocumento      String   @default("FACTURA") @map("tipo_documento")
+  correlativoActual  Int      @default(1) @map("correlativo_actual")
+  correlativoInicial Int      @default(1) @map("correlativo_inicial")
+  activo             Boolean  @default(true)
+  descripcion        String?
+  creadoEn           DateTime @default(now()) @map("creado_en")
+  actualizadoEn      DateTime @updatedAt @map("actualizado_en")
+  creadoPorId        Int?     @map("creado_por_id")
+  actualizadoPorId   Int?     @map("actualizado_por_id")
+
+  creadoPor      Usuario? @relation("SerieFacturacionCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor Usuario? @relation("SerieFacturacionActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("series_facturacion")
 }
 
 // ─── TABLA MAESTRA GENÉRICA ───────────────────────────────────────────────────
 model TablaMaestra {
-  id            Int      @id @default(autoincrement())
-  tipo          String
-  codigo        String
-  nombre        String
-  descripcion   String?
-  extra         String?
-  activo        Boolean  @default(true)
-  orden         Int      @default(0)
-  creadoEn      DateTime @default(now()) @map("creado_en")
-  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+  id               Int      @id @default(autoincrement())
+  tipo             String
+  codigo           String
+  nombre           String
+  descripcion      String?
+  extra            String?
+  activo           Boolean  @default(true)
+  orden            Int      @default(0)
+  creadoEn         DateTime @default(now()) @map("creado_en")
+  actualizadoEn    DateTime @updatedAt @map("actualizado_en")
+  creadoPorId      Int?     @map("creado_por_id")
+  actualizadoPorId Int?     @map("actualizado_por_id")
+
+  creadoPor      Usuario? @relation("TablaMaestraCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor Usuario? @relation("TablaMaestraActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@unique([tipo, codigo])
   @@map("tablas_maestras")
@@ -493,19 +591,29 @@ model ConfiguracionAlerta {
   nivel            String   @default("warning")
   creadoEn         DateTime @default(now()) @map("creado_en")
   actualizadoEn    DateTime @updatedAt @map("actualizado_en")
+  creadoPorId      Int?     @map("creado_por_id")
+  actualizadoPorId Int?     @map("actualizado_por_id")
+
+  creadoPor      Usuario? @relation("ConfiguracionAlertaCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor Usuario? @relation("ConfiguracionAlertaActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("configuracion_alertas")
 }
 
 // ─── TIPOS DE VEHÍCULO ────────────────────────────────────────────────────────
 model TipoVehiculoConfig {
-  id            Int      @id @default(autoincrement())
-  codigo        String   @unique
-  nombre        String
-  descripcion   String?
-  activo        Boolean  @default(true)
-  creadoEn      DateTime @default(now()) @map("creado_en")
-  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+  id               Int      @id @default(autoincrement())
+  codigo           String   @unique
+  nombre           String
+  descripcion      String?
+  activo           Boolean  @default(true)
+  creadoEn         DateTime @default(now()) @map("creado_en")
+  actualizadoEn    DateTime @updatedAt @map("actualizado_en")
+  creadoPorId      Int?     @map("creado_por_id")
+  actualizadoPorId Int?     @map("actualizado_por_id")
+
+  creadoPor      Usuario? @relation("TipoVehiculoConfigCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor Usuario? @relation("TipoVehiculoConfigActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("tipos_vehiculo_config")
 }
@@ -519,7 +627,7 @@ model PermisoModulo {
   creadoEn      DateTime @default(now()) @map("creado_en")
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
 
-  usuario       Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
   @@unique([usuarioId, moduloKey])
   @@map("permisos_modulos")
@@ -534,7 +642,7 @@ model PermisoAccion {
   creadoEn      DateTime @default(now()) @map("creado_en")
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
 
-  usuario       Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
   @@unique([usuarioId, accionKey])
   @@map("permisos_acciones")
@@ -542,110 +650,137 @@ model PermisoAccion {
 
 // ─── MONEDAS ──────────────────────────────────────────────────────────────────
 model Moneda {
-  id            Int      @id @default(autoincrement())
-  codigo        String   @unique
-  nombre        String
-  simbolo       String
-  esPorDefecto  Boolean  @default(false) @map("es_por_defecto")
-  activo        Boolean  @default(true)
-  creadoEn      DateTime @default(now()) @map("creado_en")
-  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+  id               Int      @id @default(autoincrement())
+  codigo           String   @unique
+  nombre           String
+  simbolo          String
+  esPorDefecto     Boolean  @default(false) @map("es_por_defecto")
+  activo           Boolean  @default(true)
+  creadoEn         DateTime @default(now()) @map("creado_en")
+  actualizadoEn    DateTime @updatedAt @map("actualizado_en")
+  creadoPorId      Int?     @map("creado_por_id")
+  actualizadoPorId Int?     @map("actualizado_por_id")
 
-  cuentas           CuentaDinero[]
-  movimientos       MovimientoCuentaV2[]
-  pagosV2           PagoV2[]
+  cuentas        CuentaDinero[]
+  movimientos    MovimientoCuentaV2[]
+  pagosV2        PagoV2[]
+  creadoPor      Usuario?             @relation("MonedaCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor Usuario?             @relation("MonedaActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("monedas")
 }
 
 // ─── TIPOS DE PAGO ────────────────────────────────────────────────────────────
 model TipoPago {
-  id            Int      @id @default(autoincrement())
-  codigo        String   @unique
-  nombre        String
-  descripcion   String?
-  orden         Int      @default(0)
-  activo        Boolean  @default(true)
-  creadoEn      DateTime @default(now()) @map("creado_en")
-  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+  id               Int      @id @default(autoincrement())
+  codigo           String   @unique
+  nombre           String
+  descripcion      String?
+  orden            Int      @default(0)
+  activo           Boolean  @default(true)
+  creadoEn         DateTime @default(now()) @map("creado_en")
+  actualizadoEn    DateTime @updatedAt @map("actualizado_en")
+  creadoPorId      Int?     @map("creado_por_id")
+  actualizadoPorId Int?     @map("actualizado_por_id")
 
-  movimientos   MovimientoCuentaV2[]
-  pagosV2       PagoV2[]
+  movimientos    MovimientoCuentaV2[]
+  pagosV2        PagoV2[]
+  creadoPor      Usuario?             @relation("TipoPagoCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor Usuario?             @relation("TipoPagoActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("tipos_pago")
 }
 
 // ─── CUENTAS DE DINERO ────────────────────────────────────────────────────────
 model CuentaDinero {
-  id            Int      @id @default(autoincrement())
-  nombre        String
-  tipoCuenta    String   @map("tipo_cuenta")
-  monedaId      Int      @map("moneda_id")
-  saldoInicial  Decimal  @default(0) @map("saldo_inicial") @db.Decimal(12, 2)
-  saldoActual   Decimal  @default(0) @map("saldo_actual") @db.Decimal(12, 2)
-  descripcion   String?
-  banco         String?
-  numeroCuenta  String?  @map("numero_cuenta")
-  activo        Boolean  @default(true)
-  creadoEn      DateTime @default(now()) @map("creado_en")
-  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+  id               Int      @id @default(autoincrement())
+  nombre           String
+  tipoCuenta       String   @map("tipo_cuenta")
+  monedaId         Int      @map("moneda_id")
+  saldoInicial     Decimal  @default(0) @map("saldo_inicial") @db.Decimal(12, 2)
+  saldoActual      Decimal  @default(0) @map("saldo_actual") @db.Decimal(12, 2)
+  descripcion      String?
+  banco            String?
+  numeroCuenta     String?  @map("numero_cuenta")
+  activo           Boolean  @default(true)
+  creadoEn         DateTime @default(now()) @map("creado_en")
+  actualizadoEn    DateTime @updatedAt @map("actualizado_en")
+  creadoPorId      Int?     @map("creado_por_id")
+  actualizadoPorId Int?     @map("actualizado_por_id")
 
-  moneda        Moneda   @relation(fields: [monedaId], references: [id])
-  movimientos   MovimientoCuentaV2[] @relation("CuentaOrigen")
+  moneda             Moneda               @relation(fields: [monedaId], references: [id])
+  movimientos        MovimientoCuentaV2[] @relation("CuentaOrigen")
   movimientosDestino MovimientoCuentaV2[] @relation("CuentaDestino")
   // Cajas abiertas tomando esta cuenta como origen de los fondos de apertura
-  cajasOrigen   Caja[] @relation("CajaOrigen")
+  cajasOrigen        Caja[]               @relation("CajaOrigen")
   // Cajas cerradas que devolvieron su saldo a esta cuenta
-  cajasDestino  Caja[] @relation("CajaDestino")
+  cajasDestino       Caja[]               @relation("CajaDestino")
+  creadoPor          Usuario?             @relation("CuentaDineroCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor     Usuario?             @relation("CuentaDineroActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("cuentas_dinero")
 }
 
 // ─── MOVIMIENTOS DE CUENTA V2 ─────────────────────────────────────────────────
 model MovimientoCuentaV2 {
-  id               Int      @id @default(autoincrement())
-  cuentaId         Int      @map("cuenta_id")
-  tipo             String   // INGRESO | EGRESO | TRANSFERENCIA
-  monto            Decimal  @db.Decimal(12, 2)
-  monedaId         Int      @map("moneda_id")
-  tipoPagoId       Int?     @map("tipo_pago_id")
+  id               Int       @id @default(autoincrement())
+  cuentaId         Int       @map("cuenta_id")
+  tipo             String // INGRESO | EGRESO | TRANSFERENCIA
+  monto            Decimal   @db.Decimal(12, 2)
+  monedaId         Int       @map("moneda_id")
+  tipoPagoId       Int?      @map("tipo_pago_id")
   concepto         String
   referencia       String?
-  cuentaDestinoId  Int?     @map("cuenta_destino_id")
-  usuarioId        Int      @map("usuario_id")
+  cuentaDestinoId  Int?      @map("cuenta_destino_id")
+  usuarioId        Int       @map("usuario_id")
   // CHAT 9: vínculo directo con liquidación pagada (nullable para compatibilidad)
-  liquidacionId    Int?     @map("liquidacion_id")
+  liquidacionId    Int?      @map("liquidacion_id")
   // P7: anulación lógica (false = activo, true = anulado; default false)
-  anulado          Boolean  @default(false)
+  anulado          Boolean   @default(false)
   // Módulo Movimientos: distingue movimientos creados a mano de los importados de un Excel bancario
-  origen           String   @default("MANUAL") // MANUAL | EXCEL
+  origen           String    @default("MANUAL") // MANUAL | EXCEL
   // Módulo Movimientos: nota libre solo para egresos — describe en qué se usó el
   // gasto, independiente de `referencia` (N° de operación bancario, no se toca).
-  notaEgreso       String?  @map("nota_egreso")
-  // Módulo Movimientos: categoría del egreso (COMBUSTIBLE | REPUESTOS | CAJA_CHICA |
+  notaEgreso       String?   @map("nota_egreso")
+  // Módulo Movimientos: categoría del egreso (COMBUSTIBLE | MANTENIMIENTO | CAJA_CHICA |
   // PLANILLA | OTROS). Solo aplica a egresos. COMBUSTIBLE y CAJA_CHICA determinan
   // que este egreso pueda ser consumido desde esos módulos en vez de que ellos
-  // generen su propio movimiento financiero.
-  categoriaEgreso  String?  @map("categoria_egreso")
-  fecha            DateTime @default(now())
-  creadoEn         DateTime @default(now()) @map("creado_en")
+  // generen su propio movimiento financiero. MANTENIMIENTO se consume desde el
+  // módulo Mantenimiento (ver MantenimientoDetalle).
+  categoriaEgreso  String?   @map("categoria_egreso")
+  // Módulo Movimientos: categoría del ingreso (PAGO_FACTURA | CAJA_CHICA | LIQUIDACION |
+  // OTRO). Solo aplica a ingresos. PAGO_FACTURA crea un PagoV2 "sin aplicar" que se
+  // reparte luego entre facturas del cliente desde el módulo Cobranza.
+  categoriaIngreso String?   @map("categoria_ingreso")
+  // Módulo Movimientos: observación libre para ingresos cuyo categoriaIngreso no es
+  // PAGO_FACTURA (no requieren cliente/factura, solo un detalle de texto).
+  notaIngreso      String?   @map("nota_ingreso")
+  fecha            DateTime  @default(now())
+  creadoEn         DateTime  @default(now()) @map("creado_en")
+  actualizadoEn    DateTime? @updatedAt @map("actualizado_en")
+  creadoPorId      Int?      @map("creado_por_id")
+  actualizadoPorId Int?      @map("actualizado_por_id")
 
-  cuenta           CuentaDinero @relation("CuentaOrigen", fields: [cuentaId], references: [id])
-  moneda           Moneda       @relation(fields: [monedaId], references: [id])
-  tipoPago         TipoPago?    @relation(fields: [tipoPagoId], references: [id])
-  cuentaDestino    CuentaDinero? @relation("CuentaDestino", fields: [cuentaDestinoId], references: [id])
-  usuario          Usuario      @relation(fields: [usuarioId], references: [id])
-  liquidacion      Liquidacion? @relation("LiquidacionPago", fields: [liquidacionId], references: [id])
+  cuenta          CuentaDinero          @relation("CuentaOrigen", fields: [cuentaId], references: [id])
+  moneda          Moneda                @relation(fields: [monedaId], references: [id])
+  tipoPago        TipoPago?             @relation(fields: [tipoPagoId], references: [id])
+  cuentaDestino   CuentaDinero?         @relation("CuentaDestino", fields: [cuentaDestinoId], references: [id])
+  usuario         Usuario               @relation(fields: [usuarioId], references: [id])
+  liquidacion     Liquidacion?          @relation("LiquidacionPago", fields: [liquidacionId], references: [id])
   // Back-relation: movimientos de caja que apuntan a este movimiento de cuenta
-  movimientosCaja  MovimientoCaja[] @relation("MovCajaCuenta")
+  movimientosCaja MovimientoCaja[]      @relation("MovCajaCuenta")
   // Módulo Movimientos: cobranza vinculada a este movimiento (solo si tipo = INGRESO)
-  cobranza         PagoV2?
+  cobranza        PagoV2?
   // Cargas de combustible que descuentan de este egreso (categoría COMBUSTIBLE)
-  combustibles     Combustible[]
+  combustibles    Combustible[]
   // Caja abierta a partir de este egreso (categoría CAJA_CHICA)
-  cajaApertura     Caja? @relation("CajaApertura")
+  cajaApertura    Caja?                 @relation("CajaApertura")
   // Caja cuyo cierre generó este ingreso (devolución de saldo)
-  cajaCierre       Caja? @relation("CajaCierre")
+  cajaCierre      Caja?                 @relation("CajaCierre")
+  // Módulo Mantenimiento: detalle de vehículo/conductor/motivo de este egreso (categoría MANTENIMIENTO)
+  mantenimiento   MantenimientoDetalle?
+  creadoPor       Usuario?              @relation("MovimientoCuentaV2CreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor  Usuario?              @relation("MovimientoCuentaV2ActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("movimientos_cuenta_v2")
 }
@@ -712,18 +847,22 @@ model Guia {
   anulado                  Boolean   @default(false)
   creadoEn                 DateTime  @default(now()) @map("creado_en")
   actualizadoEn            DateTime  @updatedAt @map("actualizado_en")
+  creadoPorId              Int?      @map("creado_por_id")
+  actualizadoPorId         Int?      @map("actualizado_por_id")
 
-  pedido    Pedido?    @relation(fields: [pedidoId], references: [id])
-  factura   Factura?   @relation(fields: [facturaId], references: [id])
-  cliente   Cliente?   @relation("GuiaDestinatario", fields: [clienteId], references: [id])
-  remitente Cliente?   @relation("GuiaRemitente", fields: [remitenteId], references: [id])
-  usuario   Usuario    @relation(fields: [usuarioId], references: [id])
+  pedido          Pedido?    @relation(fields: [pedidoId], references: [id])
+  factura         Factura?   @relation(fields: [facturaId], references: [id])
+  cliente         Cliente?   @relation("GuiaDestinatario", fields: [clienteId], references: [id])
+  remitente       Cliente?   @relation("GuiaRemitente", fields: [remitenteId], references: [id])
+  usuario         Usuario    @relation(fields: [usuarioId], references: [id])
   conductor       Conductor? @relation(fields: [conductorId], references: [id])
   vehiculo        Vehiculo?  @relation(fields: [vehiculoId], references: [id])
   vehiculoCarreta Vehiculo?  @relation("GuiaVehiculoCarreta", fields: [vehiculoCarretaId], references: [id])
+  creadoPor       Usuario?   @relation("GuiaCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor  Usuario?   @relation("GuiaActualizadoPor", fields: [actualizadoPorId], references: [id])
 
-  detalles                   GuiaDetalle[]
-  transportistasAdicionales  GuiaTransportistaAdicional[]
+  detalles                  GuiaDetalle[]
+  transportistasAdicionales GuiaTransportistaAdicional[]
 
   @@map("guias")
 }
@@ -753,33 +892,83 @@ model GuiaTransportistaAdicional {
 }
 
 // ─── PAGOS V2 ─────────────────────────────────────────────────────────────────
-// Módulo Movimientos: registra la vinculación de cobranza de un ingreso importado
-// (cliente + factura, o cliente + observación libre si no aplica a ninguna factura)
+// Módulo Cobranza: registra el pago de un ingreso (cliente + factura(s), o
+// cliente + observación libre si no aplica a ninguna factura). `facturaId` se
+// conserva solo por compatibilidad con pagos históricos 1:1 — el flujo nuevo
+// reparte el pago entre una o más facturas vía PagoV2AplicacionFactura.
 model PagoV2 {
-  id                 Int      @id @default(autoincrement())
-  facturaId          Int?     @map("factura_id")
-  clienteId          Int?     @map("cliente_id")
-  usuarioId          Int      @map("usuario_id")
-  monto              Decimal  @db.Decimal(12, 2)
-  monedaId           Int      @map("moneda_id")
-  tipoPagoId         Int?     @map("tipo_pago_id")
+  id                 Int       @id @default(autoincrement())
+  facturaId          Int?      @map("factura_id")
+  clienteId          Int?      @map("cliente_id")
+  usuarioId          Int       @map("usuario_id")
+  monto              Decimal   @db.Decimal(12, 2)
+  monedaId           Int       @map("moneda_id")
+  tipoPagoId         Int?      @map("tipo_pago_id")
   referencia         String?
   observaciones      String?
-  fechaPago          DateTime @default(now()) @map("fecha_pago")
+  fechaPago          DateTime  @default(now()) @map("fecha_pago")
   // Vínculo con el movimiento de cuenta (ingreso) que esta cobranza explica
-  movimientoCuentaId Int?     @unique @map("movimiento_cuenta_id")
+  movimientoCuentaId Int?      @unique @map("movimiento_cuenta_id")
   // Anulación lógica — no revierte el movimiento de cuenta, solo desvincula la cobranza
-  anulado            Boolean  @default(false)
-  motivoAnulacion    String?  @map("motivo_anulacion")
+  anulado            Boolean   @default(false)
+  motivoAnulacion    String?   @map("motivo_anulacion")
   anuladoEn          DateTime? @map("anulado_en")
-  creadoEn           DateTime @default(now()) @map("creado_en")
+  creadoEn           DateTime  @default(now()) @map("creado_en")
+  actualizadoEn      DateTime? @updatedAt @map("actualizado_en")
+  creadoPorId        Int?      @map("creado_por_id")
+  actualizadoPorId   Int?      @map("actualizado_por_id")
 
-  factura            Factura?  @relation(fields: [facturaId], references: [id])
-  cliente            Cliente?  @relation(fields: [clienteId], references: [id])
-  moneda             Moneda   @relation(fields: [monedaId], references: [id])
-  tipoPago           TipoPago? @relation(fields: [tipoPagoId], references: [id])
-  usuario            Usuario  @relation(fields: [usuarioId], references: [id])
-  movimientoCuenta   MovimientoCuentaV2? @relation(fields: [movimientoCuentaId], references: [id])
+  factura          Factura?                  @relation(fields: [facturaId], references: [id])
+  cliente          Cliente?                  @relation(fields: [clienteId], references: [id])
+  moneda           Moneda                    @relation(fields: [monedaId], references: [id])
+  tipoPago         TipoPago?                 @relation(fields: [tipoPagoId], references: [id])
+  usuario          Usuario                   @relation(fields: [usuarioId], references: [id])
+  movimientoCuenta MovimientoCuentaV2?       @relation(fields: [movimientoCuentaId], references: [id])
+  aplicaciones     PagoV2AplicacionFactura[]
+  creadoPor        Usuario?                  @relation("PagoV2CreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor   Usuario?                  @relation("PagoV2ActualizadoPor", fields: [actualizadoPorId], references: [id])
 
   @@map("pagos_v2")
+}
+
+// ─── MÓDULO COBRANZA: APLICACIÓN DE UN PAGO A UNA O VARIAS FACTURAS ──────────
+model PagoV2AplicacionFactura {
+  id          Int      @id @default(autoincrement())
+  pagoId      Int      @map("pago_id")
+  facturaId   Int      @map("factura_id")
+  monto       Decimal  @db.Decimal(12, 2)
+  creadoEn    DateTime @default(now()) @map("creado_en")
+  creadoPorId Int?     @map("creado_por_id")
+
+  pago      PagoV2   @relation(fields: [pagoId], references: [id], onDelete: Cascade)
+  factura   Factura  @relation(fields: [facturaId], references: [id])
+  creadoPor Usuario? @relation("AplicacionFacturaCreadoPor", fields: [creadoPorId], references: [id])
+
+  @@unique([pagoId, facturaId])
+  @@map("pago_v2_aplicaciones_factura")
+}
+
+// ─── MÓDULO MANTENIMIENTO: RELACIÓN DE UN EGRESO A VEHÍCULO/CONDUCTOR/MOTIVO ─
+// Un egreso (MovimientoCuentaV2, categoriaEgreso = MANTENIMIENTO) empieza "por
+// relacionar"; al completarse este registro pasa a "relacionado". El motivo es
+// configurable vía TablaMaestra (tipo = 'motivo_mantenimiento').
+model MantenimientoDetalle {
+  id                 Int      @id @default(autoincrement())
+  movimientoCuentaId Int      @unique @map("movimiento_cuenta_id")
+  vehiculoId         Int      @map("vehiculo_id")
+  conductorId        Int?     @map("conductor_id")
+  motivoCodigo       String   @map("motivo_codigo")
+  descripcion        String?
+  creadoEn           DateTime @default(now()) @map("creado_en")
+  creadoPorId        Int?     @map("creado_por_id")
+  actualizadoEn      DateTime @updatedAt @map("actualizado_en")
+  actualizadoPorId   Int?     @map("actualizado_por_id")
+
+  movimientoCuenta MovimientoCuentaV2 @relation(fields: [movimientoCuentaId], references: [id])
+  vehiculo         Vehiculo           @relation(fields: [vehiculoId], references: [id])
+  conductor        Conductor?         @relation(fields: [conductorId], references: [id])
+  creadoPor        Usuario?           @relation("MantenimientoCreadoPor", fields: [creadoPorId], references: [id])
+  actualizadoPor   Usuario?           @relation("MantenimientoActualizadoPor", fields: [actualizadoPorId], references: [id])
+
+  @@map("mantenimiento_detalles")
 }

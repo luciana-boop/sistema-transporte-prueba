@@ -104,6 +104,8 @@ export class CajaService {
       where: { id },
       include: {
         usuario: { select: { id: true, nombre: true } },
+        creadoPor: { select: { id: true, nombre: true } },
+        actualizadoPor: { select: { id: true, nombre: true } },
         movimientos: {
           orderBy: { creadoEn: 'asc' },
         },
@@ -203,6 +205,7 @@ export class CajaService {
           movimientoCuentaId: egreso.id,
           estado: EstadoCaja.ABIERTA,
           observaciones: dto.observaciones,
+          creadoPorId: usuarioId,
         },
       });
     });
@@ -258,6 +261,7 @@ export class CajaService {
             observaciones: dto.observaciones,
             cuentaDestinoId: dto.cuentaDestinoId,
             movimientoCierreId: ingreso.id,
+            actualizadoPorId: usuarioId,
           },
         });
       });
@@ -270,6 +274,7 @@ export class CajaService {
         saldoCierre: dto.saldoCierre,
         cierreEn: new Date(),
         observaciones: dto.observaciones,
+        actualizadoPorId: usuarioId,
       },
     });
   }
@@ -293,6 +298,7 @@ export class CajaService {
         concepto: dto.concepto,
         fecha: dto.fecha ? new Date(dto.fecha) : new Date(),
         referencia: dto.referencia ?? null,
+        creadoPorId: usuarioId,
       },
     });
   }

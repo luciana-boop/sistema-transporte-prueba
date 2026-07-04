@@ -14,7 +14,7 @@ import { pedidosApi, clientesApi, fetchAllPages } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage, ESTADO_PEDIDO_LABEL } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
-  EmptyState, Modal, FormField, Input, Select, Textarea,
+  EmptyState, Modal, FormField, Input, Select, Textarea, AuditInfo,
 } from '@/components/shared';
 import { useAuthStore } from '@/store/auth.store';
 import * as XLSX from 'xlsx';
@@ -328,6 +328,13 @@ export default function PedidosPage() {
                 <p className="text-sm bg-muted/30 rounded p-2">{viewing.observaciones}</p>
               </div>
             )}
+
+            <AuditInfo
+              creadoPor={viewing.creadoPor}
+              creadoEn={viewing.creadoEn}
+              actualizadoPor={viewing.actualizadoPor}
+              actualizadoEn={viewing.actualizadoEn}
+            />
 
             <div className="flex justify-between pt-2 border-t border-border">
               {viewing.estado === 'ACTIVO' && (

@@ -51,6 +51,7 @@ const TIPOS_TABLA = [
   { tipo: 'proveedor_combustible',label: 'Proveedores combustible' },
   { tipo: 'unidad_medida',        label: 'Unidades de medida' },
   { tipo: 'codigo_factura',       label: 'Códigos de facturación' },
+  { tipo: 'motivo_mantenimiento', label: 'Motivos de mantenimiento' },
 ];
 
 const NIVEL_COLOR: Record<string, string> = {

@@ -53,6 +53,9 @@ export interface Cliente {
   condicionPago: CondicionPago;
   activo: boolean;
   creadoEn: string;
+  creadoPor?: { id: number; nombre: string } | null;
+  actualizadoPor?: { id: number; nombre: string } | null;
+  actualizadoEn?: string | null;
   _count?: { pedidos: number; facturas: number };
 }
 
@@ -69,6 +72,10 @@ export interface Pedido {
   fechaPedido: string;
   cliente: { id: number; razonSocial: string; ruc: string };
   usuario: { id: number; nombre: string };
+  creadoPor?: { id: number; nombre: string } | null;
+  actualizadoPor?: { id: number; nombre: string } | null;
+  creadoEn?: string;
+  actualizadoEn?: string | null;
 }
 
 // NUEVO: lÃ­nea de detalle de factura
@@ -114,14 +121,18 @@ export interface Factura {
   cliente: { id: number; razonSocial: string; ruc: string };
   pedido?: { id: number; origen: string; destino: string };
   usuario: { id: number; nombre: string };
+  creadoPor?: { id: number; nombre: string } | null;
+  actualizadoPor?: { id: number; nombre: string } | null;
+  creadoEn?: string;
+  actualizadoEn?: string | null;
 }
 
-/** Módulo Movimientos: cobranza vinculada a un ingreso (cliente + factura, o cliente + observación) */
+/** Módulo Cobranza: pago de un cliente (ingreso categoría PAGO_FACTURA) repartido entre una o más facturas */
 export interface MovimientoCobranza {
   id: number;
   movimientoCuentaId: number;
   cliente: { id: number; razonSocial: string; ruc: string };
-  factura?: { id: number; numeroFactura: string; total: number } | null;
+  aplicaciones: Array<{ id: number; monto: number; factura: { id: number; numeroFactura: string } }>;
   observaciones?: string;
   monto: number;
   fechaPago: string;
@@ -155,6 +166,10 @@ export interface Caja {
   saldoActual?: number;
   movimientos?: MovimientoCaja[];
   _count?: { movimientos: number };
+  creadoPor?: { id: number; nombre: string } | null;
+  actualizadoPor?: { id: number; nombre: string } | null;
+  creadoEn?: string;
+  actualizadoEn?: string | null;
 }
 
 /** Egreso de categoría Caja chica aún no usado para abrir ninguna caja */
@@ -274,6 +289,9 @@ export interface Conductor {
   tractoPreferencia?: string;
   carretaPreferencia?: string;
   creadoEn: string;
+  creadoPor?: { id: number; nombre: string } | null;
+  actualizadoPor?: { id: number; nombre: string } | null;
+  actualizadoEn?: string | null;
 }
 
 // â”€â”€â”€ VEHÃCULOS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -296,6 +314,9 @@ export interface Vehiculo {
   observaciones?: string;
   activo: boolean;
   creadoEn: string;
+  creadoPor?: { id: number; nombre: string } | null;
+  actualizadoPor?: { id: number; nombre: string } | null;
+  actualizadoEn?: string | null;
 }
 
 // â”€â”€â”€ LIQUIDACIONES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -362,6 +383,9 @@ export interface Liquidacion {
   detalles: LiquidacionDetalle[];
   pedidos: LiquidacionPedido[];
   creadoEn: string;
+  creadoPor?: { id: number; nombre: string } | null;
+  actualizadoPor?: { id: number; nombre: string } | null;
+  actualizadoEn?: string | null;
 }
 
 // â”€â”€â”€ COMBUSTIBLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -382,6 +406,9 @@ export interface Combustible {
   conductor?: { id: number; nombre: string };
   liquidacion?: { id: number; fecha: string; estado: string; montoEntregado?: number };
   creadoEn: string;
+  creadoPor?: { id: number; nombre: string } | null;
+  actualizadoPor?: { id: number; nombre: string } | null;
+  actualizadoEn?: string | null;
 }
 
 /** Egreso de categoría Combustible con saldo disponible para vincular una nueva carga */
@@ -448,6 +475,8 @@ export interface TablaMaestra {
   extra?: string;
   activo: boolean;
   orden: number;
+  creadoPor?: { id: number; nombre: string } | null;
+  actualizadoPor?: { id: number; nombre: string } | null;
 }
 
 export interface TipoVehiculoConfig {
@@ -490,6 +519,8 @@ export interface CuentaDinero {
   numeroCuenta?: string;
   moneda: { codigo: string; nombre: string; simbolo: string };
   creadoEn: string;
+  creadoPor?: { id: number; nombre: string } | null;
+  actualizadoPor?: { id: number; nombre: string } | null;
 }
 
 export interface MovimientoCuenta {
@@ -504,20 +535,26 @@ export interface MovimientoCuenta {
   referencia?: string;
   /** Módulo Movimientos: nota libre solo para egresos — en qué se usó el gasto */
   notaEgreso?: string | null;
-  /** Módulo Movimientos: categoría del egreso (COMBUSTIBLE | REPUESTOS | CAJA_CHICA | PLANILLA | OTROS) */
+  /** Módulo Movimientos: categoría del egreso (COMBUSTIBLE | MANTENIMIENTO | CAJA_CHICA | PLANILLA | OTROS) */
   categoriaEgreso?: string | null;
+  /** Módulo Movimientos: categoría del ingreso (PAGO_FACTURA | CAJA_CHICA | LIQUIDACION | OTRO) */
+  categoriaIngreso?: string | null;
+  /** Módulo Movimientos: observación libre para ingresos cuya categoría no es PAGO_FACTURA */
+  notaIngreso?: string | null;
   fecha: string;
   anulado: boolean;
   cuenta: { id: number; nombre: string; tipoCuenta: string };
   moneda: { codigo: string; simbolo: string };
   tipoPago?: { nombre: string };
   usuario: { id: number; nombre: string };
-  /** Módulo Movimientos: cobranza vinculada (solo relevante si tipo === 'INGRESO') */
+  /** Módulo Cobranza: pago vinculado (solo relevante si tipo === 'INGRESO' y categoriaIngreso === 'PAGO_FACTURA') */
   cobranza?: {
-    id: number; anulado: boolean; observaciones?: string;
+    id: number; anulado: boolean; monto: number;
     cliente: { id: number; razonSocial: string };
-    factura?: { id: number; numeroFactura: string } | null;
+    aplicaciones: Array<{ monto: number }>;
   } | null;
+  /** Módulo Mantenimiento: detalle vinculado (solo relevante si categoriaEgreso === 'MANTENIMIENTO') */
+  mantenimiento?: { id: number; vehiculo: { id: number; placa: string } } | null;
   /** Si este ingreso es la devolución de saldo al cerrar una caja chica — no admite cobranza */
   cajaCierre?: { id: number; nombre?: string | null } | null;
 }
@@ -526,6 +563,10 @@ export interface MovimientoCuenta {
 export interface MovimientoCuentaDetalle extends MovimientoCuenta {
   origen: string;
   liquidacion?: { id: number; conductor?: { nombre: string } } | null;
+  creadoEn?: string;
+  creadoPor?: { id: number; nombre: string } | null;
+  actualizadoPor?: { id: number; nombre: string } | null;
+  actualizadoEn?: string | null;
 }
 
 export interface ResumenFinanciero {

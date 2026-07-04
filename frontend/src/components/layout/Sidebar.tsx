@@ -7,6 +7,7 @@ import {
   LayoutDashboard, Users, Package, FileText, ArrowLeftRight,
   Wallet, BarChart3, UserCog, Truck, LogOut,
   UserCheck, Car, ClipboardList, Fuel, Archive, Settings2, FileOutput,
+  HandCoins, Wrench,
 } from 'lucide-react';
 import { useAuthStore }      from '@/store/auth.store';
 import { usePermisosStore }  from '@/store/permisos.store';
@@ -38,6 +39,8 @@ const navGroups: {
       { href: '/facturacion',   label: 'Facturación',   icon: FileText,     moduloKey: 'facturacion'   },
       { href: '/guias',         label: 'Guías',         icon: FileOutput,   moduloKey: 'guias'         },
       { href: '/movimientos',   label: 'Movimientos',   icon: ArrowLeftRight, moduloKey: 'movimientos' },
+      { href: '/cobranza',      label: 'Cobranza',      icon: HandCoins,    moduloKey: 'cobranza'      },
+      { href: '/mantenimiento', label: 'Mantenimiento', icon: Wrench,       moduloKey: 'mantenimiento' },
       { href: '/liquidaciones', label: 'Liquidaciones', icon: ClipboardList,moduloKey: 'liquidaciones' },
       { href: '/combustible',   label: 'Combustible',   icon: Fuel,         moduloKey: 'combustible'   },
       { href: '/caja',          label: 'Caja',          icon: Wallet,       moduloKey: 'caja'          },

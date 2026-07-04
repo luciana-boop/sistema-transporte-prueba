@@ -1,34 +1,50 @@
 // FILE: src/app/(dashboard)/movimientos/page.tsx
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  Upload, Plus, Eye, XCircle, Link2, Unlink, FileSpreadsheet, AlertTriangle, Pencil,
+  Upload, Plus, Eye, XCircle, FileSpreadsheet, AlertTriangle, Pencil,
 } from 'lucide-react';
 import { movimientosApi, cuentasApi, clientesApi } from '@/services/api';
 import { CuentaSelector, MonedaSelector, TipoPagoSelector } from '@/components/shared/FinancialSelectors';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge,
   Modal, FormField, Input, Select, Textarea, StatCard,
-  TableSkeleton, EmptyState,
+  TableSkeleton, EmptyState, AuditInfo,
 } from '@/components/shared';
 import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
 import { parseExcelMovimientos, type FilaMovimientoImportado } from '@/lib/parseExcelMovimientos';
-import type { MovimientoCuenta, MovimientoCuentaDetalle, MovimientoCobranza } from '@/types';
+import type { MovimientoCuenta } from '@/types';
 
 type Tab = 'INGRESO' | 'EGRESO';
 
 const CATEGORIAS_EGRESO: { value: string; label: string }[] = [
   { value: 'COMBUSTIBLE', label: 'Combustible' },
-  { value: 'REPUESTOS', label: 'Repuestos' },
+  { value: 'MANTENIMIENTO', label: 'Mantenimiento' },
   { value: 'CAJA_CHICA', label: 'Caja chica' },
   { value: 'PLANILLA', label: 'Planilla' },
   { value: 'OTROS', label: 'Otros' },
 ];
 const categoriaLabel = (v?: string | null) => CATEGORIAS_EGRESO.find((c) => c.value === v)?.label ?? v ?? '—';
+
+const CATEGORIAS_INGRESO: { value: string; label: string }[] = [
+  { value: 'PAGO_FACTURA', label: 'Pago de factura' },
+  { value: 'CAJA_CHICA', label: 'Caja chica' },
+  { value: 'LIQUIDACION', label: 'Liquidación' },
+  { value: 'OTRO', label: 'Otro' },
+];
+const categoriaIngresoLabel = (v?: string | null) => CATEGORIAS_INGRESO.find((c) => c.value === v)?.label ?? v ?? '—';
+
+const estadoCobranza = (m: MovimientoCuenta) => {
+  if (!m.cobranza || m.cobranza.anulado) return null;
+  const aplicado = (m.cobranza.aplicaciones ?? []).reduce((s, a) => s + Number(a.monto), 0);
+  const pendiente = Number(m.cobranza.monto) - aplicado;
+  if (pendiente <= 0.01) return { texto: 'Aplicado a factura(s)', pendiente: false };
+  return { texto: 'Pendiente de aplicar', pendiente: true };
+};
 
 export default function MovimientosPage() {
   const { usuario } = useAuthStore();
@@ -46,7 +62,6 @@ export default function MovimientosPage() {
   const [viewingId, setViewingId] = useState<number | null>(null);
   const [showRegistrar, setShowRegistrar] = useState(false);
   const [showImportar, setShowImportar] = useState(false);
-  const [cobranzaMov, setCobranzaMov] = useState<MovimientoCuenta | null>(null);
 
   const params = {
     tipo: tab,
@@ -85,6 +100,13 @@ export default function MovimientosPage() {
 
   // ── Registrar movimiento manual ──────────────────────────────────────────
   const [formRegistrar, setFormRegistrar] = useState<Record<string, string>>({});
+
+  const { data: clientes = [] } = useQuery({
+    queryKey: ['clientes', 'activos-ingreso'],
+    queryFn: () => clientesApi.listar({ activo: true, limit: 100 }).then((r) => r.data.data.items).catch(() => []),
+    enabled: showRegistrar && tab === 'INGRESO' && formRegistrar.categoriaIngreso === 'PAGO_FACTURA',
+  });
+
   const crearMutation = useMutation({
     mutationFn: () => movimientosApi.crear({
       cuentaId: parseInt(formRegistrar.cuentaId),
@@ -97,6 +119,9 @@ export default function MovimientosPage() {
       fecha: formRegistrar.fecha || undefined,
       notaEgreso: tab === 'EGRESO' ? (formRegistrar.notaEgreso || undefined) : undefined,
       categoriaEgreso: tab === 'EGRESO' ? (formRegistrar.categoriaEgreso || undefined) : undefined,
+      categoriaIngreso: tab === 'INGRESO' ? (formRegistrar.categoriaIngreso || undefined) : undefined,
+      notaIngreso: tab === 'INGRESO' && formRegistrar.categoriaIngreso !== 'PAGO_FACTURA' ? (formRegistrar.notaIngreso || undefined) : undefined,
+      clienteId: tab === 'INGRESO' && formRegistrar.categoriaIngreso === 'PAGO_FACTURA' && formRegistrar.clienteId ? parseInt(formRegistrar.clienteId) : undefined,
     }),
     onSuccess: () => { toast.success('Movimiento registrado'); setShowRegistrar(false); setFormRegistrar({}); inv(); },
     onError: (e) => toast.error(getErrorMessage(e)),
@@ -195,52 +220,13 @@ export default function MovimientosPage() {
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
-  // ── Vincular cobranza ─────────────────────────────────────────────────────
-  const [modoCobranza, setModoCobranza] = useState<'FACTURA' | 'OTRO'>('FACTURA');
-  const [clienteIdCobranza, setClienteIdCobranza] = useState('');
-  const [facturaIdCobranza, setFacturaIdCobranza] = useState('');
-  const [observacionCobranza, setObservacionCobranza] = useState('');
-
-  const { data: clientes = [] } = useQuery({
-    queryKey: ['clientes', 'activos-cobranza'],
-    queryFn: () => clientesApi.listar({ activo: true, limit: 100 }).then((r) => r.data.data.items).catch(() => []),
-    enabled: !!cobranzaMov,
-  });
-
-  const { data: facturasCliente = [] } = useQuery({
-    queryKey: ['movimientos', 'facturas-cliente', clienteIdCobranza],
-    queryFn: () => movimientosApi.facturasPorCliente(parseInt(clienteIdCobranza)).then((r) => r.data.data),
-    enabled: !!clienteIdCobranza && modoCobranza === 'FACTURA',
-  });
-
-  const cerrarCobranza = () => {
-    setCobranzaMov(null); setClienteIdCobranza(''); setFacturaIdCobranza('');
-    setObservacionCobranza(''); setModoCobranza('FACTURA');
-  };
-
-  const vincularMutation = useMutation({
-    mutationFn: () => movimientosApi.vincularCobranza(cobranzaMov!.id, {
-      clienteId: parseInt(clienteIdCobranza),
-      facturaId: modoCobranza === 'FACTURA' ? parseInt(facturaIdCobranza) : undefined,
-      observacion: modoCobranza === 'OTRO' ? observacionCobranza : undefined,
-    }),
-    onSuccess: () => { toast.success('Cobranza vinculada'); cerrarCobranza(); inv(); },
-    onError: (e) => toast.error(getErrorMessage(e)),
-  });
-
-  const desvincularMutation = useMutation({
-    mutationFn: (id: number) => movimientosApi.desvincularCobranza(id),
-    onSuccess: () => { toast.success('Cobranza desvinculada'); inv(); },
-    onError: (e) => toast.error(getErrorMessage(e)),
-  });
-
   const items = lista?.items ?? [];
 
   return (
     <div className="page-container">
       <PageHeader
         title="Movimientos"
-        description="Ingresos y egresos de las cuentas, importación bancaria y cobranza"
+        description="Ingresos y egresos de las cuentas e importación bancaria"
         action={
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setShowImportar(true)}>
@@ -299,6 +285,7 @@ export default function MovimientosPage() {
               <Th>N° Operación</Th>
               {tab === 'EGRESO' && <Th>Categoría</Th>}
               {tab === 'EGRESO' && <Th>Referencia</Th>}
+              {tab === 'INGRESO' && <Th>Categoría</Th>}
               <Th>Cuenta</Th>
               <Th className="text-right">Monto</Th>
               {tab === 'INGRESO' && <Th>Cobranza</Th>}
@@ -306,13 +293,16 @@ export default function MovimientosPage() {
             </tr>
           </thead>
           <tbody>
-            {items.length ? items.map((m: MovimientoCuenta) => (
+            {items.length ? items.map((m: MovimientoCuenta) => {
+              const cobranzaEstado = estadoCobranza(m);
+              return (
               <Tr key={m.id}>
                 <Td><span className="text-sm">{formatDate(m.fecha)}</span></Td>
                 <Td><span className="text-sm font-medium">{m.concepto}</span>{m.anulado && <Badge value="ANULADA" label="Anulado" />}</Td>
                 <Td><span className="text-xs text-muted-foreground">{m.referencia || '—'}</span></Td>
                 {tab === 'EGRESO' && <Td><span className="text-xs text-muted-foreground">{categoriaLabel(m.categoriaEgreso)}</span></Td>}
                 {tab === 'EGRESO' && <Td><span className="text-xs text-muted-foreground">{m.notaEgreso || '—'}</span></Td>}
+                {tab === 'INGRESO' && <Td><span className="text-xs text-muted-foreground">{categoriaIngresoLabel(m.categoriaIngreso) === '—' ? (m.notaIngreso || '—') : categoriaIngresoLabel(m.categoriaIngreso)}</span></Td>}
                 <Td><span className="text-xs text-muted-foreground">{m.cuenta?.nombre}</span></Td>
                 <Td className="text-right">
                   <span className={`font-semibold ${tab === 'INGRESO' ? 'text-emerald-500' : 'text-destructive'}`}>
@@ -321,21 +311,14 @@ export default function MovimientosPage() {
                 </Td>
                 {tab === 'INGRESO' && (
                   <Td>
-                    {m.cobranza && !m.cobranza.anulado ? (
-                      <span className="text-xs text-muted-foreground">
-                        {m.cobranza.factura
-                          ? `${m.cobranza.cliente.razonSocial} — Fact. ${m.cobranza.factura.numeroFactura}`
-                          : `${m.cobranza.cliente.razonSocial} — Otro ingreso`}
+                    {cobranzaEstado ? (
+                      <span className={`text-xs ${cobranzaEstado.pendiente ? 'text-amber-500' : 'text-emerald-500'}`}>
+                        {cobranzaEstado.texto} — {m.cobranza!.cliente.razonSocial}
                       </span>
                     ) : m.cajaCierre ? (
                       <span className="text-xs text-muted-foreground">Devolución caja chica{m.cajaCierre.nombre ? ` — ${m.cajaCierre.nombre}` : ''}</span>
                     ) : (
-                      <button
-                        onClick={() => setCobranzaMov(m)}
-                        className="text-xs text-primary hover:underline flex items-center gap-1"
-                      >
-                        <Link2 className="w-3 h-3" /> Vincular cobranza
-                      </button>
+                      <span className="text-xs text-muted-foreground">—</span>
                     )}
                   </Td>
                 )}
@@ -363,7 +346,8 @@ export default function MovimientosPage() {
                   </div>
                 </Td>
               </Tr>
-            )) : <tr><td colSpan={tab === 'EGRESO' ? 8 : 7}><EmptyState message={`Sin ${tab === 'INGRESO' ? 'ingresos' : 'egresos'} en el período`} /></td></tr>}
+              );
+            }) : <tr><td colSpan={tab === 'EGRESO' ? 8 : 8}><EmptyState message={`Sin ${tab === 'INGRESO' ? 'ingresos' : 'egresos'} en el período`} /></td></tr>}
           </tbody>
         </Table>
       )}
@@ -409,12 +393,38 @@ export default function MovimientosPage() {
               <Input value={formRegistrar.notaEgreso ?? ''} onChange={(e) => setFormRegistrar((p) => ({ ...p, notaEgreso: e.target.value }))} />
             </FormField>
           )}
+          {tab === 'INGRESO' && (
+            <FormField label="Categoría" required hint="Pago de factura permite relacionar este ingreso a una o más facturas del cliente desde Cobranza">
+              <Select value={formRegistrar.categoriaIngreso ?? ''} onChange={(e) => setFormRegistrar((p) => ({ ...p, categoriaIngreso: e.target.value, clienteId: '', notaIngreso: '' }))}>
+                <option value="">Selecciona una categoría</option>
+                {CATEGORIAS_INGRESO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </Select>
+            </FormField>
+          )}
+          {tab === 'INGRESO' && formRegistrar.categoriaIngreso === 'PAGO_FACTURA' && (
+            <FormField label="Cliente" required hint="El pago quedará disponible en Cobranza para relacionarlo a una o más facturas">
+              <Select value={formRegistrar.clienteId ?? ''} onChange={(e) => setFormRegistrar((p) => ({ ...p, clienteId: e.target.value }))}>
+                <option value="">Selecciona un cliente</option>
+                {clientes.map((c: any) => <option key={c.id} value={c.id}>{c.razonSocial} — {c.ruc}</option>)}
+              </Select>
+            </FormField>
+          )}
+          {tab === 'INGRESO' && formRegistrar.categoriaIngreso && formRegistrar.categoriaIngreso !== 'PAGO_FACTURA' && (
+            <FormField label="Observación" required hint="Detalle de este ingreso">
+              <Textarea value={formRegistrar.notaIngreso ?? ''} onChange={(e) => setFormRegistrar((p) => ({ ...p, notaIngreso: e.target.value }))} placeholder="Motivo del ingreso..." />
+            </FormField>
+          )}
           <FormField label="Fecha"><Input type="date" value={formRegistrar.fecha ?? ''} onChange={(e) => setFormRegistrar((p) => ({ ...p, fecha: e.target.value }))} /></FormField>
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="secondary" onClick={() => { setShowRegistrar(false); setFormRegistrar({}); }}>Cancelar</Button>
             <Button
               loading={crearMutation.isPending}
-              disabled={!formRegistrar.cuentaId || !formRegistrar.monedaId || !formRegistrar.monto || !formRegistrar.concepto || (tab === 'EGRESO' && !formRegistrar.categoriaEgreso)}
+              disabled={
+                !formRegistrar.cuentaId || !formRegistrar.monedaId || !formRegistrar.monto || !formRegistrar.concepto ||
+                (tab === 'EGRESO' && !formRegistrar.categoriaEgreso) ||
+                (tab === 'INGRESO' && formRegistrar.categoriaIngreso === 'PAGO_FACTURA' && !formRegistrar.clienteId) ||
+                (tab === 'INGRESO' && !!formRegistrar.categoriaIngreso && formRegistrar.categoriaIngreso !== 'PAGO_FACTURA' && !formRegistrar.notaIngreso?.trim())
+              }
               onClick={() => crearMutation.mutate()}
             >
               Registrar
@@ -499,7 +509,7 @@ export default function MovimientosPage() {
               <Input value={formReferencia} onChange={(e) => setFormReferencia(e.target.value)} placeholder="Sin número de operación" />
             </FormField>
             {editandoMov.tipo === 'EGRESO' && (
-              <FormField label="Categoría" hint="Solo se puede cambiar si el egreso no está vinculado a Combustible o Caja chica">
+              <FormField label="Categoría" hint="Solo se puede cambiar si el egreso no está vinculado a Combustible, Caja chica o Mantenimiento">
                 <Select value={formCategoriaEgreso} onChange={(e) => setFormCategoriaEgreso(e.target.value)}>
                   <option value="">Sin categoría</option>
                   {CATEGORIAS_EGRESO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
@@ -519,66 +529,6 @@ export default function MovimientosPage() {
         )}
       </Modal>
 
-      {/* Modal: Vincular cobranza */}
-      <Modal open={!!cobranzaMov} onClose={cerrarCobranza} title="Vincular cobranza">
-        {cobranzaMov && (
-          <div className="flex flex-col gap-4">
-            <div className="bg-muted/50 rounded-lg p-3 text-sm">
-              <p className="text-muted-foreground">Ingreso: <span className="font-medium text-foreground">{cobranzaMov.concepto}</span></p>
-              <p className="text-muted-foreground">Monto: <span className="font-semibold text-emerald-500">{formatCurrency(Number(cobranzaMov.monto))}</span></p>
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => setModoCobranza('FACTURA')}
-                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-all ${modoCobranza === 'FACTURA' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
-              >
-                Cliente + Factura
-              </button>
-              <button
-                onClick={() => setModoCobranza('OTRO')}
-                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-all ${modoCobranza === 'OTRO' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
-              >
-                Solo cliente (préstamo / otro)
-              </button>
-            </div>
-
-            <FormField label="Cliente" required>
-              <Select value={clienteIdCobranza} onChange={(e) => { setClienteIdCobranza(e.target.value); setFacturaIdCobranza(''); }}>
-                <option value="">Selecciona un cliente</option>
-                {clientes.map((c: any) => <option key={c.id} value={c.id}>{c.razonSocial} — {c.ruc}</option>)}
-              </Select>
-            </FormField>
-
-            {modoCobranza === 'FACTURA' ? (
-              <FormField label="Factura" required hint="Solo se muestran facturas con saldo pendiente">
-                <Select value={facturaIdCobranza} onChange={(e) => setFacturaIdCobranza(e.target.value)} disabled={!clienteIdCobranza}>
-                  <option value="">Selecciona una factura</option>
-                  {facturasCliente.map((f: any) => (
-                    <option key={f.id} value={f.id}>{f.numeroFactura} — Saldo: {formatCurrency(f.saldoPendiente)}</option>
-                  ))}
-                </Select>
-              </FormField>
-            ) : (
-              <FormField label="Observación" required hint="Ej: préstamo, adelanto, devolución...">
-                <Textarea value={observacionCobranza} onChange={(e) => setObservacionCobranza(e.target.value)} placeholder="Motivo del ingreso..." />
-              </FormField>
-            )}
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-border">
-              <Button variant="secondary" onClick={cerrarCobranza}>Cancelar</Button>
-              <Button
-                loading={vincularMutation.isPending}
-                disabled={!clienteIdCobranza || (modoCobranza === 'FACTURA' ? !facturaIdCobranza : !observacionCobranza.trim())}
-                onClick={() => vincularMutation.mutate()}
-              >
-                Vincular
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
       {/* Modal: Detalle */}
       <Modal open={!!viewingId} onClose={() => setViewingId(null)} title="Detalle del movimiento">
         {viewing && (
@@ -592,30 +542,42 @@ export default function MovimientosPage() {
             <Detalle label="N° Operación" value={viewing.referencia ?? '—'} />
             {viewing.tipo === 'EGRESO' && <Detalle label="Categoría" value={categoriaLabel(viewing.categoriaEgreso)} />}
             {viewing.tipo === 'EGRESO' && <Detalle label="Referencia" value={viewing.notaEgreso ?? '—'} />}
+            {viewing.tipo === 'INGRESO' && <Detalle label="Categoría" value={categoriaIngresoLabel(viewing.categoriaIngreso)} />}
+            {viewing.tipo === 'INGRESO' && viewing.categoriaIngreso && viewing.categoriaIngreso !== 'PAGO_FACTURA' && <Detalle label="Observación" value={viewing.notaIngreso ?? '—'} />}
             <Detalle label="Registrado por" value={viewing.usuario?.nombre} />
             <Detalle label="Origen" value={viewing.origen} />
             <Detalle label="Estado" value={viewing.anulado ? 'Anulado' : 'Activo'} />
 
-            {viewing.cobranza && (
+            {(viewing as any).cobranza && (
               <div className="border-t border-border pt-3 mt-1 flex flex-col gap-2">
-                <p className="font-semibold">Cobranza vinculada</p>
-                <Detalle label="Cliente" value={viewing.cobranza.cliente?.razonSocial} />
-                {viewing.cobranza.factura ? (
-                  <Detalle label="Factura" value={viewing.cobranza.factura.numeroFactura} />
-                ) : (
-                  <Detalle label="Observación" value={viewing.cobranza.observaciones ?? '—'} />
-                )}
-                {esAdmin && !viewing.cobranza.anulado && (
-                  <Button
-                    variant="secondary" size="sm"
-                    loading={desvincularMutation.isPending}
-                    onClick={() => { if (confirm('¿Desvincular esta cobranza?')) desvincularMutation.mutate(viewing.id); }}
-                  >
-                    <Unlink className="w-3.5 h-3.5" /> Desvincular cobranza
-                  </Button>
-                )}
+                <p className="font-semibold">Cobranza</p>
+                <Detalle label="Cliente" value={(viewing as any).cobranza.cliente?.razonSocial} />
+                <Detalle
+                  label="Facturas aplicadas"
+                  value={
+                    (viewing as any).cobranza.aplicaciones?.length
+                      ? (viewing as any).cobranza.aplicaciones.map((a: any) => a.factura?.numeroFactura).join(', ')
+                      : 'Ninguna (pendiente de aplicar)'
+                  }
+                />
+                <p className="text-xs text-muted-foreground">Para relacionar este pago a facturas del cliente, hazlo desde el módulo Cobranza.</p>
               </div>
             )}
+
+            {(viewing as any).mantenimiento && (
+              <div className="border-t border-border pt-3 mt-1 flex flex-col gap-2">
+                <p className="font-semibold">Mantenimiento</p>
+                <Detalle label="Vehículo" value={(viewing as any).mantenimiento.vehiculo?.placa} />
+                <Detalle label="Conductor" value={(viewing as any).mantenimiento.conductor?.nombre ?? '—'} />
+              </div>
+            )}
+
+            <AuditInfo
+              creadoPor={viewing.creadoPor}
+              creadoEn={viewing.creadoEn}
+              actualizadoPor={viewing.actualizadoPor}
+              actualizadoEn={viewing.actualizadoEn}
+            />
           </div>
         )}
       </Modal>

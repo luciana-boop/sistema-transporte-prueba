@@ -32,7 +32,7 @@ export class ClientesController {
       if (!razonSocial || !ruc || !direccion) {
         R.badRequest(res, 'razonSocial, ruc y direccion son requeridos'); return;
       }
-      const data = await clientesService.create({ razonSocial, ruc, direccion, ubigeo, telefono, email, condicionPago });
+      const data = await clientesService.create({ razonSocial, ruc, direccion, ubigeo, telefono, email, condicionPago }, req.usuario!.id);
       R.created(res, data, 'Cliente creado correctamente');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
@@ -45,7 +45,7 @@ export class ClientesController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      const data = await clientesService.update(id, req.body);
+      const data = await clientesService.update(id, req.body, req.usuario!.id);
       R.ok(res, data, 'Cliente actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';

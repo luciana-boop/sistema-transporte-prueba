@@ -36,7 +36,7 @@ export class ConfiguracionController {
     try {
       const { valor } = req.body;
       if (valor === undefined) { R.badRequest(res, 'valor es requerido'); return; }
-      R.ok(res, await configuracionService.updateParametro(req.params.clave, String(valor)), 'Parámetro actualizado');
+      R.ok(res, await configuracionService.updateParametro(req.params.clave, String(valor), req.usuario!.id), 'Parámetro actualizado');
     } catch (e) { R.serverError(res, e); }
   }
 
@@ -44,7 +44,7 @@ export class ConfiguracionController {
     try {
       const params = req.body;
       if (!params || typeof params !== 'object') { R.badRequest(res, 'Body debe ser un objeto clave:valor'); return; }
-      R.ok(res, await configuracionService.updateParametrosBulk(params), 'Parámetros actualizados');
+      R.ok(res, await configuracionService.updateParametrosBulk(params, req.usuario!.id), 'Parámetros actualizados');
     } catch (e) { R.serverError(res, e); }
   }
 
@@ -61,7 +61,7 @@ export class ConfiguracionController {
     try {
       const { serie, tipoDocumento, correlativoInicial, descripcion } = req.body;
       if (!serie) { R.badRequest(res, 'serie es requerida'); return; }
-      R.created(res, await configuracionService.createSerie({ serie, tipoDocumento, correlativoInicial: correlativoInicial ? parseInt(correlativoInicial) : undefined, descripcion }), 'Serie creada');
+      R.created(res, await configuracionService.createSerie({ serie, tipoDocumento, correlativoInicial: correlativoInicial ? parseInt(correlativoInicial) : undefined, descripcion }, req.usuario!.id), 'Serie creada');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('ya existe')) R.badRequest(res, msg);
@@ -75,7 +75,7 @@ export class ConfiguracionController {
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
       const dto = { ...req.body };
       if (dto.correlativoActual) dto.correlativoActual = parseInt(dto.correlativoActual);
-      R.ok(res, await configuracionService.updateSerie(id, dto), 'Serie actualizada');
+      R.ok(res, await configuracionService.updateSerie(id, dto, req.usuario!.id), 'Serie actualizada');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Serie no encontrada') R.notFound(res, msg);
@@ -108,7 +108,7 @@ export class ConfiguracionController {
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
       const dto = { ...req.body };
       if (dto.diasAnticipacion) dto.diasAnticipacion = parseInt(dto.diasAnticipacion);
-      R.ok(res, await configuracionService.updateAlerta(id, dto), 'Alerta actualizada');
+      R.ok(res, await configuracionService.updateAlerta(id, dto, req.usuario!.id), 'Alerta actualizada');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Alerta no encontrada') R.notFound(res, msg);
@@ -120,7 +120,7 @@ export class ConfiguracionController {
     try {
       const { alertas } = req.body;
       if (!Array.isArray(alertas)) { R.badRequest(res, 'alertas debe ser un array'); return; }
-      R.ok(res, await configuracionService.updateAlertasBulk(alertas), 'Alertas actualizadas');
+      R.ok(res, await configuracionService.updateAlertasBulk(alertas, req.usuario!.id), 'Alertas actualizadas');
     } catch (e) { R.serverError(res, e); }
   }
 
@@ -137,7 +137,7 @@ export class ConfiguracionController {
     try {
       const { tipo, codigo, nombre, descripcion, extra, orden } = req.body;
       if (!tipo || !codigo || !nombre) { R.badRequest(res, 'tipo, codigo y nombre son requeridos'); return; }
-      R.created(res, await configuracionService.createTablaMaestra({ tipo, codigo, nombre, descripcion, extra, orden: orden ? parseInt(orden) : undefined }), 'Registro creado');
+      R.created(res, await configuracionService.createTablaMaestra({ tipo, codigo, nombre, descripcion, extra, orden: orden ? parseInt(orden) : undefined }, req.usuario!.id), 'Registro creado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('ya existe') || msg.includes('obligatorio')) R.badRequest(res, msg);
@@ -149,7 +149,7 @@ export class ConfiguracionController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      R.ok(res, await configuracionService.updateTablaMaestra(id, req.body), 'Registro actualizado');
+      R.ok(res, await configuracionService.updateTablaMaestra(id, req.body, req.usuario!.id), 'Registro actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Registro no encontrado') R.notFound(res, msg);
@@ -189,7 +189,7 @@ export class ConfiguracionController {
     try {
       const { codigo, nombre, descripcion } = req.body;
       if (!codigo || !nombre) { R.badRequest(res, 'codigo y nombre son requeridos'); return; }
-      R.created(res, await configuracionService.createTipoVehiculo({ codigo, nombre, descripcion }), 'Tipo creado');
+      R.created(res, await configuracionService.createTipoVehiculo({ codigo, nombre, descripcion }, req.usuario!.id), 'Tipo creado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('ya existe')) R.badRequest(res, msg);
@@ -201,7 +201,7 @@ export class ConfiguracionController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      R.ok(res, await configuracionService.updateTipoVehiculo(id, req.body), 'Tipo actualizado');
+      R.ok(res, await configuracionService.updateTipoVehiculo(id, req.body, req.usuario!.id), 'Tipo actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Tipo no encontrado') R.notFound(res, msg);

@@ -256,7 +256,7 @@ export class FacturacionController {
         porcentajeDetraccion: req.body.porcentajeDetraccion !== undefined ? parseFloat(req.body.porcentajeDetraccion) : undefined,
         peso: req.body.peso !== undefined ? parseFloat(req.body.peso) : undefined,
         lineas: Array.isArray(req.body.lineas) ? req.body.lineas : undefined,
-      });
+      }, req.usuario!.id);
       R.ok(res, data, 'Factura actualizada');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
@@ -266,6 +266,23 @@ export class FacturacionController {
         msg.includes('no existe') || msg.includes('no pertenece') || msg.includes('facturado')
       ) R.badRequest(res, msg);
       else R.serverError(res, e);
+    }
+  }
+
+  // Acción rápida desde el listado: asocia/desasocia el pedido sin abrir el formulario de edición
+  async asociarPedido(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
+      const { pedidoId } = req.body;
+      const data = await facturacionService.asociarPedido(id, pedidoId ? parseInt(pedidoId) : null, req.usuario!.id);
+      R.ok(res, data, 'Pedido asociado correctamente');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'Factura no encontrada') R.notFound(res, msg);
+      else if (msg.includes('anulada') || msg.includes('no existe') || msg.includes('no pertenece') || msg.includes('facturado')) {
+        R.badRequest(res, msg);
+      } else R.serverError(res, e);
     }
   }
 

@@ -25,13 +25,13 @@ import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Search, XCircle, Upload, FileText, Download, Trash2, Eye, ExternalLink, AlertCircle, Pencil } from 'lucide-react';
+import { Plus, Search, XCircle, Upload, FileText, Download, Trash2, Eye, ExternalLink, AlertCircle, Pencil, Package } from 'lucide-react';
 import { useRef } from 'react';
 import api, { facturacionApi, clientesApi, pedidosApi, configuracionApi, fetchAllPages } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage, ESTADO_FACTURA_LABEL } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
-  EmptyState, Modal, FormField, Input, Select, Textarea, StatCard,
+  EmptyState, Modal, FormField, Input, Select, Textarea, StatCard, AuditInfo,
 } from '@/components/shared';
 import { useAuthStore } from '@/store/auth.store';
 import { useConfig } from '@/hooks/useConfig';
@@ -394,6 +394,9 @@ export default function FacturacionPage() {
   // Evita que el efecto de "limpiar pedido al cambiar cliente" borre los
   // valores recién cargados al abrir el formulario de edición (ver más abajo).
   const skipClienteEffectRef = useRef(false);
+  // Acción rápida: asociar pedido sin abrir el formulario de edición completo
+  const [asociandoPedido, setAsociandoPedido] = useState<any>(null);
+  const [pedidoAsociarId, setPedidoAsociarId] = useState('');
 
   // ─── QUERIES ─────────────────────────────────────────────────────────────
   const { data: facturasRaw = [], isLoading } = useQuery({
@@ -503,6 +506,34 @@ export default function FacturacionPage() {
     }
     return [pedidoActual, ...pedidosDisponibles];
   })();
+
+  // ─── Acción rápida: asociar pedido sin abrir el formulario completo ─────────
+  const { data: pedidosDisponiblesRapido = [] } = useQuery({
+    queryKey: ['pedidos', 'disponibles', 'rapido', asociandoPedido?.cliente?.id],
+    queryFn: () => pedidosApi.disponibles(asociandoPedido!.cliente.id).then((r) => r.data.data),
+    enabled: !!asociandoPedido,
+  });
+
+  const pedidosParaSelectRapido = (() => {
+    if (!asociandoPedido) return [];
+    const pedidoActual = asociandoPedido.pedido;
+    if (!pedidoActual || pedidosDisponiblesRapido.some((p) => p.id === pedidoActual.id)) {
+      return pedidosDisponiblesRapido;
+    }
+    return [pedidoActual, ...pedidosDisponiblesRapido];
+  })();
+
+  const cerrarAsociarPedido = () => { setAsociandoPedido(null); setPedidoAsociarId(''); };
+
+  const asociarPedidoMutation = useMutation({
+    mutationFn: () => facturacionApi.asociarPedido(asociandoPedido!.id, pedidoAsociarId ? parseInt(pedidoAsociarId) : null),
+    onSuccess: () => {
+      toast.success('Pedido asociado correctamente');
+      cerrarAsociarPedido();
+      qc.invalidateQueries({ queryKey: ['facturas'] });
+    },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
 
   // Limpiar pedido al cambiar cliente + heredar días de crédito del cliente
   // (el cliente guarda su condición de pago como enum condicionPago, que se
@@ -1037,6 +1068,14 @@ export default function FacturacionPage() {
                             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
                           >
                             <Pencil className="w-3 h-3" /> Editar
+                          </button>
+                        )}
+                        {f.estado !== 'ANULADA' && (
+                          <button
+                            onClick={() => { setAsociandoPedido(f); setPedidoAsociarId(f.pedido ? String(f.pedido.id) : ''); }}
+                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
+                          >
+                            <Package className="w-3 h-3" /> Asociar pedido
                           </button>
                         )}
                         {f.estado !== 'ANULADA' && f.estado !== 'PAGADA' && (
@@ -1729,6 +1768,13 @@ export default function FacturacionPage() {
               )}
             </div>
 
+            <AuditInfo
+              creadoPor={viewing.creadoPor}
+              creadoEn={viewing.creadoEn}
+              actualizadoPor={viewing.actualizadoPor}
+              actualizadoEn={viewing.actualizadoEn}
+            />
+
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
               {usuario?.rol === 'ADMIN' && viewing.estado !== 'ANULADA' && (
                 <Button
@@ -1739,6 +1785,32 @@ export default function FacturacionPage() {
                 </Button>
               )}
               <Button variant="secondary" onClick={() => setViewing(null)}>Cerrar</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal: Asociar pedido (acción rápida) */}
+      <Modal open={!!asociandoPedido} onClose={cerrarAsociarPedido} title="Asociar pedido">
+        {asociandoPedido && (
+          <div className="flex flex-col gap-4">
+            <div className="bg-muted/50 rounded-lg p-3 text-sm">
+              <p className="text-muted-foreground">Factura: <span className="font-medium text-foreground">{asociandoPedido.numeroFactura}</span></p>
+              <p className="text-muted-foreground">Cliente: <span className="font-medium text-foreground">{asociandoPedido.cliente?.razonSocial}</span></p>
+            </div>
+
+            <FormField label="Pedido" hint="Solo se muestran pedidos activos del cliente sin otra factura vigente">
+              <Select value={pedidoAsociarId} onChange={(e) => setPedidoAsociarId(e.target.value)}>
+                <option value="">Sin pedido asociado</option>
+                {pedidosParaSelectRapido.map((p: any) => (
+                  <option key={p.id} value={p.id}>#{p.id} — {p.origen} → {p.destino}</option>
+                ))}
+              </Select>
+            </FormField>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
+              <Button variant="secondary" onClick={cerrarAsociarPedido}>Cancelar</Button>
+              <Button loading={asociarPedidoMutation.isPending} onClick={() => asociarPedidoMutation.mutate()}>Guardar</Button>
             </div>
           </div>
         )}

@@ -85,7 +85,7 @@ export class LiquidacionesController {
           monto: parseFloat(d.monto),
         })),
         observaciones,
-      });
+      }, req.usuario!.id);
       R.ok(res, result, 'Gastos rendidos correctamente');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
@@ -95,22 +95,23 @@ export class LiquidacionesController {
     }
   }
 
-  // PASO 4: cerrar liquidación (RENDIDA→CERRADA)
+  // PASO 4: cerrar liquidación (RENDIDA→CERRADA) — devolución/reintegro vía banco + N° de operación
   async cerrar(req: Request, res: Response): Promise<void> {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      const { cajaId, fecha } = req.body;
-      if (!cajaId) { R.badRequest(res, 'cajaId es requerido'); return; }
+      const { cuentaId, numeroOperacion, fecha } = req.body;
+      if (!cuentaId) { R.badRequest(res, 'cuentaId es requerido'); return; }
 
       const result = await liquidacionesService.cerrar(
-        { liquidacionId: id, cajaId: parseInt(cajaId), fecha },
+        { liquidacionId: id, cuentaId: parseInt(cuentaId), numeroOperacion, fecha },
         req.usuario!.id,
       );
       R.ok(res, result, 'Liquidación cerrada');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('no encontrada') || msg.includes('ya está') || msg.includes('Debe rendir') || msg.includes('cerrada')) {
+      if (msg.includes('no encontrad') || msg.includes('ya está') || msg.includes('Debe rendir') || msg.includes('cerrada') ||
+          msg.includes('inactiva') || msg.includes('Saldo insuficiente') || msg.includes('N° de operación')) {
         R.badRequest(res, msg);
       } else { R.serverError(res, e); }
     }
@@ -150,7 +151,7 @@ export class LiquidacionesController {
           toldo: req.body.toldo ? parseFloat(req.body.toldo) : undefined,
           detalles: [],
           pedidoIds: pedidoIds ? (pedidoIds as any[]).map((id: any) => parseInt(id)) : [],
-        }),
+        }, req.usuario!.id),
         'Liquidación creada',
       );
     } catch (e) {
@@ -173,7 +174,7 @@ export class LiquidacionesController {
         updateData.pedidoIds = (pedidoIds as any[]).map((id) => parseInt(id));
       }
 
-      R.ok(res, await liquidacionesService.update(id, updateData), 'Liquidación actualizada');
+      R.ok(res, await liquidacionesService.update(id, updateData, req.usuario!.id), 'Liquidación actualizada');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Liquidación no encontrada') R.notFound(res, msg);

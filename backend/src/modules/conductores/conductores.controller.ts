@@ -30,7 +30,7 @@ export class ConductoresController {
       if (!nombre || !dni || !licencia || !vencimientoLicencia) {
         R.badRequest(res, 'nombre, dni, licencia y vencimientoLicencia son requeridos'); return;
       }
-      R.created(res, await conductoresService.create({ nombre, dni, licencia, vencimientoLicencia, telefono, direccion, observaciones }), 'Conductor creado');
+      R.created(res, await conductoresService.create({ nombre, dni, licencia, vencimientoLicencia, telefono, direccion, observaciones }, req.usuario!.id), 'Conductor creado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('Ya existe')) R.badRequest(res, msg);
@@ -42,7 +42,7 @@ export class ConductoresController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      R.ok(res, await conductoresService.update(id, req.body), 'Conductor actualizado');
+      R.ok(res, await conductoresService.update(id, req.body, req.usuario!.id), 'Conductor actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Conductor no encontrado') R.notFound(res, msg);

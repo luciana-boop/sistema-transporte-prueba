@@ -487,6 +487,50 @@ export class ReportesService {
     };
   }
 
+  // ── Reporte Mantenimiento ─────────────────────────────────────────────────
+  async reporteMantenimiento(filtros: FiltroReporte & { vehiculoId?: string }) {
+    const where: any = { tipo: 'EGRESO', anulado: false, categoriaEgreso: 'MANTENIMIENTO' };
+    if (filtros.desde || filtros.hasta) {
+      where.fecha = {};
+      if (filtros.desde) where.fecha.gte = new Date(filtros.desde);
+      if (filtros.hasta) where.fecha.lte = new Date(filtros.hasta + 'T23:59:59');
+    }
+    if (filtros.vehiculoId) where.mantenimiento = { vehiculoId: parseInt(filtros.vehiculoId) };
+
+    const gastos = await prisma.movimientoCuentaV2.findMany({
+      where,
+      orderBy: { fecha: 'desc' },
+      include: {
+        cuenta: { select: { id: true, nombre: true } },
+        mantenimiento: {
+          include: {
+            vehiculo: { select: { id: true, placa: true, marca: true, modelo: true } },
+            conductor: { select: { id: true, nombre: true } },
+          },
+        },
+      },
+    });
+
+    const relacionados = gastos.filter((g: any) => g.mantenimiento);
+    const totalGastado = relacionados.reduce((s: number, g: any) => s + Number(g.monto), 0);
+
+    const porVehiculo = new Map<string, { vehiculoId: number; placa: string; total: number; cantidad: number }>();
+    for (const g of relacionados as any[]) {
+      const v = g.mantenimiento.vehiculo;
+      const acc = porVehiculo.get(v.placa) ?? { vehiculoId: v.id, placa: v.placa, total: 0, cantidad: 0 };
+      acc.total += Number(g.monto);
+      acc.cantidad += 1;
+      porVehiculo.set(v.placa, acc);
+    }
+
+    return {
+      gastos: relacionados,
+      totalGastado,
+      cantidad: relacionados.length,
+      porVehiculo: Array.from(porVehiculo.values()).sort((a, b) => b.total - a.total),
+    };
+  }
+
   // ── Reporte Anual ─────────────────────────────────────────────────────────
   private static readonly NOMBRES_MES = [
     'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',

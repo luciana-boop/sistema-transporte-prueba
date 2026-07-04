@@ -161,6 +161,9 @@ export const facturacionApi = {
   }) => api.put<ApiResponse<Factura>>(`/api/facturacion/${id}`, data),
   anular: (id: number) => api.patch<ApiResponse<Factura>>(`/api/facturacion/${id}/anular`, {}),
   eliminar: (id: number) => api.delete<ApiResponse<null>>(`/api/facturacion/${id}`),
+  // Acción rápida: asocia/desasocia el pedido sin abrir el formulario de edición completo
+  asociarPedido: (id: number, pedidoId: number | null) =>
+    api.patch<ApiResponse<Factura>>(`/api/facturacion/${id}/pedido`, { pedidoId }),
 };
 
 // ─── GUÍAS DE REMISIÓN ───────────────────────────────────────────────────────
@@ -201,6 +204,7 @@ export const movimientosApi = {
     cuentaId: number; tipo: 'INGRESO' | 'EGRESO'; monto: number; monedaId: number;
     tipoPagoId?: number; concepto: string; referencia?: string; fecha?: string;
     notaEgreso?: string; categoriaEgreso?: string;
+    categoriaIngreso?: string; notaIngreso?: string; clienteId?: number;
   }) => api.post<ApiResponse<MovimientoCuenta>>('/api/movimientos', data),
   actualizar: (id: number, data: {
     concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null;
@@ -220,15 +224,46 @@ export const movimientosApi = {
     bloqueados: Array<{ fila: number; motivo: string; existente?: { fecha: string; monto: number; concepto: string } }>;
     advertencias: Array<{ fila: number; motivo: string; existente?: { fecha: string; monto: number; concepto: string } }>;
   }>>('/api/movimientos/importar', data, { timeout: 60000 }),
-  facturasPorCliente: (clienteId: number) =>
+};
+
+// ─── COBRANZA ────────────────────────────────────────────────────────────────
+export const cobranzaApi = {
+  listar: (params?: { estado?: 'por_aplicar' | 'aplicado' }) =>
+    api.get<ApiResponse<MovimientoCobranza[]>>('/api/cobranza', { params }),
+  facturasPendientes: (clienteId: number) =>
     api.get<ApiResponse<Array<{
       id: number; numeroFactura: string; total: number; pagado: number;
       saldoPendiente: number; estado: string; fechaVencimiento: string; vencida: boolean;
-    }>>>(`/api/movimientos/facturas-cliente/${clienteId}`),
-  vincularCobranza: (movimientoId: number, data: { clienteId: number; facturaId?: number; observacion?: string }) =>
-    api.post<ApiResponse<MovimientoCobranza>>(`/api/movimientos/${movimientoId}/cobranza`, data),
-  desvincularCobranza: (movimientoId: number) =>
-    api.delete<ApiResponse<{ message: string }>>(`/api/movimientos/${movimientoId}/cobranza`),
+    }>>>(`/api/cobranza/${clienteId}/facturas-pendientes`),
+  aplicar: (pagoId: number, data: { aplicaciones: Array<{ facturaId: number; monto: number }> }) =>
+    api.post<ApiResponse<MovimientoCobranza>>(`/api/cobranza/${pagoId}/aplicar`, data),
+  quitarAplicacion: (aplicacionId: number) =>
+    api.delete<ApiResponse<{ message: string }>>(`/api/cobranza/aplicaciones/${aplicacionId}`),
+};
+
+// ─── MANTENIMIENTO ───────────────────────────────────────────────────────────
+export interface MovimientoMantenimiento {
+  id: number;
+  concepto: string;
+  monto: number;
+  fecha: string;
+  referencia?: string | null;
+  notaEgreso?: string | null;
+  cuenta: { id: number; nombre: string };
+  mantenimiento: {
+    id: number;
+    vehiculo: { id: number; placa: string };
+    conductor?: { id: number; nombre: string } | null;
+    motivoCodigo: string;
+    descripcion?: string | null;
+  } | null;
+}
+
+export const mantenimientoApi = {
+  listar: (params?: { estado?: 'por_relacionar' | 'relacionado' }) =>
+    api.get<ApiResponse<MovimientoMantenimiento[]>>('/api/mantenimiento', { params }),
+  relacionar: (movimientoId: number, data: { vehiculoId: number; conductorId?: number; motivoCodigo: string; descripcion?: string }) =>
+    api.post<ApiResponse<MovimientoMantenimiento>>(`/api/mantenimiento/${movimientoId}/relacionar`, data),
 };
 
 // ─── CAJA ────────────────────────────────────────────────────────────────────
@@ -381,6 +416,21 @@ export const reportesApi = {
       }>;
       totales: { totalFacturado: number; totalCostos: number; totalUtilidad: number };
     }>>(`/api/reportes/rentabilidad-cliente/${clienteId}/detalle`, { params }),
+  mantenimiento: (params?: { desde?: string; hasta?: string; vehiculoId?: number }) =>
+    api.get<ApiResponse<{
+      gastos: Array<{
+        id: number; monto: number; fecha: string; concepto: string;
+        cuenta: { id: number; nombre: string };
+        mantenimiento: {
+          id: number; motivoCodigo: string; descripcion?: string | null;
+          vehiculo: { id: number; placa: string; marca: string; modelo: string };
+          conductor?: { id: number; nombre: string } | null;
+        } | null;
+      }>;
+      totalGastado: number;
+      cantidad: number;
+      porVehiculo: Array<{ vehiculoId: number; placa: string; total: number; cantidad: number }>;
+    }>>('/api/reportes/mantenimiento', { params }),
 };
 
 // ─── USUARIOS ────────────────────────────────────────────────────────────────
@@ -450,14 +500,14 @@ export const liquidacionesApi = {
     observaciones?: string;
   }) => api.post<ApiResponse<Liquidacion>>(`/api/liquidaciones/${id}/rendir`, data),
 
-  // v4 — Paso 4: cerrar (RENDIDA→CERRADA, registra devolución o reintegro)
-  cerrar: (id: number, data: { cajaId: number; fecha?: string }) =>
+  // v4 — Paso 4: cerrar (RENDIDA→CERRADA, registra devolución o reintegro vía banco + N° de operación)
+  cerrar: (id: number, data: { cuentaId: number; numeroOperacion?: string; fecha?: string }) =>
     api.post<ApiResponse<Liquidacion>>(`/api/liquidaciones/${id}/cerrar`, data),
 
   historialFinanciero: (id: number) =>
     api.get<ApiResponse<{
       liquidacion: { id: number; estado: string; montoEntregado: number; montoPagado: number | null; totalGastos: number; montoRendido: number | null; reintegro: number; devolucion: number; tipoAjuste: string | null; conductor: { nombre: string } };
-      movimientos: Array<{ id: number; tipo: string; monto: number; concepto: string; referencia: string; fecha: string; caja: { id: number; nombre: string | null } }>;
+      movimientos: Array<{ id: string; tipo: string; monto: number; concepto: string; referencia: string | null; fecha: string; origen: string }>;
     }>>(`/api/liquidaciones/${id}/historial-financiero`),
 
   crear: (data: {

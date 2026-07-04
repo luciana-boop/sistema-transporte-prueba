@@ -13,7 +13,7 @@ import { getErrorMessage, CONDICION_PAGO_LABEL } from '@/lib/utils';
 import { buscarPorCodigo, detectarUbigeo, type UbigeoEntry } from '@/lib/ubigeo';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
-  EmptyState, Modal, FormField, Input, Select,
+  EmptyState, Modal, FormField, Input, Select, AuditInfo,
 } from '@/components/shared';
 import type { Cliente, CondicionPago } from '@/types';
 import * as XLSX from 'xlsx';
@@ -257,6 +257,14 @@ export default function ClientesPage() {
               <Input type="email" placeholder="contacto@empresa.com" {...register('email')} />
             </FormField>
           </div>
+          {editing && (
+            <AuditInfo
+              creadoPor={editing.creadoPor}
+              creadoEn={editing.creadoEn}
+              actualizadoPor={editing.actualizadoPor}
+              actualizadoEn={editing.actualizadoEn}
+            />
+          )}
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="secondary" type="button" onClick={() => { setShowForm(false); setEditing(null); reset(); }}>
               Cancelar

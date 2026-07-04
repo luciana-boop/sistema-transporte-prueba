@@ -64,7 +64,7 @@ export class PedidosController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      R.ok(res, await pedidosService.update(id, req.body), 'Pedido actualizado');
+      R.ok(res, await pedidosService.update(id, req.body, req.usuario!.id), 'Pedido actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Pedido no encontrado') R.notFound(res, msg);

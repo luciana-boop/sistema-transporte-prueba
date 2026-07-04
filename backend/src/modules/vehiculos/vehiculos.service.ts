@@ -36,18 +36,30 @@ export class VehiculosService {
     const { skip, take, page, limit } = paginar(query);
     const [total, items] = await Promise.all([
       prisma.vehiculo.count({ where }),
-      prisma.vehiculo.findMany({ where, orderBy: { placa: 'asc' }, skip, take }),
+      prisma.vehiculo.findMany({
+        where, orderBy: { placa: 'asc' }, skip, take,
+        include: {
+          creadoPor: { select: { id: true, nombre: true } },
+          actualizadoPor: { select: { id: true, nombre: true } },
+        },
+      }),
     ]);
     return { items, total, page, limit };
   }
 
   async findById(id: number) {
-    const v = await prisma.vehiculo.findUnique({ where: { id } });
+    const v = await prisma.vehiculo.findUnique({
+      where: { id },
+      include: {
+        creadoPor: { select: { id: true, nombre: true } },
+        actualizadoPor: { select: { id: true, nombre: true } },
+      },
+    });
     if (!v) throw new Error('Vehículo no encontrado');
     return v;
   }
 
-  async create(dto: CreateVehiculoDto) {
+  async create(dto: CreateVehiculoDto, usuarioId?: number) {
     const existe = await prisma.vehiculo.findUnique({ where: { placa: dto.placa.toUpperCase() } });
     if (existe) throw new Error(`La placa ${dto.placa} ya está registrada`);
     return prisma.vehiculo.create({
@@ -59,11 +71,12 @@ export class VehiculosService {
         vencimientoRevision:  toDate(dto.vencimientoRevision),
         ultimoMantenimiento:  toDate(dto.ultimoMantenimiento),
         proximoMantenimiento: toDate(dto.proximoMantenimiento),
+        creadoPorId: usuarioId,
       },
     });
   }
 
-  async update(id: number, dto: Partial<CreateVehiculoDto> & { activo?: boolean }) {
+  async update(id: number, dto: Partial<CreateVehiculoDto> & { activo?: boolean }, usuarioId?: number) {
     await this.findById(id);
     if (dto.placa) {
       const existe = await prisma.vehiculo.findFirst({
@@ -80,6 +93,7 @@ export class VehiculosService {
         vencimientoRevision:  dto.vencimientoRevision !== undefined ? toDate(dto.vencimientoRevision) : undefined,
         ultimoMantenimiento:  dto.ultimoMantenimiento !== undefined ? toDate(dto.ultimoMantenimiento) : undefined,
         proximoMantenimiento: dto.proximoMantenimiento !== undefined ? toDate(dto.proximoMantenimiento) : undefined,
+        actualizadoPorId: usuarioId,
       },
     });
   }

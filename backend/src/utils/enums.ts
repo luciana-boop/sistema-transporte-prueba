@@ -53,13 +53,24 @@ export const CategoriaDetalle = {
 } as const;
 export type CategoriaDetalle = typeof CategoriaDetalle[keyof typeof CategoriaDetalle];
 
-// Módulo Movimientos: categoría de un egreso. COMBUSTIBLE y CAJA_CHICA habilitan
-// que ese egreso sea consumido desde los módulos Combustible y Caja chica.
+// Módulo Movimientos: categoría de un egreso. COMBUSTIBLE, CAJA_CHICA y
+// MANTENIMIENTO habilitan que ese egreso sea consumido desde los módulos
+// Combustible, Caja chica y Mantenimiento respectivamente.
 export const CategoriaEgreso = {
-  COMBUSTIBLE: 'COMBUSTIBLE',
-  REPUESTOS:   'REPUESTOS',
-  CAJA_CHICA:  'CAJA_CHICA',
-  PLANILLA:    'PLANILLA',
-  OTROS:       'OTROS',
+  COMBUSTIBLE:   'COMBUSTIBLE',
+  MANTENIMIENTO: 'MANTENIMIENTO',
+  CAJA_CHICA:    'CAJA_CHICA',
+  PLANILLA:      'PLANILLA',
+  OTROS:         'OTROS',
 } as const;
 export type CategoriaEgreso = typeof CategoriaEgreso[keyof typeof CategoriaEgreso];
+
+// Módulo Movimientos: categoría de un ingreso. PAGO_FACTURA crea un PagoV2
+// "sin aplicar" consumido desde el módulo Cobranza.
+export const CategoriaIngreso = {
+  PAGO_FACTURA: 'PAGO_FACTURA',
+  CAJA_CHICA:   'CAJA_CHICA',
+  LIQUIDACION:  'LIQUIDACION',
+  OTRO:         'OTRO',
+} as const;
+export type CategoriaIngreso = typeof CategoriaIngreso[keyof typeof CategoriaIngreso];

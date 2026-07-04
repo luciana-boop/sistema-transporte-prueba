@@ -26,7 +26,10 @@ export class MovimientosController {
 
   async crear(req: Request, res: Response): Promise<void> {
     try {
-      const { cuentaId, tipo, monto, monedaId, tipoPagoId, concepto, referencia, fecha, notaEgreso, categoriaEgreso } = req.body;
+      const {
+        cuentaId, tipo, monto, monedaId, tipoPagoId, concepto, referencia, fecha,
+        notaEgreso, categoriaEgreso, categoriaIngreso, notaIngreso, clienteId,
+      } = req.body;
       if (!cuentaId || !tipo || !monto || !monedaId || !concepto) {
         R.badRequest(res, 'cuentaId, tipo, monto, monedaId y concepto son requeridos'); return;
       }
@@ -35,6 +38,9 @@ export class MovimientosController {
       }
       if (tipo === 'EGRESO' && !categoriaEgreso) {
         R.badRequest(res, 'Debe seleccionar una categoría para el egreso'); return;
+      }
+      if (tipo === 'INGRESO' && categoriaIngreso === 'PAGO_FACTURA' && !clienteId) {
+        R.badRequest(res, 'Debe seleccionar un cliente para un ingreso de categoría "Pago de factura"'); return;
       }
       const data = await movimientosService.crear({
         cuentaId: parseInt(cuentaId),
@@ -47,11 +53,16 @@ export class MovimientosController {
         fecha,
         notaEgreso: tipo === 'EGRESO' ? notaEgreso : undefined,
         categoriaEgreso: tipo === 'EGRESO' ? categoriaEgreso : undefined,
+        categoriaIngreso: tipo === 'INGRESO' ? categoriaIngreso : undefined,
+        notaIngreso: tipo === 'INGRESO' ? notaIngreso : undefined,
+        clienteId: tipo === 'INGRESO' && clienteId ? parseInt(clienteId) : undefined,
       }, req.usuario!.id);
       R.created(res, data, 'Movimiento registrado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('no encontrada') || msg.includes('inactiva') || msg.includes('mayor a') || msg.includes('Saldo insuficiente')) R.badRequest(res, msg);
+      if (msg.includes('no encontrada') || msg.includes('no encontrado') || msg.includes('inactiva') ||
+          msg.includes('mayor a') || msg.includes('Saldo insuficiente') || msg.includes('Debe seleccionar') ||
+          msg.includes('Debe indicar')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }
@@ -61,7 +72,7 @@ export class MovimientosController {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
       const { concepto, referencia, fecha, tipoPagoId, notaEgreso, categoriaEgreso } = req.body;
-      R.ok(res, await movimientosService.actualizar(id, { concepto, referencia, fecha, tipoPagoId, notaEgreso, categoriaEgreso }), 'Movimiento actualizado');
+      R.ok(res, await movimientosService.actualizar(id, { concepto, referencia, fecha, tipoPagoId, notaEgreso, categoriaEgreso }, req.usuario!.id), 'Movimiento actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Movimiento no encontrado') R.notFound(res, msg);
@@ -106,49 +117,6 @@ export class MovimientosController {
     } catch (e) { R.serverError(res, e); }
   }
 
-  async facturasPorCliente(req: Request, res: Response): Promise<void> {
-    try {
-      const clienteId = parseInt(req.params.clienteId);
-      if (isNaN(clienteId)) { R.badRequest(res, 'ID inválido'); return; }
-      R.ok(res, await movimientosService.facturasPorCliente(clienteId));
-    } catch (e) { R.serverError(res, e); }
-  }
-
-  async vincularCobranza(req: Request, res: Response): Promise<void> {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      const { clienteId, facturaId, observacion } = req.body;
-      if (!clienteId) { R.badRequest(res, 'clienteId es requerido'); return; }
-      const data = await movimientosService.vincularCobranza(id, {
-        clienteId: parseInt(clienteId),
-        facturaId: facturaId ? parseInt(facturaId) : undefined,
-        observacion,
-      }, req.usuario!.id);
-      R.created(res, data, 'Cobranza vinculada correctamente');
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('no encontrad') || msg.includes('no se puede') || msg.includes('No se puede') ||
-          msg.includes('Debe indicar') || msg.includes('ya tiene') || msg.includes('excede') ||
-          msg.includes('pertenece') || msg.includes('anulada') || msg.includes('pagada')) {
-        R.badRequest(res, msg);
-      } else R.serverError(res, e);
-    }
-  }
-
-  async desvincularCobranza(req: Request, res: Response): Promise<void> {
-    try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      const data = await movimientosService.desvincularCobranza(id, req.usuario!.rol);
-      R.ok(res, data);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('Solo') ) R.forbidden(res, msg);
-      else if (msg.includes('no tiene')) R.notFound(res, msg);
-      else R.serverError(res, e);
-    }
-  }
 }
 
 export const movimientosController = new MovimientosController();

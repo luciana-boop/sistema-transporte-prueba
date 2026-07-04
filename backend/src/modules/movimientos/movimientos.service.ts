@@ -1,12 +1,13 @@
 // FILE: src/modules/movimientos/movimientos.service.ts
-// Módulo Movimientos: reemplaza a Gastos + Cobranza. No reimplementa el ledger
+// Módulo Movimientos: identifica pagos y gastos. No reimplementa el ledger
 // financiero — reutiliza MovimientoCuentaV2 y CuentasService (que ya lo maneja
 // para combustible/liquidaciones/caja) y le agrega:
 //  1) importación masiva desde Excel bancario
-//  2) vínculo de cobranza sobre un ingreso (cliente + factura, o cliente + observación)
+//  2) categoría de ingreso (PAGO_FACTURA crea un PagoV2 "sin aplicar" que se
+//     reparte entre facturas del cliente desde el módulo Cobranza; las demás
+//     categorías solo llevan una observación libre)
 
 import prisma from '../../prisma/client';
-import { EstadoFactura } from '../../utils/enums';
 import { cuentasService } from '../configuracion/cuentas.service';
 import { paginar, PaginacionQuery } from '../../utils/pagination';
 
@@ -22,12 +23,6 @@ export interface FilaConflicto {
   fila: number;
   motivo: string;
   existente?: { fecha: string; monto: number; concepto: string };
-}
-
-export interface VincularCobranzaDto {
-  clienteId: number;
-  facturaId?: number;
-  observacion?: string;
 }
 
 export class MovimientosService {
@@ -51,25 +46,69 @@ export class MovimientosService {
       where: { movimientoCuentaId: id, anulado: false },
       include: {
         cliente: { select: { id: true, razonSocial: true, ruc: true } },
-        factura: { select: { id: true, numeroFactura: true, total: true } },
+        aplicaciones: { include: { factura: { select: { id: true, numeroFactura: true } } } },
       },
     });
-    return { ...mov, cobranza };
+    const mantenimiento = await prisma.mantenimientoDetalle.findUnique({
+      where: { movimientoCuentaId: id },
+      include: {
+        vehiculo: { select: { id: true, placa: true } },
+        conductor: { select: { id: true, nombre: true } },
+      },
+    });
+    return { ...mov, cobranza, mantenimiento };
   }
 
   async crear(dto: {
     cuentaId: number; tipo: 'INGRESO' | 'EGRESO'; monto: number; monedaId: number;
     tipoPagoId?: number; concepto: string; referencia?: string; fecha?: string;
     notaEgreso?: string; categoriaEgreso?: string;
+    categoriaIngreso?: string; notaIngreso?: string; clienteId?: number;
   }, usuarioId: number) {
+    if (dto.tipo === 'INGRESO' && dto.categoriaIngreso === 'PAGO_FACTURA') {
+      if (!dto.clienteId) throw new Error('Debe seleccionar un cliente para un ingreso de categoría "Pago de factura"');
+      const cliente = await prisma.cliente.findUnique({ where: { id: dto.clienteId } });
+      if (!cliente) throw new Error('Cliente no encontrado');
+
+      return prisma.$transaction(async (tx: any) => {
+        const mov = await cuentasService._registrarMovimientoEnTx(tx, {
+          cuentaId: dto.cuentaId, tipo: dto.tipo, monto: dto.monto, monedaId: dto.monedaId,
+          tipoPagoId: dto.tipoPagoId, concepto: dto.concepto, referencia: dto.referencia,
+          usuarioId, fecha: dto.fecha, origen: 'MANUAL', categoriaIngreso: dto.categoriaIngreso,
+        });
+        await tx.pagoV2.create({
+          data: {
+            clienteId: dto.clienteId,
+            usuarioId,
+            monto: mov.monto,
+            monedaId: mov.monedaId,
+            tipoPagoId: mov.tipoPagoId,
+            referencia: mov.referencia,
+            movimientoCuentaId: mov.id,
+            fechaPago: mov.fecha,
+            creadoPorId: usuarioId,
+          },
+        });
+        return mov;
+      });
+    }
+
+    if (dto.tipo === 'INGRESO' && dto.categoriaIngreso && dto.categoriaIngreso !== 'PAGO_FACTURA' && !dto.notaIngreso?.trim()) {
+      throw new Error('Debe indicar una observación para esta categoría de ingreso');
+    }
+
     return cuentasService.registrarMovimiento({ ...dto, usuarioId, origen: 'MANUAL' });
   }
 
   async actualizar(id: number, dto: {
     concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null;
     notaEgreso?: string | null; categoriaEgreso?: string | null;
-  }) {
-    return cuentasService.actualizarMovimiento(id, dto);
+  }, usuarioId?: number) {
+    const mov = await cuentasService.actualizarMovimiento(id, dto);
+    if (usuarioId) {
+      return prisma.movimientoCuentaV2.update({ where: { id }, data: { actualizadoPorId: usuarioId } });
+    }
+    return mov;
   }
 
   async anular(id: number, usuarioId: number) {
@@ -226,134 +265,6 @@ export class MovimientosService {
     return { creados: validas.length, errores, bloqueados, advertencias };
   }
 
-  // ── COBRANZA VINCULADA A UN INGRESO ──────────────────────────────────────────
-  async facturasPorCliente(clienteId: number) {
-    const facturas = await prisma.factura.findMany({
-      where: {
-        clienteId,
-        estado: { in: [EstadoFactura.EMITIDA, EstadoFactura.PENDIENTE, EstadoFactura.PARCIAL] },
-      },
-      orderBy: { fechaVencimiento: 'asc' },
-    });
-
-    return facturas.map((f) => {
-      const pagado = Number(f.totalPagado || 0);
-      const saldo = Number(f.total) - pagado;
-      return {
-        id: f.id,
-        numeroFactura: f.numeroFactura,
-        total: Number(f.total),
-        pagado,
-        saldoPendiente: saldo,
-        estado: f.estado,
-        fechaVencimiento: f.fechaVencimiento,
-        vencida: f.fechaVencimiento < new Date(),
-      };
-    }).filter((f) => f.saldoPendiente > 0.01);
-  }
-
-  async vincularCobranza(movimientoId: number, dto: VincularCobranzaDto, usuarioId: number) {
-    const mov = await prisma.movimientoCuentaV2.findUnique({ where: { id: movimientoId } });
-    if (!mov) throw new Error('Movimiento no encontrado');
-    if (mov.tipo !== 'INGRESO') throw new Error('Solo se puede vincular cobranza a un ingreso');
-    if (mov.anulado) throw new Error('No se puede vincular cobranza a un movimiento anulado');
-
-    const existente = await prisma.pagoV2.findFirst({ where: { movimientoCuentaId: movimientoId, anulado: false } });
-    if (existente) throw new Error('Este ingreso ya tiene una cobranza vinculada');
-
-    const cajaVinculada = await prisma.caja.findFirst({ where: { movimientoCierreId: movimientoId } });
-    if (cajaVinculada) throw new Error('No se puede vincular cobranza a una devolución de saldo de caja chica');
-
-    const cliente = await prisma.cliente.findUnique({ where: { id: dto.clienteId } });
-    if (!cliente) throw new Error('Cliente no encontrado');
-
-    let factura: any = null;
-    if (dto.facturaId) {
-      factura = await prisma.factura.findUnique({ where: { id: dto.facturaId } });
-      if (!factura) throw new Error('Factura no encontrada');
-      if (factura.clienteId !== dto.clienteId) throw new Error('La factura no pertenece a este cliente');
-      if (factura.estado === EstadoFactura.ANULADA) throw new Error('No se puede vincular cobranza a una factura anulada');
-      if (factura.estado === EstadoFactura.PAGADA) throw new Error('La factura ya está completamente pagada');
-
-      const totalPagadoActual = Number(factura.totalPagado || 0);
-      const saldoPendiente = Number(factura.total) - totalPagadoActual;
-      const monto = Number(mov.monto);
-      if (monto > saldoPendiente + 0.01) {
-        throw new Error(
-          `El monto del ingreso (S/${monto.toFixed(2)}) excede el saldo pendiente de la factura (S/${saldoPendiente.toFixed(2)}). ` +
-          `Selecciona otra factura o vincula solo al cliente con una observación.`
-        );
-      }
-    } else if (!dto.observacion || !dto.observacion.trim()) {
-      throw new Error('Debe indicar una observación (ej. préstamo, otro ingreso) si no selecciona una factura');
-    }
-
-    return prisma.$transaction(async (tx: any) => {
-      if (factura) {
-        const totalPagadoActual = Number(factura.totalPagado || 0);
-        const nuevoTotalPagado = totalPagadoActual + Number(mov.monto);
-        const total = Number(factura.total);
-        const nuevoEstado = (Math.abs(nuevoTotalPagado - total) < 0.01 || nuevoTotalPagado >= total)
-          ? EstadoFactura.PAGADA : EstadoFactura.PARCIAL;
-        await tx.factura.update({
-          where: { id: factura.id },
-          data: { totalPagado: nuevoTotalPagado, estado: nuevoEstado },
-        });
-      }
-
-      return tx.pagoV2.create({
-        data: {
-          facturaId: dto.facturaId ?? null,
-          clienteId: dto.clienteId,
-          usuarioId,
-          monto: mov.monto,
-          monedaId: mov.monedaId,
-          tipoPagoId: mov.tipoPagoId,
-          referencia: mov.referencia,
-          observaciones: dto.observacion ?? null,
-          movimientoCuentaId: mov.id,
-          fechaPago: mov.fecha,
-        },
-        include: {
-          cliente: { select: { id: true, razonSocial: true, ruc: true } },
-          factura: { select: { id: true, numeroFactura: true, total: true } },
-        },
-      });
-    });
-  }
-
-  async desvincularCobranza(movimientoId: number, usuarioRol: string) {
-    if (usuarioRol !== 'ADMIN') throw new Error('Solo el administrador puede desvincular una cobranza');
-
-    const pago = await prisma.pagoV2.findFirst({ where: { movimientoCuentaId: movimientoId, anulado: false } });
-    if (!pago) throw new Error('Este ingreso no tiene una cobranza vinculada');
-
-    await prisma.$transaction(async (tx: any) => {
-      await tx.pagoV2.update({
-        where: { id: pago.id },
-        data: { anulado: true, anuladoEn: new Date(), motivoAnulacion: 'Desvinculado por administrador' },
-      });
-
-      if (pago.facturaId) {
-        const activos = await tx.pagoV2.findMany({
-          where: { facturaId: pago.facturaId, anulado: false },
-          select: { monto: true },
-        });
-        const factura = await tx.factura.findUnique({ where: { id: pago.facturaId } });
-        if (factura && factura.estado !== EstadoFactura.ANULADA) {
-          const totalPagado = activos.reduce((s: number, p: any) => s + Number(p.monto), 0);
-          const total = Number(factura.total);
-          let estado: string;
-          if (totalPagado <= 0) estado = EstadoFactura.EMITIDA;
-          else if (Math.abs(totalPagado - total) < 0.01) estado = EstadoFactura.PAGADA;
-          else estado = EstadoFactura.PARCIAL;
-          await tx.factura.update({ where: { id: pago.facturaId }, data: { totalPagado, estado } });
-        }
-      }
-    });
-
-    return { message: 'Cobranza desvinculada correctamente' };
-  }
 }
 
 export const movimientosService = new MovimientosService();

@@ -47,6 +47,8 @@ export class ClientesService {
           _count: {
             select: { pedidos: true, facturas: true },
           },
+          creadoPor: { select: { id: true, nombre: true } },
+          actualizadoPor: { select: { id: true, nombre: true } },
         },
       }),
     ]);
@@ -58,6 +60,8 @@ export class ClientesService {
     const cliente = await prisma.cliente.findUnique({
       where: { id },
       include: {
+        creadoPor: { select: { id: true, nombre: true } },
+        actualizadoPor: { select: { id: true, nombre: true } },
         pedidos: {
           orderBy: { creadoEn: 'desc' },
           take: 10,
@@ -88,14 +92,14 @@ export class ClientesService {
     return cliente;
   }
 
-  async create(dto: CreateClienteDto) {
+  async create(dto: CreateClienteDto, usuarioId?: number) {
     const existente = await prisma.cliente.findUnique({ where: { ruc: dto.ruc } });
     if (existente) throw new Error(`Ya existe un cliente con RUC ${dto.ruc}`);
 
-    return prisma.cliente.create({ data: dto });
+    return prisma.cliente.create({ data: { ...dto, creadoPorId: usuarioId } });
   }
 
-  async update(id: number, dto: UpdateClienteDto) {
+  async update(id: number, dto: UpdateClienteDto, usuarioId?: number) {
     await this.findById(id);
 
     if (dto.ruc) {
@@ -105,7 +109,7 @@ export class ClientesService {
       if (existente) throw new Error(`El RUC ${dto.ruc} ya está registrado`);
     }
 
-    return prisma.cliente.update({ where: { id }, data: dto });
+    return prisma.cliente.update({ where: { id }, data: { ...dto, actualizadoPorId: usuarioId } });
   }
 
   async remove(id: number) {

@@ -24,6 +24,7 @@ router.post('/',                          facturacionController.crear.bind(factu
 router.post('/desde-xml',                 facturacionController.crearDesdeXml.bind(facturacionController));
 router.post('/importacion-masiva-xml',    facturacionController.importacionMasivaXml.bind(facturacionController));
 router.put('/:id',                        facturacionController.actualizar.bind(facturacionController));
+router.patch('/:id/pedido',               facturacionController.asociarPedido.bind(facturacionController));
 router.patch('/:id/anular',              verificarAccion('anular_factura'), facturacionController.anular.bind(facturacionController));
 router.delete('/:id',                     facturacionController.eliminar.bind(facturacionController));
 

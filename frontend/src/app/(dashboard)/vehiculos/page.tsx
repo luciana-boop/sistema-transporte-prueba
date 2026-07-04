@@ -12,7 +12,7 @@ import { vehiculosApi, fetchAllPages } from '@/services/api';
 import { formatDate, getErrorMessage } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
-  EmptyState, Modal, FormField, Input, Select, Textarea,
+  EmptyState, Modal, FormField, Input, Select, Textarea, AuditInfo,
 } from '@/components/shared';
 import type { Vehiculo } from '@/types';
 import * as XLSX from 'xlsx';
@@ -261,6 +261,15 @@ export default function VehiculosPage() {
           <FormField label="Observaciones" error={errors.observaciones?.message}>
             <Textarea placeholder="Notas adicionales..." {...register('observaciones')} />
           </FormField>
+
+          {editing && (
+            <AuditInfo
+              creadoPor={editing.creadoPor}
+              creadoEn={editing.creadoEn}
+              actualizadoPor={editing.actualizadoPor}
+              actualizadoEn={editing.actualizadoEn}
+            />
+          )}
 
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="secondary" type="button" onClick={() => { setShowForm(false); setEditing(null); reset(); }}>Cancelar</Button>

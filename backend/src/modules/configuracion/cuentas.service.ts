@@ -42,8 +42,14 @@ export interface MovimientoInternoDto {
   origen?: string;
   /** Solo aplica a egresos: nota libre de en qué se usó el gasto (no confundir con `referencia`, el N° de operación bancario) */
   notaEgreso?: string;
-  /** Solo aplica a egresos: categoría (COMBUSTIBLE | REPUESTOS | CAJA_CHICA | PLANILLA | OTROS) */
+  /** Solo aplica a egresos: categoría (COMBUSTIBLE | MANTENIMIENTO | CAJA_CHICA | PLANILLA | OTROS) */
   categoriaEgreso?: string;
+  /** Solo aplica a ingresos: categoría (PAGO_FACTURA | CAJA_CHICA | LIQUIDACION | OTRO) */
+  categoriaIngreso?: string;
+  /** Solo aplica a ingresos cuya categoriaIngreso no sea PAGO_FACTURA: observación libre */
+  notaIngreso?: string;
+  /** Auditoría: usuario que creó el registro (por defecto, el mismo usuarioId) */
+  creadoPorId?: number;
 }
 
 export class CuentasService {
@@ -93,22 +99,22 @@ export class CuentasService {
     return m ?? await prisma.moneda.findFirst({ where: { activo: true }, orderBy: { codigo: 'asc' } });
   }
 
-  async createMoneda(dto: { codigo: string; nombre: string; simbolo: string; esPorDefecto?: boolean }) {
+  async createMoneda(dto: { codigo: string; nombre: string; simbolo: string; esPorDefecto?: boolean }, usuarioId?: number) {
     const existe = await prisma.moneda.findUnique({ where: { codigo: dto.codigo.toUpperCase() } });
     if (existe) throw new Error(`La moneda ${dto.codigo} ya existe`);
     if (dto.esPorDefecto) {
       await prisma.moneda.updateMany({ data: { esPorDefecto: false } });
     }
-    return prisma.moneda.create({ data: { ...dto, codigo: dto.codigo.toUpperCase() } });
+    return prisma.moneda.create({ data: { ...dto, codigo: dto.codigo.toUpperCase(), creadoPorId: usuarioId } });
   }
 
-  async updateMoneda(id: number, dto: { nombre?: string; simbolo?: string; activo?: boolean; esPorDefecto?: boolean }) {
+  async updateMoneda(id: number, dto: { nombre?: string; simbolo?: string; activo?: boolean; esPorDefecto?: boolean }, usuarioId?: number) {
     const m = await prisma.moneda.findUnique({ where: { id } });
     if (!m) throw new Error('Moneda no encontrada');
     if (dto.esPorDefecto) {
       await prisma.moneda.updateMany({ data: { esPorDefecto: false } });
     }
-    return prisma.moneda.update({ where: { id }, data: dto });
+    return prisma.moneda.update({ where: { id }, data: { ...dto, actualizadoPorId: usuarioId } });
   }
 
   async deleteMoneda(id: number) {
@@ -129,16 +135,16 @@ export class CuentasService {
     return prisma.tipoPago.findMany({ where: { activo: true }, orderBy: [{ orden: 'asc' }, { nombre: 'asc' }] });
   }
 
-  async createTipoPago(dto: { codigo: string; nombre: string; descripcion?: string; orden?: number }) {
+  async createTipoPago(dto: { codigo: string; nombre: string; descripcion?: string; orden?: number }, usuarioId?: number) {
     const existe = await prisma.tipoPago.findUnique({ where: { codigo: dto.codigo.toUpperCase() } });
     if (existe) throw new Error(`El tipo de pago ${dto.codigo} ya existe`);
-    return prisma.tipoPago.create({ data: { ...dto, codigo: dto.codigo.toUpperCase() } });
+    return prisma.tipoPago.create({ data: { ...dto, codigo: dto.codigo.toUpperCase(), creadoPorId: usuarioId } });
   }
 
-  async updateTipoPago(id: number, dto: { nombre?: string; descripcion?: string; activo?: boolean; orden?: number }) {
+  async updateTipoPago(id: number, dto: { nombre?: string; descripcion?: string; activo?: boolean; orden?: number }, usuarioId?: number) {
     const t = await prisma.tipoPago.findUnique({ where: { id } });
     if (!t) throw new Error('Tipo de pago no encontrado');
-    return prisma.tipoPago.update({ where: { id }, data: dto });
+    return prisma.tipoPago.update({ where: { id }, data: { ...dto, actualizadoPorId: usuarioId } });
   }
 
   async deleteTipoPago(id: number) {
@@ -163,6 +169,8 @@ export class CuentasService {
       where: { id },
       include: {
         moneda: true,
+        creadoPor: { select: { id: true, nombre: true } },
+        actualizadoPor: { select: { id: true, nombre: true } },
         movimientos: {
           orderBy: { fecha: 'desc' },
           take: 50,
@@ -180,12 +188,12 @@ export class CuentasService {
   async createCuenta(dto: {
     nombre: string; tipoCuenta: string; monedaId: number;
     saldoInicial?: number; descripcion?: string; banco?: string; numeroCuenta?: string;
-  }) {
+  }, usuarioId?: number) {
     const moneda = await prisma.moneda.findUnique({ where: { id: dto.monedaId } });
     if (!moneda) throw new Error('Moneda no encontrada');
     const saldo = dto.saldoInicial ?? 0;
     return prisma.cuentaDinero.create({
-      data: { ...dto, saldoInicial: saldo, saldoActual: saldo },
+      data: { ...dto, saldoInicial: saldo, saldoActual: saldo, creadoPorId: usuarioId },
       include: { moneda: { select: { codigo: true, simbolo: true } } },
     });
   }
@@ -193,10 +201,10 @@ export class CuentasService {
   async updateCuenta(id: number, dto: {
     nombre?: string; tipoCuenta?: string; monedaId?: number;
     activo?: boolean; descripcion?: string; banco?: string; numeroCuenta?: string;
-  }) {
+  }, usuarioId?: number) {
     await this.getCuenta(id);
     return prisma.cuentaDinero.update({
-      where: { id }, data: dto,
+      where: { id }, data: { ...dto, actualizadoPorId: usuarioId },
       include: { moneda: { select: { codigo: true, simbolo: true } } },
     });
   }
@@ -242,13 +250,18 @@ export class CuentasService {
           tipoPago: { select: { nombre: true } },
           usuario: { select: { id: true, nombre: true } },
           liquidacion: { select: { id: true, conductor: { select: { nombre: true } } } },
-          // Módulo Movimientos: para saber en la lista si un ingreso ya tiene cobranza vinculada
+          // Módulo Cobranza: para saber en la lista si un ingreso de categoría PAGO_FACTURA
+          // ya fue aplicado (total o parcialmente) a alguna factura
           cobranza: {
             select: {
-              id: true, anulado: true, observaciones: true,
+              id: true, anulado: true, monto: true,
               cliente: { select: { id: true, razonSocial: true } },
-              factura: { select: { id: true, numeroFactura: true } },
+              aplicaciones: { select: { monto: true } },
             },
+          },
+          // Módulo Mantenimiento: para saber en la lista si un egreso MANTENIMIENTO ya fue relacionado
+          mantenimiento: {
+            select: { id: true, vehiculo: { select: { id: true, placa: true } } },
           },
           // Si este ingreso es la devolución de saldo al cerrar una caja chica,
           // no admite cobranza — el frontend usa este campo para ocultar esa opción
@@ -291,6 +304,8 @@ export class CuentasService {
         usuario: { select: { id: true, nombre: true } },
         liquidacion: { select: { id: true, conductor: { select: { nombre: true } } } },
         cajaCierre: { select: { id: true, nombre: true } },
+        creadoPor: { select: { id: true, nombre: true } },
+        actualizadoPor: { select: { id: true, nombre: true } },
       },
     });
     if (!mov) throw new Error('Movimiento no encontrado');
@@ -301,7 +316,7 @@ export class CuentasService {
   async actualizarMovimiento(id: number, dto: {
     concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null;
     notaEgreso?: string | null; categoriaEgreso?: string | null;
-  }) {
+  }, usuarioId?: number) {
     const mov = await prisma.movimientoCuentaV2.findUnique({ where: { id } });
     if (!mov) throw new Error('Movimiento no encontrado');
     if (mov.anulado) throw new Error('No se puede editar un movimiento anulado');
@@ -312,12 +327,13 @@ export class CuentasService {
     if (dto.categoriaEgreso !== undefined) {
       if (mov.tipo !== 'EGRESO') throw new Error('La categoría solo aplica a egresos');
       if ((dto.categoriaEgreso || null) !== mov.categoriaEgreso) {
-        const [combustibleVinculado, cajaVinculada] = await Promise.all([
+        const [combustibleVinculado, cajaVinculada, mantenimientoVinculado] = await Promise.all([
           prisma.combustible.findFirst({ where: { movimientoCuentaId: id } }),
           prisma.caja.findFirst({ where: { movimientoCuentaId: id } }),
+          prisma.mantenimientoDetalle.findFirst({ where: { movimientoCuentaId: id } }),
         ]);
-        if (combustibleVinculado || cajaVinculada) {
-          throw new Error('No se puede cambiar la categoría: este egreso ya está vinculado a un registro de Combustible o Caja chica');
+        if (combustibleVinculado || cajaVinculada || mantenimientoVinculado) {
+          throw new Error('No se puede cambiar la categoría: este egreso ya está vinculado a un registro de Combustible, Caja chica o Mantenimiento');
         }
       }
     }
@@ -331,6 +347,7 @@ export class CuentasService {
         ...(dto.tipoPagoId !== undefined && { tipoPagoId: dto.tipoPagoId || null }),
         ...(dto.notaEgreso !== undefined && { notaEgreso: dto.notaEgreso || null }),
         ...(dto.categoriaEgreso !== undefined && { categoriaEgreso: dto.categoriaEgreso || null }),
+        ...(usuarioId && { actualizadoPorId: usuarioId }),
       },
       include: {
         cuenta: { select: { id: true, nombre: true, tipoCuenta: true } },
@@ -390,7 +407,10 @@ export class CuentasService {
         origen: dto.origen ?? 'MANUAL',
         notaEgreso: dto.tipo === 'EGRESO' ? (dto.notaEgreso ?? null) : null,
         categoriaEgreso: dto.tipo === 'EGRESO' ? (dto.categoriaEgreso ?? null) : null,
+        categoriaIngreso: dto.tipo === 'INGRESO' ? (dto.categoriaIngreso ?? null) : null,
+        notaIngreso: dto.tipo === 'INGRESO' ? (dto.notaIngreso ?? null) : null,
         fecha: dto.fecha ? new Date(dto.fecha) : new Date(),
+        creadoPorId: dto.creadoPorId ?? dto.usuarioId,
       },
     });
 
@@ -460,6 +480,7 @@ export class CuentasService {
     monto: number; monedaId: number; tipoPagoId?: number;
     concepto: string; referencia?: string;
     usuarioId: number; fecha?: string; origen?: string; notaEgreso?: string; categoriaEgreso?: string;
+    categoriaIngreso?: string; notaIngreso?: string; creadoPorId?: number;
   }) {
     const cuenta = await prisma.cuentaDinero.findUnique({ where: { id: dto.cuentaId } });
     if (!cuenta) throw new Error('Cuenta no encontrada');

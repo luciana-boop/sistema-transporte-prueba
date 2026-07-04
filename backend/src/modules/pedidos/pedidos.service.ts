@@ -53,6 +53,8 @@ export class PedidosService {
         include: {
           cliente: { select: { id: true, razonSocial: true, ruc: true } },
           usuario: { select: { id: true, nombre: true } },
+          creadoPor: { select: { id: true, nombre: true } },
+          actualizadoPor: { select: { id: true, nombre: true } },
         },
       }),
     ]);
@@ -90,6 +92,8 @@ export class PedidosService {
       include: {
         cliente: true,
         usuario: { select: { id: true, nombre: true, email: true } },
+        creadoPor: { select: { id: true, nombre: true } },
+        actualizadoPor: { select: { id: true, nombre: true } },
         facturas: { select: { id: true, numeroFactura: true, total: true, estado: true } },
       },
     });
@@ -103,12 +107,12 @@ export class PedidosService {
     if (!cliente.activo) throw new Error('El cliente está desactivado');
 
     return prisma.pedido.create({
-      data: { ...dto, usuarioId, estado: EstadoPedido.ACTIVO },
+      data: { ...dto, usuarioId, estado: EstadoPedido.ACTIVO, creadoPorId: usuarioId },
       include: { cliente: { select: { id: true, razonSocial: true } } },
     });
   }
 
-  async update(id: number, dto: UpdatePedidoDto) {
+  async update(id: number, dto: UpdatePedidoDto, usuarioId?: number) {
     const pedido = await this.findById(id);
     if (pedido.estado === EstadoPedido.ANULADO) {
       throw new Error('No se puede modificar un pedido anulado');
@@ -118,7 +122,7 @@ export class PedidosService {
     }
     return prisma.pedido.update({
       where: { id },
-      data: dto,
+      data: { ...dto, actualizadoPorId: usuarioId },
       include: { cliente: { select: { id: true, razonSocial: true } } },
     });
   }

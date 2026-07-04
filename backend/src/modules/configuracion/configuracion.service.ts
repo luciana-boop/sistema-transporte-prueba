@@ -82,6 +82,12 @@ const DEFAULTS_TABLAS: Array<{ tipo: string; codigo: string; nombre: string; des
   { tipo: 'codigo_factura', codigo: '00001', nombre: '00001', descripcion: 'Servicio de Transporte Nacional', orden: 1 },
   { tipo: 'codigo_factura', codigo: '00002', nombre: '00002', descripcion: 'Transporte Local',                orden: 2 },
   { tipo: 'codigo_factura', codigo: '00003', nombre: '00003', descripcion: 'Flete Especial',                  orden: 3 },
+  // ── NUEVO: Motivos de mantenimiento (módulo Mantenimiento) ─────────────────
+  { tipo: 'motivo_mantenimiento', codigo: 'LLANTA',  nombre: 'Llanta',  orden: 1 },
+  { tipo: 'motivo_mantenimiento', codigo: 'BATERIA', nombre: 'Batería', orden: 2 },
+  { tipo: 'motivo_mantenimiento', codigo: 'ACEITE',  nombre: 'Aceite',  orden: 3 },
+  { tipo: 'motivo_mantenimiento', codigo: 'FRENOS',  nombre: 'Frenos',  orden: 4 },
+  { tipo: 'motivo_mantenimiento', codigo: 'OTRO',    nombre: 'Otro',    orden: 5 },
 ];
 
 const DEFAULTS_SERIES = [
@@ -146,20 +152,21 @@ export class ConfiguracionService {
     return c?.valor ?? DEFAULTS_CONFIGURACION[clave]?.valor ?? null;
   }
 
-  async updateParametro(clave: string, valor: string) {
+  async updateParametro(clave: string, valor: string, usuarioId?: number) {
     return prisma.configuracion.upsert({
       where: { clave },
-      update: { valor },
+      update: { valor, actualizadoPorId: usuarioId },
       create: {
         clave,
         ...(DEFAULTS_CONFIGURACION[clave] || { tipo: 'texto', categoria: 'general', etiqueta: clave }),
         valor,
+        creadoPorId: usuarioId,
       },
     });
   }
 
-  async updateParametrosBulk(params: Record<string, string>) {
-    const updates = Object.entries(params).map(([clave, valor]) => this.updateParametro(clave, valor));
+  async updateParametrosBulk(params: Record<string, string>, usuarioId?: number) {
+    const updates = Object.entries(params).map(([clave, valor]) => this.updateParametro(clave, valor, usuarioId));
     await Promise.all(updates);
     return { message: 'Parámetros actualizados', cantidad: Object.keys(params).length };
   }
@@ -179,7 +186,7 @@ export class ConfiguracionService {
     return s;
   }
 
-  async createSerie(dto: { serie: string; tipoDocumento?: string; correlativoInicial?: number; descripcion?: string }) {
+  async createSerie(dto: { serie: string; tipoDocumento?: string; correlativoInicial?: number; descripcion?: string }, usuarioId?: number) {
     const existe = await prisma.serieFacturacion.findUnique({ where: { serie: dto.serie.toUpperCase() } });
     if (existe) throw new Error(`La serie ${dto.serie} ya existe`);
     return prisma.serieFacturacion.create({
@@ -189,14 +196,15 @@ export class ConfiguracionService {
         correlativoInicial: dto.correlativoInicial || 1,
         correlativoActual: dto.correlativoInicial || 1,
         descripcion: dto.descripcion,
+        creadoPorId: usuarioId,
       },
     });
   }
 
-  async updateSerie(id: number, dto: { tipoDocumento?: string; correlativoActual?: number; activo?: boolean; descripcion?: string }) {
+  async updateSerie(id: number, dto: { tipoDocumento?: string; correlativoActual?: number; activo?: boolean; descripcion?: string }, usuarioId?: number) {
     const serie = await prisma.serieFacturacion.findUnique({ where: { id } });
     if (!serie) throw new Error('Serie no encontrada');
-    return prisma.serieFacturacion.update({ where: { id }, data: dto });
+    return prisma.serieFacturacion.update({ where: { id }, data: { ...dto, actualizadoPorId: usuarioId } });
   }
 
   async deleteSerie(id: number) {
@@ -225,15 +233,15 @@ export class ConfiguracionService {
     return prisma.configuracionAlerta.findMany({ orderBy: { etiqueta: 'asc' } });
   }
 
-  async updateAlerta(id: number, dto: { diasAnticipacion?: number; activo?: boolean; color?: string; nivel?: string }) {
+  async updateAlerta(id: number, dto: { diasAnticipacion?: number; activo?: boolean; color?: string; nivel?: string }, usuarioId?: number) {
     const a = await prisma.configuracionAlerta.findUnique({ where: { id } });
     if (!a) throw new Error('Alerta no encontrada');
-    return prisma.configuracionAlerta.update({ where: { id }, data: dto });
+    return prisma.configuracionAlerta.update({ where: { id }, data: { ...dto, actualizadoPorId: usuarioId } });
   }
 
-  async updateAlertasBulk(alertas: Array<{ id: number; diasAnticipacion: number; activo: boolean; color: string; nivel: string }>) {
+  async updateAlertasBulk(alertas: Array<{ id: number; diasAnticipacion: number; activo: boolean; color: string; nivel: string }>, usuarioId?: number) {
     const updates = alertas.map((a) =>
-      prisma.configuracionAlerta.update({ where: { id: a.id }, data: { diasAnticipacion: a.diasAnticipacion, activo: a.activo, color: a.color, nivel: a.nivel } })
+      prisma.configuracionAlerta.update({ where: { id: a.id }, data: { diasAnticipacion: a.diasAnticipacion, activo: a.activo, color: a.color, nivel: a.nivel, actualizadoPorId: usuarioId } })
     );
     await Promise.all(updates);
     return { message: 'Alertas actualizadas', cantidad: alertas.length };
@@ -249,7 +257,7 @@ export class ConfiguracionService {
     return tipos.map((t: any) => t.tipo);
   }
 
-  async createTablaMaestra(dto: { tipo: string; codigo: string; nombre: string; descripcion?: string; extra?: string; orden?: number }) {
+  async createTablaMaestra(dto: { tipo: string; codigo: string; nombre: string; descripcion?: string; extra?: string; orden?: number }, usuarioId?: number) {
     // Validar campo obligatorio
     if (!dto.codigo?.trim()) throw new Error('El código es obligatorio');
     if (!dto.nombre?.trim()) throw new Error('El nombre es obligatorio');
@@ -258,13 +266,13 @@ export class ConfiguracionService {
     const existe = await prisma.tablaMaestra.findUnique({ where: { tipo_codigo: { tipo: dto.tipo, codigo: dto.codigo } } });
     if (existe) throw new Error(`El código "${dto.codigo}" ya existe en "${dto.tipo}"`);
 
-    return prisma.tablaMaestra.create({ data: dto });
+    return prisma.tablaMaestra.create({ data: { ...dto, creadoPorId: usuarioId } });
   }
 
-  async updateTablaMaestra(id: number, dto: { nombre?: string; descripcion?: string; extra?: string; activo?: boolean; orden?: number }) {
+  async updateTablaMaestra(id: number, dto: { nombre?: string; descripcion?: string; extra?: string; activo?: boolean; orden?: number }, usuarioId?: number) {
     const t = await prisma.tablaMaestra.findUnique({ where: { id } });
     if (!t) throw new Error('Registro no encontrado');
-    return prisma.tablaMaestra.update({ where: { id }, data: dto });
+    return prisma.tablaMaestra.update({ where: { id }, data: { ...dto, actualizadoPorId: usuarioId } });
   }
 
   async deleteTablaMaestra(id: number) {
@@ -298,16 +306,16 @@ export class ConfiguracionService {
     return prisma.tipoVehiculoConfig.findMany({ orderBy: { nombre: 'asc' } });
   }
 
-  async createTipoVehiculo(dto: { codigo: string; nombre: string; descripcion?: string }) {
+  async createTipoVehiculo(dto: { codigo: string; nombre: string; descripcion?: string }, usuarioId?: number) {
     const existe = await prisma.tipoVehiculoConfig.findUnique({ where: { codigo: dto.codigo.toUpperCase() } });
     if (existe) throw new Error(`El código ${dto.codigo} ya existe`);
-    return prisma.tipoVehiculoConfig.create({ data: { ...dto, codigo: dto.codigo.toUpperCase() } });
+    return prisma.tipoVehiculoConfig.create({ data: { ...dto, codigo: dto.codigo.toUpperCase(), creadoPorId: usuarioId } });
   }
 
-  async updateTipoVehiculo(id: number, dto: { nombre?: string; descripcion?: string; activo?: boolean }) {
+  async updateTipoVehiculo(id: number, dto: { nombre?: string; descripcion?: string; activo?: boolean }, usuarioId?: number) {
     const t = await prisma.tipoVehiculoConfig.findUnique({ where: { id } });
     if (!t) throw new Error('Tipo no encontrado');
-    return prisma.tipoVehiculoConfig.update({ where: { id }, data: dto });
+    return prisma.tipoVehiculoConfig.update({ where: { id }, data: { ...dto, actualizadoPorId: usuarioId } });
   }
 
   async deleteTipoVehiculo(id: number) {

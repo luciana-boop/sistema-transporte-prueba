@@ -78,6 +78,14 @@ export class ReportesController {
     } catch (e) { R.serverError(res, e); }
   }
 
+  async mantenimiento(req: Request, res: Response): Promise<void> {
+    try {
+      const { desde, hasta, vehiculoId } = req.query as Record<string, string>;
+      const data = await reportesService.reporteMantenimiento({ desde, hasta, vehiculoId });
+      R.ok(res, data);
+    } catch (e) { R.serverError(res, e); }
+  }
+
   async rentabilidadPorCliente(req: Request, res: Response): Promise<void> {
     try {
       const { desde, hasta, clienteId } = req.query as Record<string, string>;

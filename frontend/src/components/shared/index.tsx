@@ -104,6 +104,28 @@ export function LoadingSpinner({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
   return <Loader2 className={cn(s, 'animate-spin text-primary')} />;
 }
 
+// ─── AUDITORÍA: quién creó / modificó un registro ────────────────────────────
+// Se ubica al final de cada modal/vista de detalle. Solo muestra "Modificado
+// por" si difiere de "Creado por" (evita redundancia cuando nunca se editó).
+export function AuditInfo({ creadoPor, creadoEn, actualizadoPor, actualizadoEn }: {
+  creadoPor?: { nombre: string } | null;
+  creadoEn?: string | null;
+  actualizadoPor?: { nombre: string } | null;
+  actualizadoEn?: string | null;
+}) {
+  if (!creadoPor && !actualizadoPor) return null;
+  const formatearFecha = (f: string) => {
+    try { return new Date(f).toLocaleString('es-PE', { dateStyle: 'short', timeStyle: 'short' }); } catch { return f; }
+  };
+  const mostrarActualizado = actualizadoPor && (actualizadoPor.nombre !== creadoPor?.nombre || actualizadoEn !== creadoEn);
+  return (
+    <div className="flex flex-col gap-0.5 pt-2 mt-1 border-t border-border text-[11px] text-muted-foreground/70">
+      {creadoPor && <span>Creado por {creadoPor.nombre}{creadoEn ? ` el ${formatearFecha(creadoEn)}` : ''}</span>}
+      {mostrarActualizado && <span>Modificado por {actualizadoPor!.nombre}{actualizadoEn ? ` el ${formatearFecha(actualizadoEn)}` : ''}</span>}
+    </div>
+  );
+}
+
 // ─── PAGE HEADER ─────────────────────────────────────────────────────────────
 export function PageHeader({
   title, description, action,

@@ -30,7 +30,7 @@ export class VehiculosController {
       if (!placa || !tipo || !marca || !modelo || !anio) {
         R.badRequest(res, 'placa, tipo, marca, modelo y anio son requeridos'); return;
       }
-      R.created(res, await vehiculosService.create({ ...req.body, anio: parseInt(anio) }), 'Vehículo creado');
+      R.created(res, await vehiculosService.create({ ...req.body, anio: parseInt(anio) }, req.usuario!.id), 'Vehículo creado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('ya está registrada')) R.badRequest(res, msg);
@@ -43,7 +43,7 @@ export class VehiculosController {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
       const dto = req.body.anio ? { ...req.body, anio: parseInt(req.body.anio) } : req.body;
-      R.ok(res, await vehiculosService.update(id, dto), 'Vehículo actualizado');
+      R.ok(res, await vehiculosService.update(id, dto, req.usuario!.id), 'Vehículo actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Vehículo no encontrado') R.notFound(res, msg);

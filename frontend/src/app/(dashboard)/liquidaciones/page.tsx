@@ -16,11 +16,11 @@ import {
   Plus, Search, Trash2, Eye, Printer, Download, Package, X,
   CreditCard, History, ClipboardList, CheckCircle, Lock,
 } from 'lucide-react';
-import { liquidacionesApi, conductoresApi, vehiculosApi, fetchAllPages } from '@/services/api';
+import { liquidacionesApi, conductoresApi, vehiculosApi, cuentasApi, fetchAllPages } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, TableSkeleton,
-  EmptyState, Modal, FormField, Input, Select, Textarea, StatCard,
+  EmptyState, Modal, FormField, Input, Select, Textarea, StatCard, AuditInfo,
 } from '@/components/shared';
 import type { Liquidacion, PedidoResumen } from '@/types';
 import * as XLSX from 'xlsx';
@@ -93,10 +93,14 @@ export default function LiquidacionesPage() {
   const [showCerrarModal, setShowCerrarModal] = useState<Liquidacion | null>(null);
   const [showHistorial, setShowHistorial] = useState<Liquidacion | null>(null);
 
-  // Estado modales de pago / cierre
+  // Estado modal de pago (caja)
   const [cajaSeleccionada, setCajaSeleccionada] = useState('');
   const [montoPagado, setMontoPagado] = useState('');
   const [fechaPago, setFechaPago] = useState(() => new Date().toISOString().split('T')[0]);
+
+  // Estado modal de cierre (banco + N° de operación)
+  const [cuentaCierreSeleccionada, setCuentaCierreSeleccionada] = useState('');
+  const [numeroOperacionCierre, setNumeroOperacionCierre] = useState('');
   const [fechaCierre, setFechaCierre] = useState(() => new Date().toISOString().split('T')[0]);
 
   // Pedidos en formulario de creación
@@ -134,7 +138,14 @@ export default function LiquidacionesPage() {
   const { data: cajasAbiertas = [] } = useQuery({
     queryKey: ['liquidaciones-cajas-abiertas'],
     queryFn: () => liquidacionesApi.cajasAbiertas().then((r) => r.data.data),
-    enabled: !!showPagarModal || !!showCerrarModal,
+    enabled: !!showPagarModal,
+    refetchOnWindowFocus: false,
+  });
+
+  const { data: cuentasActivas = [] } = useQuery({
+    queryKey: ['cuentas', 'activas-cierre-liquidacion'],
+    queryFn: () => cuentasApi.getCuentas({ activo: true }).then((r) => r.data.data).catch(() => []),
+    enabled: !!showCerrarModal,
     refetchOnWindowFocus: false,
   });
 
@@ -264,14 +275,14 @@ export default function LiquidacionesPage() {
   });
 
   const cerrarMutation = useMutation({
-    mutationFn: ({ id, cajaId, fecha }: { id: number; cajaId: number; fecha?: string }) =>
-      liquidacionesApi.cerrar(id, { cajaId, fecha }),
+    mutationFn: ({ id, cuentaId, numeroOperacion, fecha }: { id: number; cuentaId: number; numeroOperacion?: string; fecha?: string }) =>
+      liquidacionesApi.cerrar(id, { cuentaId, numeroOperacion, fecha }),
     onSuccess: (res) => {
       const liq = res.data.data;
       if (Number(liq.devolucion) > 0) toast.success(`Liquidación cerrada — Devolución: ${formatCurrency(Number(liq.devolucion))}`);
       else if (Number(liq.reintegro) > 0) toast.success(`Liquidación cerrada — Reintegro: ${formatCurrency(Number(liq.reintegro))}`);
       else toast.success('Liquidación cerrada');
-      setShowCerrarModal(null); setCajaSeleccionada('');
+      setShowCerrarModal(null); setCuentaCierreSeleccionada(''); setNumeroOperacionCierre('');
       invalidate();
     },
     onError: (e) => toast.error(getErrorMessage(e)),
@@ -473,7 +484,7 @@ export default function LiquidacionesPage() {
                     {/* Paso 4: Cerrar (solo RENDIDA) */}
                     {l.estado === 'RENDIDA' && (
                       <button
-                        onClick={() => { setShowCerrarModal(l); setCajaSeleccionada(''); setFechaCierre(new Date().toISOString().split('T')[0]); }}
+                        onClick={() => { setShowCerrarModal(l); setCuentaCierreSeleccionada(''); setNumeroOperacionCierre(''); setFechaCierre(new Date().toISOString().split('T')[0]); }}
                         className="p-1.5 rounded-md hover:bg-purple-50 text-purple-500 hover:text-purple-700 transition-all"
                         title="Cerrar liquidación (registrar ajuste)"
                       >
@@ -710,9 +721,10 @@ export default function LiquidacionesPage() {
       </Modal>
 
       {/* ─── Modal: Cerrar Liquidación (RENDIDA→CERRADA) ─────────────────────── */}
-      <Modal open={!!showCerrarModal} onClose={() => { setShowCerrarModal(null); setCajaSeleccionada(''); }} title="Paso 4 — Cerrar liquidación">
+      <Modal open={!!showCerrarModal} onClose={() => { setShowCerrarModal(null); setCuentaCierreSeleccionada(''); setNumeroOperacionCierre(''); }} title="Paso 4 — Cerrar liquidación">
         {showCerrarModal && (() => {
           const { pagado, rendido, diff, devolucion, reintegro } = calcularDiferenciaCierre(showCerrarModal);
+          const requiereAjuste = Math.abs(diff) >= 0.01;
           return (
             <div className="flex flex-col gap-4">
               <div className="bg-muted/30 rounded-lg p-3 text-sm">
@@ -723,7 +735,7 @@ export default function LiquidacionesPage() {
                 <div><p className="text-xs text-muted-foreground">Monto pagado</p><p className="font-bold">{formatCurrency(pagado)}</p></div>
                 <div><p className="text-xs text-muted-foreground">Total rendido</p><p className="font-bold">{formatCurrency(rendido)}</p></div>
                 <div>
-                  {Math.abs(diff) < 0.01 ? (
+                  {!requiereAjuste ? (
                     <><p className="text-xs text-muted-foreground">Resultado</p><p className="font-bold text-emerald-500">Exacto</p></>
                   ) : diff > 0 ? (
                     <><p className="text-xs text-muted-foreground">Devolución</p><p className="font-bold text-emerald-500">+{formatCurrency(devolucion)}</p><p className="text-xs text-emerald-600">El conductor devuelve dinero</p></>
@@ -733,31 +745,39 @@ export default function LiquidacionesPage() {
                 </div>
               </div>
 
-              {Math.abs(diff) >= 0.01 && (
+              {requiereAjuste && (
                 <div className={`rounded-lg p-3 text-xs ${diff > 0 ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-red-50 border border-red-200 text-red-700'}`}>
                   {diff > 0
-                    ? `Se registrará un INGRESO de ${formatCurrency(devolucion)} en la caja seleccionada (el conductor devuelve el excedente).`
-                    : `Se registrará un EGRESO de ${formatCurrency(reintegro)} en la caja seleccionada (la empresa paga el faltante al conductor).`}
+                    ? `Se registrará un INGRESO de ${formatCurrency(devolucion)} en la cuenta bancaria seleccionada (el conductor devuelve el excedente).`
+                    : `Se registrará un EGRESO de ${formatCurrency(reintegro)} en la cuenta bancaria seleccionada (la empresa paga el faltante al conductor).`}
                 </div>
               )}
 
-              <FormField label="Caja para el ajuste" required>
-                <Select value={cajaSeleccionada} onChange={(e) => setCajaSeleccionada(e.target.value)}>
-                  <option value="">Seleccionar caja...</option>
-                  {cajasAbiertas.length === 0 && <option disabled>No hay cajas abiertas</option>}
-                  {cajasAbiertas.map((c: any) => <option key={c.id} value={c.id}>{c.nombre ?? `Caja #${c.id}`} — {c.usuario?.nombre} — Saldo: {formatCurrency(c.saldoActual)}</option>)}
+              <FormField label="Banco / cuenta" required={requiereAjuste}>
+                <Select value={cuentaCierreSeleccionada} onChange={(e) => setCuentaCierreSeleccionada(e.target.value)}>
+                  <option value="">Seleccionar cuenta...</option>
+                  {cuentasActivas.map((c: any) => <option key={c.id} value={c.id}>{c.nombre}{c.banco ? ` — ${c.banco}` : ''} — Saldo: {formatCurrency(c.saldoActual)}</option>)}
                 </Select>
               </FormField>
+              {requiereAjuste && (
+                <FormField label="N° de operación" required hint="Número de operación bancario de la devolución/reintegro">
+                  <Input value={numeroOperacionCierre} onChange={(e) => setNumeroOperacionCierre(e.target.value)} placeholder="Ej: 000123456" />
+                </FormField>
+              )}
               <FormField label="Fecha de cierre">
                 <Input type="date" value={fechaCierre} onChange={(e) => setFechaCierre(e.target.value)} />
               </FormField>
-              {cajasAbiertas.length === 0 && <p className="text-xs text-destructive">Abra una caja para registrar el ajuste.</p>}
 
               <div className="flex justify-end gap-2 pt-2">
-                <Button variant="secondary" onClick={() => { setShowCerrarModal(null); setCajaSeleccionada(''); }}>Cancelar</Button>
+                <Button variant="secondary" onClick={() => { setShowCerrarModal(null); setCuentaCierreSeleccionada(''); setNumeroOperacionCierre(''); }}>Cancelar</Button>
                 <Button
-                  disabled={!cajaSeleccionada || cerrarMutation.isPending || cajasAbiertas.length === 0}
-                  onClick={() => cerrarMutation.mutate({ id: showCerrarModal.id, cajaId: parseInt(cajaSeleccionada), fecha: fechaCierre })}
+                  disabled={!cuentaCierreSeleccionada || cerrarMutation.isPending || (requiereAjuste && !numeroOperacionCierre.trim())}
+                  onClick={() => cerrarMutation.mutate({
+                    id: showCerrarModal.id,
+                    cuentaId: parseInt(cuentaCierreSeleccionada),
+                    numeroOperacion: requiereAjuste ? numeroOperacionCierre : undefined,
+                    fecha: fechaCierre,
+                  })}
                 >
                   {cerrarMutation.isPending ? 'Cerrando...' : 'Confirmar cierre'}
                 </Button>
@@ -827,6 +847,13 @@ export default function LiquidacionesPage() {
               </>
             )}
 
+            <AuditInfo
+              creadoPor={(viewing as any).creadoPor}
+              creadoEn={(viewing as any).creadoEn}
+              actualizadoPor={(viewing as any).actualizadoPor}
+              actualizadoEn={(viewing as any).actualizadoEn}
+            />
+
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => handlePrint(viewing)}><Printer className="w-4 h-4" /> Imprimir</Button>
               <Button variant="secondary" onClick={() => setViewing(null)}>Cerrar</Button>
@@ -851,14 +878,14 @@ export default function LiquidacionesPage() {
                 </div>
                 {historialData.movimientos.length > 0 ? (
                   <Table>
-                    <thead><tr><Th>Fecha</Th><Th>Tipo</Th><Th>Concepto</Th><Th>Caja</Th><Th className="text-right">Monto</Th></tr></thead>
+                    <thead><tr><Th>Fecha</Th><Th>Tipo</Th><Th>Concepto</Th><Th>Origen</Th><Th className="text-right">Monto</Th></tr></thead>
                     <tbody>
                       {historialData.movimientos.map((m) => (
                         <Tr key={m.id}>
                           <Td><span className="text-xs text-muted-foreground">{formatDate(m.fecha)}</span></Td>
                           <Td><span className={`text-xs font-medium ${m.tipo === 'INGRESO' ? 'text-emerald-500' : 'text-red-500'}`}>{m.tipo}</span></Td>
                           <Td><span className="text-xs">{m.concepto}</span></Td>
-                          <Td><span className="text-xs text-muted-foreground">{m.caja?.nombre ?? `#${m.caja?.id}`}</span></Td>
+                          <Td><span className="text-xs text-muted-foreground">{m.origen}</span></Td>
                           <Td className="text-right"><span className="text-sm font-semibold">{formatCurrency(m.monto)}</span></Td>
                         </Tr>
                       ))}

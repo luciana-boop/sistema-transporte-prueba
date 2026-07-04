@@ -3,7 +3,8 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { reportesApi } from '@/services/api';
+import { differenceInCalendarDays } from 'date-fns';
+import { reportesApi, vehiculosApi } from '@/services/api';
 import { formatCurrency, formatDate, rangoMes, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL, CLASIFICACION_MES_LABEL } from '@/lib/utils';
 import {
   PageHeader, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -16,19 +17,28 @@ import {
 import { Eye } from 'lucide-react';
 
 const TABS = [
-  { id: 'pedidos',     label: 'Pedidos' },
-  { id: 'facturacion', label: 'Facturación' },
-  { id: 'cobranza',    label: 'Cobranza' },
-  { id: 'caja',        label: 'Caja' },
-  { id: 'egresos',     label: 'Egresos' },
-  { id: 'anual',       label: 'Reporte Anual' },
+  { id: 'pedidos',       label: 'Pedidos' },
+  { id: 'facturacion',   label: 'Facturación' },
+  { id: 'cobranza',      label: 'Cobranza' },
+  { id: 'caja',          label: 'Caja' },
+  { id: 'egresos',       label: 'Egresos' },
+  { id: 'mantenimiento', label: 'Mantenimiento' },
+  { id: 'anual',         label: 'Reporte Anual' },
 ];
+
+function tiempoDesde(fechaStr: string): string {
+  const dias = differenceInCalendarDays(new Date(), new Date(fechaStr));
+  if (dias <= 0) return 'Hoy';
+  if (dias < 30) return `Hace ${dias} día${dias === 1 ? '' : 's'}`;
+  const meses = Math.floor(dias / 30);
+  return `Hace ${meses} mes${meses === 1 ? '' : 'es'}`;
+}
 
 const COLORS = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4'];
 
 const CATEGORIA_EGRESO_LABEL: Record<string, string> = {
   COMBUSTIBLE: 'Combustible',
-  REPUESTOS: 'Repuestos',
+  MANTENIMIENTO: 'Mantenimiento',
   CAJA_CHICA: 'Caja chica',
   PLANILLA: 'Planilla',
   OTROS: 'Otros',
@@ -89,6 +99,28 @@ export default function ReportesPage() {
     queryFn: () => reportesApi.egresos(params).then((r) => r.data.data),
     enabled: tab === 'egresos',
   });
+
+  const [vehiculoIdFiltro, setVehiculoIdFiltro] = useState('');
+  const [filtroMotivo, setFiltroMotivo] = useState<'TODOS' | 'BATERIA' | 'OTROS'>('TODOS');
+
+  const { data: vehiculos = [] } = useQuery({
+    queryKey: ['vehiculos', 'activos-reportes'],
+    queryFn: () => vehiculosApi.listar({ activo: true, limit: 200 }).then((r) => r.data.data.items).catch(() => []),
+    enabled: tab === 'mantenimiento',
+  });
+
+  const { data: mantenimientoData, isLoading: lMantenimiento } = useQuery({
+    queryKey: ['reporte', 'mantenimiento', desde, hasta, vehiculoIdFiltro],
+    queryFn: () => reportesApi.mantenimiento({ ...params, vehiculoId: vehiculoIdFiltro ? parseInt(vehiculoIdFiltro) : undefined }).then((r) => r.data.data),
+    enabled: tab === 'mantenimiento',
+  });
+
+  const gastosMantenimientoFiltrados = useMemo(() => {
+    const gastos = mantenimientoData?.gastos ?? [];
+    if (filtroMotivo === 'TODOS') return gastos;
+    if (filtroMotivo === 'BATERIA') return gastos.filter((g) => g.mantenimiento?.motivoCodigo === 'BATERIA');
+    return gastos.filter((g) => g.mantenimiento?.motivoCodigo !== 'BATERIA');
+  }, [mantenimientoData, filtroMotivo]);
 
   const { data: anualData, isLoading: lAnual } = useQuery({
     queryKey: ['reporte', 'anual', anioReporte],
@@ -437,6 +469,88 @@ export default function ReportesPage() {
                     <Td className="text-right"><span className="font-semibold text-destructive">{formatCurrency(Number(e.monto))}</span></Td>
                   </Tr>
                 )) : <tr><td colSpan={4}><EmptyState message="Sin egresos en el período" /></td></tr>}
+              </tbody>
+            </Table>
+          )}
+        </div>
+      )}
+
+      {/* ── MANTENIMIENTO ── */}
+      {tab === 'mantenimiento' && (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground">Vehículo</label>
+              <Select className="w-56" value={vehiculoIdFiltro} onChange={(e) => setVehiculoIdFiltro(e.target.value)}>
+                <option value="">Todos los vehículos</option>
+                {vehiculos.map((v: any) => <option key={v.id} value={v.id}>{v.placa} — {v.marca} {v.modelo}</option>)}
+              </Select>
+            </div>
+            <div className="flex gap-1 bg-muted p-1 rounded-lg">
+              {(['TODOS', 'BATERIA', 'OTROS'] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFiltroMotivo(f)}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${filtroMotivo === f ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  {f === 'TODOS' ? 'Todos' : f === 'BATERIA' ? 'Batería' : 'Los demás'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {mantenimientoData && (
+            <div className="grid grid-cols-2 gap-4">
+              <StatCard label="Total gastado en mantenimiento" value={formatCurrency(mantenimientoData.totalGastado)} color="red" />
+              <StatCard label="Cantidad de gastos" value={mantenimientoData.cantidad} color="default" />
+            </div>
+          )}
+
+          {/* Gráfico por vehículo */}
+          {(mantenimientoData?.porVehiculo.length ?? 0) > 0 && (
+            <div className="bg-card border border-border rounded-2xl p-5 shadow-sm">
+              <p className="text-sm font-semibold mb-4">Gasto de mantenimiento por vehículo</p>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={mantenimientoData!.porVehiculo}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                  <XAxis dataKey="placa" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v) => `S/${(v/1000).toFixed(0)}k`} />
+                  <Tooltip
+                    formatter={(value: number) => formatCurrency(value)}
+                    contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
+                  />
+                  <Bar dataKey="total" name="Total gastado" radius={[6, 6, 0, 0]}>
+                    {mantenimientoData!.porVehiculo.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Detalle de gastos */}
+          {lMantenimiento ? <TableSkeleton rows={6} cols={6} /> : (
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Fecha</Th>
+                  <Th>Vehículo</Th>
+                  <Th>Motivo</Th>
+                  <Th>Descripción</Th>
+                  <Th className="text-right">Monto</Th>
+                  <Th>Hace</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {gastosMantenimientoFiltrados.length ? gastosMantenimientoFiltrados.map((g) => (
+                  <Tr key={g.id}>
+                    <Td><span className="text-sm">{formatDate(g.fecha)}</span></Td>
+                    <Td><span className="text-sm font-medium">{g.mantenimiento?.vehiculo.placa}</span></Td>
+                    <Td><span className="text-xs text-muted-foreground">{g.mantenimiento?.motivoCodigo}</span></Td>
+                    <Td><span className="text-xs text-muted-foreground">{g.mantenimiento?.descripcion || '—'}</span></Td>
+                    <Td className="text-right"><span className="font-semibold text-destructive">{formatCurrency(Number(g.monto))}</span></Td>
+                    <Td><span className="text-xs text-muted-foreground">{tiempoDesde(g.fecha)}</span></Td>
+                  </Tr>
+                )) : <tr><td colSpan={6}><EmptyState message="Sin gastos de mantenimiento en el período" /></td></tr>}
               </tbody>
             </Table>
           )}

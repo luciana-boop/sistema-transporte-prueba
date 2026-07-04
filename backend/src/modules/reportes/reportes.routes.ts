@@ -36,6 +36,9 @@ router.get('/caja', reportesController.caja.bind(reportesController));
 // GET /api/reportes/egresos?desde=2024-01-01&hasta=2024-12-31
 router.get('/egresos', reportesController.egresos.bind(reportesController));
 
+// GET /api/reportes/mantenimiento?desde=2024-01-01&hasta=2024-12-31&vehiculoId=1
+router.get('/mantenimiento', reportesController.mantenimiento.bind(reportesController));
+
 // GET /api/reportes/rentabilidad-cliente?desde=2024-01-01&hasta=2024-12-31
 router.get('/rentabilidad-cliente', reportesController.rentabilidadPorCliente.bind(reportesController));
 

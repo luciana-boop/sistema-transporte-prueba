@@ -141,6 +141,8 @@ export class FacturacionService {
           usuario: { select: { id: true, nombre: true } },
           lineas: { orderBy: { orden: 'asc' } },
           _count: { select: { pagosV2: true } },
+          creadoPor: { select: { id: true, nombre: true } },
+          actualizadoPor: { select: { id: true, nombre: true } },
         },
       }),
     ]);
@@ -155,6 +157,8 @@ export class FacturacionService {
         cliente: true,
         pedido: { select: { id: true, origen: true, destino: true, tipoCarga: true } },
         usuario: { select: { id: true, nombre: true, email: true } },
+        creadoPor: { select: { id: true, nombre: true } },
+        actualizadoPor: { select: { id: true, nombre: true } },
         lineas: { orderBy: { orden: 'asc' } },
         pagosV2: {
           select: {
@@ -300,6 +304,7 @@ export class FacturacionService {
           pdfPath: dto.pdfPath,
           hashXml: dto.hashXml,
           totalPagado: 0,
+          creadoPorId: usuarioId,
           lineas: lineas.length > 0 ? {
             createMany: {
               data: lineas.map((l, idx) => ({
@@ -383,9 +388,61 @@ export class FacturacionService {
     });
   }
 
+  // Valida que un pedido pueda asociarse a una factura: pertenece al cliente
+  // correcto, no está anulado, y no está ya facturado por otra factura activa.
+  private async _validarPedidoParaFactura(pedidoId: number, targetClienteId: number, facturaId: number) {
+    const pedido = await prisma.pedido.findUnique({
+      where: { id: pedidoId },
+      include: {
+        facturas: {
+          where: { estado: { not: 'ANULADA' }, id: { not: facturaId } },
+          select: { id: true, numeroFactura: true },
+        },
+      },
+    });
+    if (!pedido) throw new Error('El pedido indicado no existe');
+    if (pedido.clienteId !== targetClienteId) {
+      throw new Error('El pedido no pertenece al cliente seleccionado');
+    }
+    if (pedido.estado === 'ANULADO') throw new Error('No se puede facturar un pedido anulado');
+    if (pedido.facturas.length > 0) {
+      throw new Error(`El pedido ya está facturado (${pedido.facturas[0].numeroFactura}).`);
+    }
+    return pedido;
+  }
+
+  // Acción rápida: asocia/desasocia el pedido de una factura sin tocar el
+  // resto de sus campos (usada desde el listado, sin abrir el formulario de edición).
+  async asociarPedido(facturaId: number, pedidoId: number | null, usuarioId?: number) {
+    const factura = await this.findById(facturaId);
+    if (factura.estado === EstadoFactura.ANULADA) throw new Error('No se puede modificar una factura anulada');
+    if (pedidoId === factura.pedidoId) return factura;
+
+    if (pedidoId) {
+      await this._validarPedidoParaFactura(pedidoId, factura.clienteId, facturaId);
+    }
+
+    return prisma.$transaction(async (tx: any) => {
+      if (factura.pedidoId) {
+        await tx.pedido.updateMany({
+          where: { id: factura.pedidoId, estado: 'FACTURADO' },
+          data: { estado: 'ACTIVO' },
+        });
+      }
+      if (pedidoId) {
+        await tx.pedido.update({ where: { id: pedidoId }, data: { estado: 'FACTURADO' } });
+      }
+      return tx.factura.update({
+        where: { id: facturaId },
+        data: { pedidoId, actualizadoPorId: usuarioId },
+        include: { lineas: true, pedido: { select: { id: true, origen: true, destino: true } } },
+      });
+    });
+  }
+
   // Las facturas no anuladas son editables: no hay integración con SUNAT que
   // las "bloquee" una vez emitidas (ver comentario en getPdfPath).
-  async update(id: number, dto: UpdateFacturaDto) {
+  async update(id: number, dto: UpdateFacturaDto, usuarioId?: number) {
     const factura = await this.findById(id);
     if (factura.estado === EstadoFactura.ANULADA) throw new Error('No se puede modificar una factura anulada');
 
@@ -400,23 +457,7 @@ export class FacturacionService {
     if (dto.pedidoId !== undefined && dto.pedidoId !== factura.pedidoId) {
       const targetClienteId = dto.clienteId ?? factura.clienteId;
       if (dto.pedidoId) {
-        const pedido = await prisma.pedido.findUnique({
-          where: { id: dto.pedidoId },
-          include: {
-            facturas: {
-              where: { estado: { not: 'ANULADA' }, id: { not: id } },
-              select: { id: true, numeroFactura: true },
-            },
-          },
-        });
-        if (!pedido) throw new Error('El pedido indicado no existe');
-        if (pedido.clienteId !== targetClienteId) {
-          throw new Error('El pedido no pertenece al cliente seleccionado');
-        }
-        if (pedido.estado === 'ANULADO') throw new Error('No se puede facturar un pedido anulado');
-        if (pedido.facturas.length > 0) {
-          throw new Error(`El pedido ya está facturado (${pedido.facturas[0].numeroFactura}).`);
-        }
+        await this._validarPedidoParaFactura(dto.pedidoId, targetClienteId, id);
       }
       pedidoChange = { oldPedidoId: factura.pedidoId, newPedidoId: dto.pedidoId };
     }
@@ -433,6 +474,7 @@ export class FacturacionService {
       peso: dto.peso,
       tipoCredito: dto.tipoCredito,
       diasCredito: dto.diasCredito,
+      actualizadoPorId: usuarioId,
     };
 
     const fechaEmision = dto.fechaEmision ? new Date(dto.fechaEmision) : undefined;

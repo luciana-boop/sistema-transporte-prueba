@@ -29,26 +29,38 @@ export class ConductoresService {
     const { skip, take, page, limit } = paginar(query);
     const [total, items] = await Promise.all([
       prisma.conductor.count({ where }),
-      prisma.conductor.findMany({ where, orderBy: { nombre: 'asc' }, skip, take }),
+      prisma.conductor.findMany({
+        where, orderBy: { nombre: 'asc' }, skip, take,
+        include: {
+          creadoPor: { select: { id: true, nombre: true } },
+          actualizadoPor: { select: { id: true, nombre: true } },
+        },
+      }),
     ]);
     return { items, total, page, limit };
   }
 
   async findById(id: number) {
-    const c = await prisma.conductor.findUnique({ where: { id } });
+    const c = await prisma.conductor.findUnique({
+      where: { id },
+      include: {
+        creadoPor: { select: { id: true, nombre: true } },
+        actualizadoPor: { select: { id: true, nombre: true } },
+      },
+    });
     if (!c) throw new Error('Conductor no encontrado');
     return c;
   }
 
-  async create(dto: CreateConductorDto) {
+  async create(dto: CreateConductorDto, usuarioId?: number) {
     const existe = await prisma.conductor.findUnique({ where: { dni: dto.dni } });
     if (existe) throw new Error(`Ya existe un conductor con DNI ${dto.dni}`);
     return prisma.conductor.create({
-      data: { ...dto, vencimientoLicencia: new Date(dto.vencimientoLicencia) },
+      data: { ...dto, vencimientoLicencia: new Date(dto.vencimientoLicencia), creadoPorId: usuarioId },
     });
   }
 
-  async update(id: number, dto: Partial<CreateConductorDto> & { activo?: boolean }) {
+  async update(id: number, dto: Partial<CreateConductorDto> & { activo?: boolean }, usuarioId?: number) {
     await this.findById(id);
     if (dto.dni) {
       const existe = await prisma.conductor.findFirst({
@@ -63,6 +75,7 @@ export class ConductoresService {
         vencimientoLicencia: dto.vencimientoLicencia
           ? new Date(dto.vencimientoLicencia)
           : undefined,
+        actualizadoPorId: usuarioId,
       },
     });
   }

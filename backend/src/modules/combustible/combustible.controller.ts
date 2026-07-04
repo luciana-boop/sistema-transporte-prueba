@@ -93,7 +93,7 @@ export class CombustibleController {
         kilometraje,
         grifo,
         observaciones,
-      }), 'Registro actualizado');
+      }, req.usuario!.id), 'Registro actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Registro no encontrado') R.notFound(res, msg);

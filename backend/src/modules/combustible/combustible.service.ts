@@ -118,6 +118,8 @@ export class CombustibleService {
             usuario: { select: { id: true, nombre: true } },
           },
         },
+        creadoPor: { select: { id: true, nombre: true } },
+        actualizadoPor: { select: { id: true, nombre: true } },
       },
     });
     if (!c) throw new Error('Registro no encontrado');
@@ -222,6 +224,7 @@ export class CombustibleService {
         grifo: dto.grifo,
         observaciones: dto.observaciones,
         movimientoCuentaId: dto.movimientoCuentaId,
+        creadoPorId: usuarioId,
       },
       include: {
         vehiculo: { select: { id: true, placa: true, marca: true } },
@@ -231,7 +234,7 @@ export class CombustibleService {
     });
   }
 
-  async update(id: number, dto: UpdateCombustibleDto) {
+  async update(id: number, dto: UpdateCombustibleDto, usuarioId?: number) {
     const actual = await prisma.combustible.findUnique({ where: { id } });
     if (!actual) throw new Error('Registro no encontrado');
 
@@ -269,6 +272,7 @@ export class CombustibleService {
         ...(dto.kilometraje !== undefined && { kilometraje: dto.kilometraje }),
         ...(dto.grifo !== undefined && { grifo: dto.grifo }),
         ...(dto.observaciones !== undefined && { observaciones: dto.observaciones }),
+        actualizadoPorId: usuarioId,
       },
       include: {
         vehiculo: { select: { id: true, placa: true, marca: true } },

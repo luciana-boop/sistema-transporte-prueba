@@ -21,7 +21,10 @@ const crearValidations = [
   body('referencia').optional({ values: 'falsy' }).isString().isLength({ max: 255 }).withMessage('N° de operación inválido'),
   body('fecha').optional({ values: 'falsy' }).isISO8601().withMessage('fecha inválida'),
   body('notaEgreso').optional({ values: 'falsy' }).isString().isLength({ max: 500 }).withMessage('referencia inválida'),
-  body('categoriaEgreso').optional({ values: 'falsy' }).isIn(['COMBUSTIBLE', 'REPUESTOS', 'CAJA_CHICA', 'PLANILLA', 'OTROS']).withMessage('categoriaEgreso inválida'),
+  body('categoriaEgreso').optional({ values: 'falsy' }).isIn(['COMBUSTIBLE', 'MANTENIMIENTO', 'CAJA_CHICA', 'PLANILLA', 'OTROS']).withMessage('categoriaEgreso inválida'),
+  body('categoriaIngreso').optional({ values: 'falsy' }).isIn(['PAGO_FACTURA', 'CAJA_CHICA', 'LIQUIDACION', 'OTRO']).withMessage('categoriaIngreso inválida'),
+  body('notaIngreso').optional({ values: 'falsy' }).isString().isLength({ max: 500 }).withMessage('observación inválida'),
+  body('clienteId').optional({ values: 'falsy' }).isInt({ gt: 0 }).withMessage('clienteId inválido'),
 ];
 
 const actualizarValidations = [
@@ -29,7 +32,7 @@ const actualizarValidations = [
   body('referencia').optional({ values: 'falsy' }).isString().isLength({ max: 255 }).withMessage('N° de operación inválido'),
   body('fecha').optional({ values: 'falsy' }).isISO8601().withMessage('fecha inválida'),
   body('notaEgreso').optional({ nullable: true }).isString().isLength({ max: 500 }).withMessage('referencia inválida'),
-  body('categoriaEgreso').optional({ nullable: true }).isIn(['COMBUSTIBLE', 'REPUESTOS', 'CAJA_CHICA', 'PLANILLA', 'OTROS']).withMessage('categoriaEgreso inválida'),
+  body('categoriaEgreso').optional({ nullable: true }).isIn(['COMBUSTIBLE', 'MANTENIMIENTO', 'CAJA_CHICA', 'PLANILLA', 'OTROS']).withMessage('categoriaEgreso inválida'),
 ];
 
 const importarValidations = [
@@ -39,21 +42,12 @@ const importarValidations = [
   body('confirmarDuplicados').optional().isBoolean().withMessage('confirmarDuplicados inválido'),
 ];
 
-const vincularCobranzaValidations = [
-  body('clienteId').isInt({ gt: 0 }).withMessage('clienteId inválido'),
-  body('facturaId').optional({ values: 'falsy' }).isInt({ gt: 0 }).withMessage('facturaId inválido'),
-  body('observacion').optional({ values: 'falsy' }).isString().isLength({ max: 500 }).withMessage('observación inválida'),
-];
-
 router.get('/', movimientosController.listar.bind(movimientosController));
 router.get('/resumen', movimientosController.resumen.bind(movimientosController));
-router.get('/facturas-cliente/:clienteId', movimientosController.facturasPorCliente.bind(movimientosController));
 router.get('/:id', movimientosController.obtener.bind(movimientosController));
 router.post('/', validate(crearValidations), movimientosController.crear.bind(movimientosController));
 router.post('/importar', validate(importarValidations), movimientosController.importar.bind(movimientosController));
 router.put('/:id', validate(actualizarValidations), movimientosController.actualizar.bind(movimientosController));
 router.patch('/:id/anular', verificarAccion('anular_movimiento'), movimientosController.anular.bind(movimientosController));
-router.post('/:id/cobranza', validate(vincularCobranzaValidations), movimientosController.vincularCobranza.bind(movimientosController));
-router.delete('/:id/cobranza', movimientosController.desvincularCobranza.bind(movimientosController));
 
 export default router;
