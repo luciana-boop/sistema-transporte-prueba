@@ -7,8 +7,8 @@ import * as R from '../../utils/response';
 export class CobranzaController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
-      const { estado } = req.query as { estado?: 'por_aplicar' | 'aplicado' };
-      R.ok(res, await cobranzaService.listar(estado));
+      const { estado, desde, hasta, clienteId, search } = req.query as Record<string, string>;
+      R.ok(res, await cobranzaService.listar({ estado: estado as 'por_aplicar' | 'aplicado' | undefined, desde, hasta, clienteId, search }));
     } catch (e) { R.serverError(res, e); }
   }
 

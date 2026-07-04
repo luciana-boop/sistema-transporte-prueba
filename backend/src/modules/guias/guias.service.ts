@@ -18,6 +18,14 @@ import {
   TIPO_DOC_IDENTIDAD_SUNAT,
 } from '../../integraciones/sunat.client';
 
+// Catálogo SUNAT 61 (documentos relacionados a la GRE) — subconjunto que
+// puede sustentar un traslado: Factura, Boleta o Guía de Remisión Remitente.
+const DOC_RELACIONADO_DESC: Record<string, string> = {
+  '01': 'Factura',
+  '03': 'Boleta de Venta',
+  '09': 'Guía de Remisión Remitente',
+};
+
 export interface GuiaDetalleDto {
   descripcion: string;
   cantidad: number;
@@ -67,6 +75,13 @@ export interface CreateGuiaDto {
   conductorLicencia?: string;
   pesoTotal?: number;
   observaciones?: string;
+  // Documento relacionado (catálogo SUNAT 61) — obligatorio en Guía
+  // Transportista: '09' Guía Remitente del remitente, o '01'/'03'
+  // Factura/Boleta si el remitente no emite GRE-Remitente.
+  docRelTipo?: string;
+  docRelSerie?: string;
+  docRelNumero?: string;
+  docRelRucEmisor?: string;
   detalles: GuiaDetalleDto[];
 }
 
@@ -203,6 +218,15 @@ export const guiasService = {
       if (!tieneConductor || !tieneVehiculo) {
         throw new Error('Los datos de conductor y vehículo son obligatorios en una guía de tipo Transportista');
       }
+
+      // SUNAT: "cuando corresponda la emisión de la guía de remisión
+      // remitente, se consignará el número y serie de la misma o
+      // comprobante de pago, que puedan sustentar el traslado" — el
+      // remitente es un tercero externo a este sistema, así que se pide a
+      // mano en vez de resolverlo de una relación.
+      if (!dto.docRelTipo || !dto.docRelNumero || !dto.docRelRucEmisor) {
+        throw new Error('El documento relacionado (tipo, número y RUC del emisor) es obligatorio en una guía de tipo Transportista');
+      }
     }
 
     if (dto.pedidoId) {
@@ -277,6 +301,10 @@ export const guiasService = {
           conductorLicencia: dto.conductorLicencia,
           pesoTotal: dto.pesoTotal,
           observaciones: dto.observaciones,
+          docRelTipo: tipoGuia === 'TRANSPORTISTA' ? dto.docRelTipo : undefined,
+          docRelSerie: tipoGuia === 'TRANSPORTISTA' ? dto.docRelSerie : undefined,
+          docRelNumero: tipoGuia === 'TRANSPORTISTA' ? dto.docRelNumero : undefined,
+          docRelRucEmisor: tipoGuia === 'TRANSPORTISTA' ? dto.docRelRucEmisor : undefined,
           detalles: {
             create: dto.detalles.map((d) => ({
               descripcion: d.descripcion,
@@ -331,6 +359,7 @@ export const guiasService = {
         where: { id: guiaId },
         include: {
           cliente: true,
+          remitente: true,
           detalles: true,
           conductor: true,
           vehiculo: true,
@@ -341,18 +370,6 @@ export const guiasService = {
       configuracionService.getParametro('empresa_razon_social'),
     ]);
     if (!guia) return;
-
-    // Guía Transportista (tipo 31): el contrato del servicio para este tipo de
-    // comprobante todavía no está confirmado — no se envía para evitar mandar
-    // una GRE mal formada. La guía queda creada y disponible en el sistema.
-    if (guia.tipoGuia === 'TRANSPORTISTA') {
-      console.warn(`[SUNAT] Envío de guía ${guia.numero} (tipo TRANSPORTISTA) omitido: contrato del servicio pendiente de confirmar`);
-      await prisma.guia.update({
-        where: { id: guiaId },
-        data: { estadoSunat: 'PENDIENTE_CONTRATO_SUNAT' },
-      }).catch(() => {});
-      return;
-    }
 
     const fechaISO = (d: Date | null | undefined) => (d ?? guia.fechaEmision).toISOString().slice(0, 10);
     const serie = guia.serie ?? '';
@@ -393,12 +410,33 @@ export const guiasService = {
         direccion_destino: guia.direccionEntrega ?? undefined,
         ubigeo_origen: guia.ubigeoOrigen ?? undefined,
         direccion_origen: guia.direccionPartida ?? undefined,
+        // Documento relacionado (catálogo 61) — solo aplica en Guía
+        // Transportista, ver validación en crear().
+        doc_relacionado: guia.docRelTipo && guia.docRelNumero
+          ? {
+              tipo: guia.docRelTipo,
+              tipo_desc: DOC_RELACIONADO_DESC[guia.docRelTipo] ?? guia.docRelTipo,
+              numero: guia.docRelSerie ? `${guia.docRelSerie}-${guia.docRelNumero}` : guia.docRelNumero,
+              emisor_ruc: guia.docRelRucEmisor ?? undefined,
+            }
+          : undefined,
       },
       items: guia.detalles.map((d: any) => ({
         descripcion: d.descripcion,
         cantidad: Number(d.cantidad),
         unidad_medida: d.unidadMedida,
       })),
+      // '09' Remitente | '31' Transportista (catálogo SUNAT 01).
+      tipo_documento: guia.tipoGuia === 'TRANSPORTISTA' ? '31' : '09',
+      // Solo en tipo 31: remitente de la mercadería (tercero distinto de
+      // quien emite, la propia transportista) — obligatorio para esa GRE.
+      remitente_tercero: guia.tipoGuia === 'TRANSPORTISTA' && guia.remitente
+        ? {
+            codigo_tipo_entidad: tipoDocPorNumero(guia.remitente.ruc),
+            numero_documento: guia.remitente.ruc,
+            razon_social_nombres: guia.remitente.razonSocial,
+          }
+        : undefined,
     };
 
     try {

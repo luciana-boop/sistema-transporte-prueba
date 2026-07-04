@@ -627,6 +627,11 @@ export interface Guia {
   conductorLicencia?: string | null;
   pesoTotal?: number | null;
   observaciones?: string | null;
+  // Documento relacionado (catálogo SUNAT 61) — solo en tipoGuia = 'TRANSPORTISTA'.
+  docRelTipo?: string | null;
+  docRelSerie?: string | null;
+  docRelNumero?: string | null;
+  docRelRucEmisor?: string | null;
   estadoSunat?: string | null;
   motivoRechazoSunat?: string | null;
   ticketSunat?: string | null;

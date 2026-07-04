@@ -77,6 +77,12 @@ const guiaSchema = z.object({
   conductorId: z.string().optional(),
   vehiculoId: z.string().optional(),
   vehiculoCarretaId: z.string().optional(),
+  // Documento relacionado (catálogo SUNAT 61) — obligatorio en Transportista:
+  // GRE Remitente del remitente ('09'), o Factura/Boleta si no la emite.
+  docRelTipo: z.string().optional(),
+  docRelSerie: z.string().optional(),
+  docRelNumero: z.string().optional(),
+  docRelRucEmisor: z.string().optional(),
   // Carga
   pesoTotal: z.string().optional(),
   observaciones: z.string().optional(),
@@ -86,6 +92,9 @@ const guiaSchema = z.object({
     if (!data.remitenteId) ctx.addIssue({ code: 'custom', path: ['remitenteId'], message: 'Requerido en guía Transportista' });
     if (!data.conductorId) ctx.addIssue({ code: 'custom', path: ['conductorId'], message: 'Requerido en guía Transportista' });
     if (!data.vehiculoId) ctx.addIssue({ code: 'custom', path: ['vehiculoId'], message: 'Requerido en guía Transportista' });
+    if (!data.docRelTipo) ctx.addIssue({ code: 'custom', path: ['docRelTipo'], message: 'Requerido en guía Transportista' });
+    if (!data.docRelNumero) ctx.addIssue({ code: 'custom', path: ['docRelNumero'], message: 'Requerido en guía Transportista' });
+    if (!data.docRelRucEmisor) ctx.addIssue({ code: 'custom', path: ['docRelRucEmisor'], message: 'Requerido en guía Transportista' });
   }
   const tieneCliente = !!data.clienteId;
   const tieneDni = !!(data.clienteNombre && data.clienteNumDoc);
@@ -292,6 +301,10 @@ export default function GuiasPage() {
       conductorId: mostrarConductorVehiculo && d.conductorId ? parseInt(d.conductorId) : undefined,
       vehiculoId: mostrarConductorVehiculo && d.vehiculoId ? parseInt(d.vehiculoId) : undefined,
       vehiculoCarretaId: mostrarConductorVehiculo && d.vehiculoCarretaId ? parseInt(d.vehiculoCarretaId) : undefined,
+      docRelTipo: d.tipoGuia === 'TRANSPORTISTA' ? (d.docRelTipo || undefined) : undefined,
+      docRelSerie: d.tipoGuia === 'TRANSPORTISTA' ? (d.docRelSerie || undefined) : undefined,
+      docRelNumero: d.tipoGuia === 'TRANSPORTISTA' ? (d.docRelNumero || undefined) : undefined,
+      docRelRucEmisor: d.tipoGuia === 'TRANSPORTISTA' ? (d.docRelRucEmisor || undefined) : undefined,
       pesoTotal: d.pesoTotal ? parseFloat(d.pesoTotal) : undefined,
       observaciones: d.observaciones || undefined,
       detalles: d.detalles.map(det => ({
@@ -684,6 +697,27 @@ export default function GuiasPage() {
                 </FormField>
               </div>
             )}
+            {esTransportista && (
+              <div className="grid grid-cols-4 gap-4 mt-4">
+                <FormField label="Doc. relacionado *" hint="GRE Remitente del remitente, o Factura/Boleta si no la emite" error={errors.docRelTipo?.message}>
+                  <Select {...register('docRelTipo')}>
+                    <option value="">Seleccione</option>
+                    <option value="09">09 - Guía de Remisión Remitente</option>
+                    <option value="01">01 - Factura</option>
+                    <option value="03">03 - Boleta de Venta</option>
+                  </Select>
+                </FormField>
+                <FormField label="Serie">
+                  <Input placeholder="Serie" {...register('docRelSerie')} />
+                </FormField>
+                <FormField label="Número *" error={errors.docRelNumero?.message}>
+                  <Input placeholder="Número" {...register('docRelNumero')} />
+                </FormField>
+                <FormField label="RUC emisor *" hint="RUC de quien emitió el documento relacionado" error={errors.docRelRucEmisor?.message}>
+                  <Input placeholder="RUC" maxLength={11} {...register('docRelRucEmisor')} />
+                </FormField>
+              </div>
+            )}
           </div>
 
           {/* SECCIÓN: Líneas */}
@@ -757,6 +791,9 @@ export default function GuiasPage() {
               <div><span className="text-muted-foreground">Estado:</span> <Badge value={viewing.estado} label={viewing.estado === 'EMITIDA' ? 'Emitida' : 'Anulada'} /></div>
               {viewing.tipoGuia === 'TRANSPORTISTA' && (
                 <div><span className="text-muted-foreground">Remitente:</span> <span className="font-medium">{viewing.remitente?.razonSocial ?? '—'}</span></div>
+              )}
+              {viewing.tipoGuia === 'TRANSPORTISTA' && (
+                <div><span className="text-muted-foreground">Doc. relacionado:</span> <span className="font-medium">{(viewing as any).docRelTipo ? `${(viewing as any).docRelTipo} — ${[(viewing as any).docRelSerie, (viewing as any).docRelNumero].filter(Boolean).join('-')} (RUC ${(viewing as any).docRelRucEmisor ?? '—'})` : '—'}</span></div>
               )}
               <div><span className="text-muted-foreground">{viewing.tipoGuia === 'TRANSPORTISTA' ? 'Destinatario' : 'Cliente'}:</span> <span className="font-medium">{viewing.cliente?.razonSocial ?? viewing.clienteNombre}{viewing.clienteNumDoc ? ` (${viewing.clienteNumDoc})` : ''}</span></div>
               <div><span className="text-muted-foreground">Fecha emisión:</span> {formatDate(viewing.fechaEmision)}</div>

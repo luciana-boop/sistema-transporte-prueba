@@ -33,6 +33,9 @@ const actualizarValidations = [
   body('fecha').optional({ values: 'falsy' }).isISO8601().withMessage('fecha inválida'),
   body('notaEgreso').optional({ nullable: true }).isString().isLength({ max: 500 }).withMessage('referencia inválida'),
   body('categoriaEgreso').optional({ nullable: true }).isIn(['COMBUSTIBLE', 'MANTENIMIENTO', 'CAJA_CHICA', 'PLANILLA', 'OTROS']).withMessage('categoriaEgreso inválida'),
+  body('notaIngreso').optional({ nullable: true }).isString().isLength({ max: 500 }).withMessage('observación inválida'),
+  body('categoriaIngreso').optional({ nullable: true }).isIn(['PAGO_FACTURA', 'CAJA_CHICA', 'LIQUIDACION', 'OTRO']).withMessage('categoriaIngreso inválida'),
+  body('clienteId').optional({ nullable: true }).isInt({ gt: 0 }).withMessage('clienteId inválido'),
 ];
 
 const importarValidations = [

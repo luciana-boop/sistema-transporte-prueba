@@ -24,10 +24,30 @@ const MOVIMIENTO_INCLUDE = {
 } as const;
 
 export class MantenimientoService {
-  async listar(estado?: 'por_relacionar' | 'relacionado') {
+  async listar(query: {
+    estado?: 'por_relacionar' | 'relacionado'; desde?: string; hasta?: string;
+    vehiculoId?: string; motivoCodigo?: string; search?: string;
+  } = {}) {
     const where: any = { categoriaEgreso: 'MANTENIMIENTO', anulado: false };
-    if (estado === 'por_relacionar') where.mantenimiento = null;
-    if (estado === 'relacionado') where.mantenimiento = { isNot: null };
+    if (query.estado === 'por_relacionar') where.mantenimiento = null;
+    if (query.estado === 'relacionado') where.mantenimiento = { isNot: null };
+
+    if (query.desde || query.hasta) {
+      where.fecha = {};
+      if (query.desde) where.fecha.gte = new Date(query.desde);
+      if (query.hasta) where.fecha.lte = new Date(query.hasta + 'T23:59:59');
+    }
+    if (query.search) {
+      where.concepto = { contains: query.search, mode: 'insensitive' };
+    }
+    if (query.vehiculoId || query.motivoCodigo) {
+      where.mantenimiento = {
+        is: {
+          ...(query.vehiculoId ? { vehiculoId: parseInt(query.vehiculoId) } : {}),
+          ...(query.motivoCodigo ? { motivoCodigo: query.motivoCodigo } : {}),
+        },
+      };
+    }
 
     return prisma.movimientoCuentaV2.findMany({
       where,

@@ -316,6 +316,7 @@ export class CuentasService {
   async actualizarMovimiento(id: number, dto: {
     concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null;
     notaEgreso?: string | null; categoriaEgreso?: string | null;
+    notaIngreso?: string | null; categoriaIngreso?: string | null;
   }, usuarioId?: number) {
     const mov = await prisma.movimientoCuentaV2.findUnique({ where: { id } });
     if (!mov) throw new Error('Movimiento no encontrado');
@@ -323,6 +324,12 @@ export class CuentasService {
     if (mov.referencia?.startsWith('REV-MOV-')) throw new Error('No se puede editar un movimiento de reverso');
     if (dto.notaEgreso !== undefined && mov.tipo !== 'EGRESO') {
       throw new Error('La referencia (nota del gasto) solo aplica a egresos');
+    }
+    if (dto.notaIngreso !== undefined && mov.tipo !== 'INGRESO') {
+      throw new Error('La observación solo aplica a ingresos');
+    }
+    if (dto.categoriaIngreso !== undefined && mov.tipo !== 'INGRESO') {
+      throw new Error('La categoría de ingreso solo aplica a ingresos');
     }
     if (dto.categoriaEgreso !== undefined) {
       if (mov.tipo !== 'EGRESO') throw new Error('La categoría solo aplica a egresos');
@@ -347,6 +354,8 @@ export class CuentasService {
         ...(dto.tipoPagoId !== undefined && { tipoPagoId: dto.tipoPagoId || null }),
         ...(dto.notaEgreso !== undefined && { notaEgreso: dto.notaEgreso || null }),
         ...(dto.categoriaEgreso !== undefined && { categoriaEgreso: dto.categoriaEgreso || null }),
+        ...(dto.notaIngreso !== undefined && { notaIngreso: dto.notaIngreso || null }),
+        ...(dto.categoriaIngreso !== undefined && { categoriaIngreso: dto.categoriaIngreso || null }),
         ...(usuarioId && { actualizadoPorId: usuarioId }),
       },
       include: {

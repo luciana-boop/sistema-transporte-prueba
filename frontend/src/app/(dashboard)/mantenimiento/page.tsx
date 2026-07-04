@@ -4,15 +4,16 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Wrench } from 'lucide-react';
+import { Wrench, Download } from 'lucide-react';
 import { mantenimientoApi, vehiculosApi, conductoresApi, configuracionApi } from '@/services/api';
 import {
   PageHeader, Button, Table, Th, Td, Tr,
-  Modal, FormField, Select, Textarea,
+  Modal, FormField, Select, Textarea, Input,
   TableSkeleton, EmptyState,
 } from '@/components/shared';
 import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
 import type { MovimientoMantenimiento } from '@/services/api';
+import * as XLSX from 'xlsx';
 
 type Tab = 'por_relacionar' | 'relacionado';
 
@@ -24,9 +25,25 @@ export default function MantenimientoPage() {
     vehiculoId: '', conductorId: '', motivoCodigo: '', descripcion: '',
   });
 
+  // ── Filtros ──────────────────────────────────────────────────────────────
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [vehiculoIdFiltro, setVehiculoIdFiltro] = useState('');
+  const [motivoFiltro, setMotivoFiltro] = useState('');
+  const [search, setSearch] = useState('');
+
+  const filtrosActivos = {
+    estado: tab,
+    desde: desde || undefined,
+    hasta: hasta || undefined,
+    vehiculoId: vehiculoIdFiltro ? parseInt(vehiculoIdFiltro) : undefined,
+    motivoCodigo: motivoFiltro || undefined,
+    search: search || undefined,
+  };
+
   const { data: gastos, isLoading } = useQuery({
-    queryKey: ['mantenimiento', tab],
-    queryFn: () => mantenimientoApi.listar({ estado: tab }).then((r) => r.data.data),
+    queryKey: ['mantenimiento', filtrosActivos],
+    queryFn: () => mantenimientoApi.listar(filtrosActivos).then((r) => r.data.data),
   });
 
   const { data: vehiculos = [] } = useQuery({
@@ -45,6 +62,22 @@ export default function MantenimientoPage() {
   });
 
   const inv = () => queryClient.invalidateQueries({ queryKey: ['mantenimiento'] });
+
+  const exportarExcel = () => {
+    const rows = (gastos ?? []).map((g) => ({
+      Fecha: formatDate(g.fecha),
+      Concepto: g.concepto,
+      Monto: Number(g.monto),
+      Vehículo: g.mantenimiento?.vehiculo.placa ?? '—',
+      Motivo: motivos.find((m: any) => m.codigo === g.mantenimiento?.motivoCodigo)?.nombre ?? g.mantenimiento?.motivoCodigo ?? '—',
+      Conductor: g.mantenimiento?.conductor?.nombre ?? '—',
+      Descripción: g.mantenimiento?.descripcion ?? '—',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, tab === 'por_relacionar' ? 'Por relacionar' : 'Relacionados');
+    XLSX.writeFile(wb, `mantenimiento_${tab}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
 
   const cerrarRelacionar = () => {
     setRelacionando(null);
@@ -77,6 +110,11 @@ export default function MantenimientoPage() {
       <PageHeader
         title="Mantenimiento"
         description="Relaciona los egresos de categoría Mantenimiento a un vehículo, conductor y motivo"
+        action={
+          <Button variant="secondary" onClick={exportarExcel} disabled={!gastos?.length}>
+            <Download className="w-4 h-4" /> Exportar Excel
+          </Button>
+        }
       />
 
       <div className="flex gap-1 border-b border-border">
@@ -91,6 +129,27 @@ export default function MantenimientoPage() {
             {t === 'por_relacionar' ? 'Gastos por relacionar' : 'Gastos relacionados'}
           </button>
         ))}
+      </div>
+
+      {/* Filtros */}
+      <div className="flex flex-wrap gap-3 items-end">
+        <FormField label="Desde"><Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></FormField>
+        <FormField label="Hasta"><Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></FormField>
+        <FormField label="Vehículo">
+          <Select value={vehiculoIdFiltro} onChange={(e) => setVehiculoIdFiltro(e.target.value)} className="w-48">
+            <option value="">Todos</option>
+            {vehiculos.map((v: any) => <option key={v.id} value={v.id}>{v.placa}</option>)}
+          </Select>
+        </FormField>
+        <FormField label="Motivo">
+          <Select value={motivoFiltro} onChange={(e) => setMotivoFiltro(e.target.value)} className="w-48">
+            <option value="">Todos</option>
+            {motivos.map((m: any) => <option key={m.codigo} value={m.codigo}>{m.nombre}</option>)}
+          </Select>
+        </FormField>
+        <FormField label="Buscar">
+          <Input placeholder="Concepto..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        </FormField>
       </div>
 
       {isLoading ? <TableSkeleton rows={6} cols={6} /> : (

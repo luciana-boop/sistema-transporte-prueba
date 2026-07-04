@@ -94,11 +94,15 @@ export async function generarPdfGuia(guia: any): Promise<string> {
 
     // ── Caja REMITENTE (solo Transportista, ya que ni emisor ni destinatario emiten la guía) ──
     if (esTransportista) {
-      const altoRem = ALTO_BARRA + ALTO_FILA;
+      const altoRem = ALTO_BARRA + ALTO_FILA * 2;
       const yRemContenido = dibujarCajaTitulada(doc, M, y, ANCHO, altoRem, 'REMITENTE', color);
       filaTexto(M + 8, yRemContenido, ANCHO / 2 - 16, 'Razón Social', guia.remitente?.razonSocial ?? '—');
       doc.fillColor(NEUTRO.grisClaro).font('Helvetica').fontSize(6.5).text('RUC', col2, yRemContenido, { width: ANCHO / 2 - 16, characterSpacing: 0.2 });
       doc.fillColor(NEUTRO.texto).font('Helvetica-Bold').fontSize(8.5).text(guia.remitente?.ruc ?? '—', col2, doc.y + 2, { width: ANCHO / 2 - 16 });
+      const docRelTxt = guia.docRelTipo
+        ? `${guia.docRelTipo} - ${[guia.docRelSerie, guia.docRelNumero].filter(Boolean).join('-')} (RUC ${guia.docRelRucEmisor ?? '—'})`
+        : '—';
+      filaTexto(M + 8, yRemContenido + ALTO_FILA, ANCHO - 16, 'Documento relacionado', docRelTxt);
       y = y + altoRem + 6;
     }
 

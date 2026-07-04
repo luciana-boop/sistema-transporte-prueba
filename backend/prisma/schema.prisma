@@ -834,6 +834,16 @@ model Guia {
   conductorLicencia        String?   @map("conductor_licencia")
   pesoTotal                Decimal?  @map("peso_total") @db.Decimal(10, 2)
   observaciones            String?
+  // Documento relacionado (catálogo SUNAT 61) — obligatorio "cuando corresponda"
+  // en Guía Transportista: referencia a la Guía de Remisión Remitente del
+  // remitente (código 09) o, si el remitente no la emite, al comprobante de
+  // pago que sustenta el traslado (01 Factura / 03 Boleta). El remitente es
+  // un tercero externo a este sistema — se ingresa a mano, no hay relación
+  // de base de datos.
+  docRelTipo               String?   @map("doc_rel_tipo")
+  docRelSerie              String?   @map("doc_rel_serie")
+  docRelNumero             String?   @map("doc_rel_numero")
+  docRelRucEmisor          String?   @map("doc_rel_ruc_emisor")
   // ─── Resultado del envío a SUNAT (GRE es asíncrono: el envío inicial solo
   // devuelve un ticket; xmlPath/cdrPath quedan null hasta que el job de
   // polling confirma "procesado: true") ────────────────────────────────────

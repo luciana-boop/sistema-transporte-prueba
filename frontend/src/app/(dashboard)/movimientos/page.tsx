@@ -134,16 +134,34 @@ export default function MovimientosPage() {
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
-  // ── Editar movimiento (N° Operación y, solo en egreso, Categoría + Referencia) ─
+  // ── Editar movimiento (N° Operación; egreso: Categoría + Referencia; ingreso: Categoría + Cliente/Observación) ─
   const [editandoMov, setEditandoMov] = useState<MovimientoCuenta | null>(null);
   const [formReferencia, setFormReferencia] = useState('');
   const [formNotaEgreso, setFormNotaEgreso] = useState('');
   const [formCategoriaEgreso, setFormCategoriaEgreso] = useState('');
-  const cerrarEdicion = () => { setEditandoMov(null); setFormReferencia(''); setFormNotaEgreso(''); setFormCategoriaEgreso(''); };
+  const [formCategoriaIngreso, setFormCategoriaIngreso] = useState('');
+  const [formClienteIdEdicion, setFormClienteIdEdicion] = useState('');
+  const [formNotaIngreso, setFormNotaIngreso] = useState('');
+  const cerrarEdicion = () => {
+    setEditandoMov(null); setFormReferencia(''); setFormNotaEgreso(''); setFormCategoriaEgreso('');
+    setFormCategoriaIngreso(''); setFormClienteIdEdicion(''); setFormNotaIngreso('');
+  };
+
+  const { data: clientesEdicion = [] } = useQuery({
+    queryKey: ['clientes', 'activos-edicion-ingreso'],
+    queryFn: () => clientesApi.listar({ activo: true, limit: 100 }).then((r) => r.data.data.items).catch(() => []),
+    enabled: !!editandoMov && editandoMov.tipo === 'INGRESO' && formCategoriaIngreso === 'PAGO_FACTURA',
+  });
+
   const editarMovimientoMutation = useMutation({
     mutationFn: () => movimientosApi.actualizar(editandoMov!.id, {
       referencia: formReferencia,
       ...(editandoMov!.tipo === 'EGRESO' ? { notaEgreso: formNotaEgreso, categoriaEgreso: formCategoriaEgreso || null } : {}),
+      ...(editandoMov!.tipo === 'INGRESO' ? {
+        categoriaIngreso: formCategoriaIngreso || null,
+        clienteId: formCategoriaIngreso === 'PAGO_FACTURA' ? (formClienteIdEdicion ? parseInt(formClienteIdEdicion) : null) : null,
+        notaIngreso: formCategoriaIngreso && formCategoriaIngreso !== 'PAGO_FACTURA' ? formNotaIngreso : null,
+      } : {}),
     }),
     onSuccess: () => { toast.success('Movimiento actualizado'); cerrarEdicion(); inv(); },
     onError: (e) => toast.error(getErrorMessage(e)),
@@ -329,7 +347,15 @@ export default function MovimientosPage() {
                     </button>
                     {!m.anulado && (
                       <button
-                        onClick={() => { setEditandoMov(m); setFormReferencia(m.referencia ?? ''); setFormNotaEgreso(m.notaEgreso ?? ''); setFormCategoriaEgreso(m.categoriaEgreso ?? ''); }}
+                        onClick={() => {
+                          setEditandoMov(m);
+                          setFormReferencia(m.referencia ?? '');
+                          setFormNotaEgreso(m.notaEgreso ?? '');
+                          setFormCategoriaEgreso(m.categoriaEgreso ?? '');
+                          setFormCategoriaIngreso(m.categoriaIngreso ?? '');
+                          setFormClienteIdEdicion(m.cobranza && !m.cobranza.anulado ? String(m.cobranza.cliente.id) : '');
+                          setFormNotaIngreso(m.notaIngreso ?? '');
+                        }}
                         className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
                       >
                         <Pencil className="w-3.5 h-3.5" />
@@ -521,9 +547,39 @@ export default function MovimientosPage() {
                 <Input value={formNotaEgreso} onChange={(e) => setFormNotaEgreso(e.target.value)} placeholder="Sin referencia" />
               </FormField>
             )}
+            {editandoMov.tipo === 'INGRESO' && (
+              <FormField label="Categoría" hint="Pago de factura permite relacionar este ingreso a una o más facturas del cliente desde Cobranza">
+                <Select
+                  value={formCategoriaIngreso}
+                  onChange={(e) => { setFormCategoriaIngreso(e.target.value); setFormClienteIdEdicion(''); setFormNotaIngreso(''); }}
+                >
+                  <option value="">Sin categoría</option>
+                  {CATEGORIAS_INGRESO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </Select>
+              </FormField>
+            )}
+            {editandoMov.tipo === 'INGRESO' && formCategoriaIngreso === 'PAGO_FACTURA' && (
+              <FormField label="Cliente" required hint="El pago quedará disponible en Cobranza para relacionarlo a una o más facturas">
+                <Select value={formClienteIdEdicion} onChange={(e) => setFormClienteIdEdicion(e.target.value)}>
+                  <option value="">Selecciona un cliente</option>
+                  {clientesEdicion.map((c: any) => <option key={c.id} value={c.id}>{c.razonSocial} — {c.ruc}</option>)}
+                </Select>
+              </FormField>
+            )}
+            {editandoMov.tipo === 'INGRESO' && formCategoriaIngreso && formCategoriaIngreso !== 'PAGO_FACTURA' && (
+              <FormField label="Observación" hint="Detalle de este ingreso">
+                <Textarea value={formNotaIngreso} onChange={(e) => setFormNotaIngreso(e.target.value)} placeholder="Motivo del ingreso..." />
+              </FormField>
+            )}
             <div className="flex justify-end gap-2 pt-2 border-t border-border">
               <Button variant="secondary" onClick={cerrarEdicion}>Cancelar</Button>
-              <Button loading={editarMovimientoMutation.isPending} onClick={() => editarMovimientoMutation.mutate()}>Guardar</Button>
+              <Button
+                loading={editarMovimientoMutation.isPending}
+                disabled={editandoMov.tipo === 'INGRESO' && formCategoriaIngreso === 'PAGO_FACTURA' && !formClienteIdEdicion}
+                onClick={() => editarMovimientoMutation.mutate()}
+              >
+                Guardar
+              </Button>
             </div>
           </div>
         )}

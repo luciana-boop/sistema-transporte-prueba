@@ -71,12 +71,24 @@ export class MovimientosController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      const { concepto, referencia, fecha, tipoPagoId, notaEgreso, categoriaEgreso } = req.body;
-      R.ok(res, await movimientosService.actualizar(id, { concepto, referencia, fecha, tipoPagoId, notaEgreso, categoriaEgreso }, req.usuario!.id), 'Movimiento actualizado');
+      const {
+        concepto, referencia, fecha, tipoPagoId, notaEgreso, categoriaEgreso,
+        notaIngreso, categoriaIngreso, clienteId,
+      } = req.body;
+      R.ok(res, await movimientosService.actualizar(id, {
+        concepto, referencia, fecha, tipoPagoId, notaEgreso, categoriaEgreso,
+        notaIngreso,
+        categoriaIngreso: categoriaIngreso !== undefined ? (categoriaIngreso || null) : undefined,
+        clienteId: clienteId !== undefined ? (clienteId ? parseInt(clienteId) : null) : undefined,
+      }, req.usuario!.id), 'Movimiento actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Movimiento no encontrado') R.notFound(res, msg);
-      else if (msg.includes('anulado') || msg.includes('reverso') || msg.includes('solo aplica') || msg.includes('No se puede cambiar')) R.badRequest(res, msg);
+      else if (
+        msg.includes('anulado') || msg.includes('reverso') || msg.includes('solo aplica') ||
+        msg.includes('No se puede cambiar') || msg.includes('Debe seleccionar') || msg.includes('no encontrado') ||
+        msg.includes('no aplican')
+      ) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }

@@ -90,6 +90,11 @@ export async function enviarGuiaSunat(payload: Record<string, unknown>): Promise
     destinatario: p.destinatario,
     envio: p.envio,
     items: p.items,
+    // '09' Remitente (default) | '31' Transportista — ver guias.service.ts._enviarASunat.
+    tipo_documento: p.tipo_documento,
+    // Solo en tipo 31: remitente de la mercadería, tercero distinto de quien
+    // emite (la transportista, dueña de ruc_empresa/credenciales).
+    remitente_tercero: p.remitente_tercero,
   });
   return {
     estadoSunat: raw.ok ? 'ENVIADO_PENDIENTE' : 'ERROR',

@@ -4,7 +4,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { differenceInCalendarDays } from 'date-fns';
-import { reportesApi, vehiculosApi } from '@/services/api';
+import { reportesApi, vehiculosApi, configuracionApi } from '@/services/api';
 import { formatCurrency, formatDate, rangoMes, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL, CLASIFICACION_MES_LABEL } from '@/lib/utils';
 import {
   PageHeader, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -101,13 +101,22 @@ export default function ReportesPage() {
   });
 
   const [vehiculoIdFiltro, setVehiculoIdFiltro] = useState('');
-  const [filtroMotivo, setFiltroMotivo] = useState<'TODOS' | 'BATERIA' | 'OTROS'>('TODOS');
+  const [filtroMotivo, setFiltroMotivo] = useState(''); // '' = todos; si no, un codigo de motivo configurado
 
   const { data: vehiculos = [] } = useQuery({
     queryKey: ['vehiculos', 'activos-reportes'],
     queryFn: () => vehiculosApi.listar({ activo: true, limit: 200 }).then((r) => r.data.data.items).catch(() => []),
     enabled: tab === 'mantenimiento',
   });
+
+  // Motivos configurados en Configuración > Tablas maestras (mismo catálogo que usa el módulo Mantenimiento)
+  const { data: motivosMantenimiento = [] } = useQuery({
+    queryKey: ['configuracion', 'tablas', 'motivo_mantenimiento'],
+    queryFn: () => configuracionApi.getTablaMaestra('motivo_mantenimiento').then((r) => r.data.data.filter((m: any) => m.activo)),
+    enabled: tab === 'mantenimiento',
+  });
+
+  const motivoLabel = (codigo?: string | null) => motivosMantenimiento.find((m: any) => m.codigo === codigo)?.nombre ?? codigo ?? '—';
 
   const { data: mantenimientoData, isLoading: lMantenimiento } = useQuery({
     queryKey: ['reporte', 'mantenimiento', desde, hasta, vehiculoIdFiltro],
@@ -117,9 +126,8 @@ export default function ReportesPage() {
 
   const gastosMantenimientoFiltrados = useMemo(() => {
     const gastos = mantenimientoData?.gastos ?? [];
-    if (filtroMotivo === 'TODOS') return gastos;
-    if (filtroMotivo === 'BATERIA') return gastos.filter((g) => g.mantenimiento?.motivoCodigo === 'BATERIA');
-    return gastos.filter((g) => g.mantenimiento?.motivoCodigo !== 'BATERIA');
+    if (!filtroMotivo) return gastos;
+    return gastos.filter((g) => g.mantenimiento?.motivoCodigo === filtroMotivo);
   }, [mantenimientoData, filtroMotivo]);
 
   const { data: anualData, isLoading: lAnual } = useQuery({
@@ -486,14 +494,20 @@ export default function ReportesPage() {
                 {vehiculos.map((v: any) => <option key={v.id} value={v.id}>{v.placa} — {v.marca} {v.modelo}</option>)}
               </Select>
             </div>
-            <div className="flex gap-1 bg-muted p-1 rounded-lg">
-              {(['TODOS', 'BATERIA', 'OTROS'] as const).map((f) => (
+            <div className="flex gap-1 bg-muted p-1 rounded-lg flex-wrap">
+              <button
+                onClick={() => setFiltroMotivo('')}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${!filtroMotivo ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                Todos
+              </button>
+              {motivosMantenimiento.map((m: any) => (
                 <button
-                  key={f}
-                  onClick={() => setFiltroMotivo(f)}
-                  className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${filtroMotivo === f ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                  key={m.codigo}
+                  onClick={() => setFiltroMotivo(m.codigo)}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${filtroMotivo === m.codigo ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
                 >
-                  {f === 'TODOS' ? 'Todos' : f === 'BATERIA' ? 'Batería' : 'Los demás'}
+                  {m.nombre}
                 </button>
               ))}
             </div>
@@ -545,7 +559,7 @@ export default function ReportesPage() {
                   <Tr key={g.id}>
                     <Td><span className="text-sm">{formatDate(g.fecha)}</span></Td>
                     <Td><span className="text-sm font-medium">{g.mantenimiento?.vehiculo.placa}</span></Td>
-                    <Td><span className="text-xs text-muted-foreground">{g.mantenimiento?.motivoCodigo}</span></Td>
+                    <Td><span className="text-xs text-muted-foreground">{motivoLabel(g.mantenimiento?.motivoCodigo)}</span></Td>
                     <Td><span className="text-xs text-muted-foreground">{g.mantenimiento?.descripcion || '—'}</span></Td>
                     <Td className="text-right"><span className="font-semibold text-destructive">{formatCurrency(Number(g.monto))}</span></Td>
                     <Td><span className="text-xs text-muted-foreground">{tiempoDesde(g.fecha)}</span></Td>

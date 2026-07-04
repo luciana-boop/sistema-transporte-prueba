@@ -4,16 +4,17 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { CheckCircle2, Unlink } from 'lucide-react';
-import { cobranzaApi } from '@/services/api';
+import { CheckCircle2, Unlink, Download } from 'lucide-react';
+import { cobranzaApi, clientesApi } from '@/services/api';
 import {
   PageHeader, Button, Table, Th, Td, Tr,
-  Modal, FormField, Input, StatCard,
+  Modal, FormField, Input, Select, StatCard,
   TableSkeleton, EmptyState,
 } from '@/components/shared';
 import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
 import type { MovimientoCobranza } from '@/types';
+import * as XLSX from 'xlsx';
 
 type Tab = 'por_aplicar' | 'aplicado';
 
@@ -26,10 +27,44 @@ export default function CobranzaPage() {
   const [aplicandoPago, setAplicandoPago] = useState<MovimientoCobranza | null>(null);
   const [montos, setMontos] = useState<Record<number, string>>({});
 
-  const { data: pagos, isLoading } = useQuery({
-    queryKey: ['cobranza', tab],
-    queryFn: () => cobranzaApi.listar({ estado: tab }).then((r) => r.data.data),
+  // ── Filtros ──────────────────────────────────────────────────────────────
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [clienteId, setClienteId] = useState('');
+  const [search, setSearch] = useState('');
+
+  const { data: clientesFiltro = [] } = useQuery({
+    queryKey: ['clientes', 'activos-filtro-cobranza'],
+    queryFn: () => clientesApi.listar({ activo: true, limit: 200 }).then((r) => r.data.data.items).catch(() => []),
   });
+
+  const filtrosActivos = {
+    estado: tab,
+    desde: desde || undefined,
+    hasta: hasta || undefined,
+    clienteId: clienteId ? parseInt(clienteId) : undefined,
+    search: search || undefined,
+  };
+
+  const { data: pagos, isLoading } = useQuery({
+    queryKey: ['cobranza', filtrosActivos],
+    queryFn: () => cobranzaApi.listar(filtrosActivos).then((r) => r.data.data),
+  });
+
+  const exportarExcel = () => {
+    const rows = (pagos ?? []).map((p) => ({
+      Fecha: formatDate(p.fechaPago),
+      Cliente: p.cliente.razonSocial,
+      RUC: p.cliente.ruc,
+      'Monto del pago': Number(p.monto),
+      'Saldo por aplicar': saldoPorAplicar(p),
+      'Facturas aplicadas': p.aplicaciones.map((a) => `${a.factura.numeroFactura} (${formatCurrency(Number(a.monto))})`).join(', ') || '—',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, tab === 'por_aplicar' ? 'Pagos por aplicar' : 'Pagos aplicados');
+    XLSX.writeFile(wb, `cobranza_${tab}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
 
   const inv = () => queryClient.invalidateQueries({ queryKey: ['cobranza'] });
 
@@ -76,6 +111,11 @@ export default function CobranzaPage() {
       <PageHeader
         title="Cobranza"
         description="Aplica los pagos de clientes (categoría Pago de factura) a una o más facturas"
+        action={
+          <Button variant="secondary" onClick={exportarExcel} disabled={!pagos?.length}>
+            <Download className="w-4 h-4" /> Exportar Excel
+          </Button>
+        }
       />
 
       <div className="flex gap-1 border-b border-border">
@@ -90,6 +130,21 @@ export default function CobranzaPage() {
             {t === 'por_aplicar' ? 'Pagos por aplicar' : 'Pagos aplicados'}
           </button>
         ))}
+      </div>
+
+      {/* Filtros */}
+      <div className="flex flex-wrap gap-3 items-end">
+        <FormField label="Desde"><Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></FormField>
+        <FormField label="Hasta"><Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></FormField>
+        <FormField label="Cliente">
+          <Select value={clienteId} onChange={(e) => setClienteId(e.target.value)} className="w-56">
+            <option value="">Todos</option>
+            {clientesFiltro.map((c: any) => <option key={c.id} value={c.id}>{c.razonSocial}</option>)}
+          </Select>
+        </FormField>
+        <FormField label="Buscar">
+          <Input placeholder="Cliente o RUC..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        </FormField>
       </div>
 
       {tab === 'por_aplicar' && (

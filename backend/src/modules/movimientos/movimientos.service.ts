@@ -103,12 +103,70 @@ export class MovimientosService {
   async actualizar(id: number, dto: {
     concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null;
     notaEgreso?: string | null; categoriaEgreso?: string | null;
+    notaIngreso?: string | null; categoriaIngreso?: string | null; clienteId?: number | null;
   }, usuarioId?: number) {
-    const mov = await cuentasService.actualizarMovimiento(id, dto);
-    if (usuarioId) {
-      return prisma.movimientoCuentaV2.update({ where: { id }, data: { actualizadoPorId: usuarioId } });
+    const mov = await prisma.movimientoCuentaV2.findUnique({ where: { id } });
+    if (!mov) throw new Error('Movimiento no encontrado');
+
+    if ((dto.categoriaIngreso !== undefined || dto.clienteId !== undefined) && mov.tipo !== 'INGRESO') {
+      throw new Error('La categoría de ingreso y el cliente solo aplican a ingresos');
     }
-    return mov;
+
+    // Cambios de categoría de ingreso / cliente: gestionan el PagoV2 (cobranza)
+    // vinculado a este movimiento antes de tocar el movimiento en sí.
+    if (dto.categoriaIngreso !== undefined || dto.clienteId !== undefined) {
+      await prisma.$transaction(async (tx: any) => {
+        const pagoExistente = await tx.pagoV2.findFirst({ where: { movimientoCuentaId: id, anulado: false } });
+        const cantidadAplicaciones = pagoExistente
+          ? await tx.pagoV2AplicacionFactura.count({ where: { pagoId: pagoExistente.id } })
+          : 0;
+
+        const categoriaFinal = dto.categoriaIngreso !== undefined ? dto.categoriaIngreso : mov.categoriaIngreso;
+
+        if (cantidadAplicaciones > 0 && dto.categoriaIngreso !== undefined && dto.categoriaIngreso !== mov.categoriaIngreso) {
+          throw new Error('No se puede cambiar la categoría: este pago ya tiene facturas aplicadas desde Cobranza');
+        }
+
+        if (categoriaFinal === 'PAGO_FACTURA') {
+          const clienteId = dto.clienteId !== undefined ? dto.clienteId : pagoExistente?.clienteId;
+          if (!clienteId) throw new Error('Debe seleccionar un cliente para la categoría "Pago de factura"');
+          if (cantidadAplicaciones > 0 && dto.clienteId !== undefined && dto.clienteId !== pagoExistente?.clienteId) {
+            throw new Error('No se puede cambiar el cliente: este pago ya tiene facturas aplicadas desde Cobranza');
+          }
+          const cliente = await tx.cliente.findUnique({ where: { id: clienteId } });
+          if (!cliente) throw new Error('Cliente no encontrado');
+
+          if (pagoExistente) {
+            await tx.pagoV2.update({ where: { id: pagoExistente.id }, data: { clienteId, actualizadoPorId: usuarioId } });
+          } else {
+            await tx.pagoV2.create({
+              data: {
+                clienteId, usuarioId: mov.usuarioId, monto: mov.monto, monedaId: mov.monedaId,
+                tipoPagoId: mov.tipoPagoId, referencia: mov.referencia, movimientoCuentaId: id,
+                fechaPago: mov.fecha, creadoPorId: usuarioId,
+              },
+            });
+          }
+        } else if (pagoExistente) {
+          // Se quitó "Pago de factura" o cambió a otra categoría: el pago sin aplicar queda anulado.
+          await tx.pagoV2.update({
+            where: { id: pagoExistente.id },
+            data: { anulado: true, anuladoEn: new Date(), motivoAnulacion: 'Categoría de ingreso cambiada', actualizadoPorId: usuarioId },
+          });
+        }
+      });
+    }
+
+    return cuentasService.actualizarMovimiento(id, {
+      concepto: dto.concepto,
+      referencia: dto.referencia,
+      fecha: dto.fecha,
+      tipoPagoId: dto.tipoPagoId,
+      notaEgreso: dto.notaEgreso,
+      categoriaEgreso: dto.categoriaEgreso,
+      notaIngreso: dto.notaIngreso,
+      categoriaIngreso: dto.categoriaIngreso,
+    }, usuarioId);
   }
 
   async anular(id: number, usuarioId: number) {

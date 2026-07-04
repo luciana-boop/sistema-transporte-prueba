@@ -19,12 +19,31 @@ const PAGO_INCLUDE = {
 } as const;
 
 export class CobranzaService {
-  async listar(estado?: 'por_aplicar' | 'aplicado') {
+  async listar(query: {
+    estado?: 'por_aplicar' | 'aplicado'; desde?: string; hasta?: string;
+    clienteId?: string; search?: string;
+  } = {}) {
+    const where: any = {
+      anulado: false,
+      movimientoCuenta: { categoriaIngreso: 'PAGO_FACTURA' },
+    };
+    if (query.desde || query.hasta) {
+      where.fechaPago = {};
+      if (query.desde) where.fechaPago.gte = new Date(query.desde);
+      if (query.hasta) where.fechaPago.lte = new Date(query.hasta + 'T23:59:59');
+    }
+    if (query.clienteId) where.clienteId = parseInt(query.clienteId);
+    if (query.search) {
+      where.cliente = {
+        OR: [
+          { razonSocial: { contains: query.search, mode: 'insensitive' } },
+          { ruc: { contains: query.search, mode: 'insensitive' } },
+        ],
+      };
+    }
+
     const pagos = await prisma.pagoV2.findMany({
-      where: {
-        anulado: false,
-        movimientoCuenta: { categoriaIngreso: 'PAGO_FACTURA' },
-      },
+      where,
       include: PAGO_INCLUDE,
       orderBy: { fechaPago: 'desc' },
     });
@@ -35,8 +54,8 @@ export class CobranzaService {
       return { ...p, saldoPorAplicar };
     });
 
-    if (estado === 'por_aplicar') return conSaldo.filter((p) => p.saldoPorAplicar > 0.01);
-    if (estado === 'aplicado') return conSaldo.filter((p) => p.saldoPorAplicar <= 0.01);
+    if (query.estado === 'por_aplicar') return conSaldo.filter((p) => p.saldoPorAplicar > 0.01);
+    if (query.estado === 'aplicado') return conSaldo.filter((p) => p.saldoPorAplicar <= 0.01);
     return conSaldo;
   }
 

@@ -181,6 +181,7 @@ export const guiasApi = {
     transportistasAdicionales?: Array<{ placa: string; numRegistroMTC: string }>;
     conductorId?: number; vehiculoId?: number; vehiculoCarretaId?: number;
     conductorNombre?: string; conductorDni?: string; conductorLicencia?: string;
+    docRelTipo?: string; docRelSerie?: string; docRelNumero?: string; docRelRucEmisor?: string;
     pesoTotal?: number; observaciones?: string;
     detalles: Array<{ descripcion: string; cantidad: number; unidadMedida?: string }>;
   }) => api.post<ApiResponse<Guia>>('/api/guias', data),
@@ -209,6 +210,7 @@ export const movimientosApi = {
   actualizar: (id: number, data: {
     concepto?: string; referencia?: string; fecha?: string; tipoPagoId?: number | null;
     notaEgreso?: string | null; categoriaEgreso?: string | null;
+    notaIngreso?: string | null; categoriaIngreso?: string | null; clienteId?: number | null;
   }) =>
     api.put<ApiResponse<MovimientoCuenta>>(`/api/movimientos/${id}`, data),
   anular: (id: number) => api.patch<ApiResponse<MovimientoCuenta>>(`/api/movimientos/${id}/anular`),
@@ -228,7 +230,7 @@ export const movimientosApi = {
 
 // ─── COBRANZA ────────────────────────────────────────────────────────────────
 export const cobranzaApi = {
-  listar: (params?: { estado?: 'por_aplicar' | 'aplicado' }) =>
+  listar: (params?: { estado?: 'por_aplicar' | 'aplicado'; desde?: string; hasta?: string; clienteId?: number; search?: string }) =>
     api.get<ApiResponse<MovimientoCobranza[]>>('/api/cobranza', { params }),
   facturasPendientes: (clienteId: number) =>
     api.get<ApiResponse<Array<{
@@ -260,7 +262,10 @@ export interface MovimientoMantenimiento {
 }
 
 export const mantenimientoApi = {
-  listar: (params?: { estado?: 'por_relacionar' | 'relacionado' }) =>
+  listar: (params?: {
+    estado?: 'por_relacionar' | 'relacionado'; desde?: string; hasta?: string;
+    vehiculoId?: number; motivoCodigo?: string; search?: string;
+  }) =>
     api.get<ApiResponse<MovimientoMantenimiento[]>>('/api/mantenimiento', { params }),
   relacionar: (movimientoId: number, data: { vehiculoId: number; conductorId?: number; motivoCodigo: string; descripcion?: string }) =>
     api.post<ApiResponse<MovimientoMantenimiento>>(`/api/mantenimiento/${movimientoId}/relacionar`, data),

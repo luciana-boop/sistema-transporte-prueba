@@ -7,8 +7,11 @@ import * as R from '../../utils/response';
 export class MantenimientoController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
-      const { estado } = req.query as { estado?: 'por_relacionar' | 'relacionado' };
-      R.ok(res, await mantenimientoService.listar(estado));
+      const { estado, desde, hasta, vehiculoId, motivoCodigo, search } = req.query as Record<string, string>;
+      R.ok(res, await mantenimientoService.listar({
+        estado: estado as 'por_relacionar' | 'relacionado' | undefined,
+        desde, hasta, vehiculoId, motivoCodigo, search,
+      }));
     } catch (e) { R.serverError(res, e); }
   }
 
