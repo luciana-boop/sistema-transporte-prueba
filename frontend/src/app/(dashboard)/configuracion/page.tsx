@@ -52,7 +52,18 @@ const TIPOS_TABLA = [
   { tipo: 'unidad_medida',        label: 'Unidades de medida' },
   { tipo: 'codigo_factura',       label: 'Códigos de facturación' },
   { tipo: 'motivo_mantenimiento', label: 'Motivos de mantenimiento' },
+  { tipo: 'categoria_ingreso',    label: 'Categorías de ingreso' },
+  { tipo: 'categoria_egreso',     label: 'Categorías de egreso' },
 ];
+
+// Códigos usados internamente por el sistema (Cobranza / Mantenimiento): el
+// backend liga lógica de negocio a estos valores exactos, así que no pueden
+// eliminarse desde Configuración aunque el resto de la categoría sí sea editable.
+const CODIGOS_PROTEGIDOS: Record<string, string[]> = {
+  categoria_ingreso: ['PAGO_FACTURA'],
+  categoria_egreso: ['MANTENIMIENTO'],
+};
+const esCodigoProtegido = (tipo: string, codigo: string) => (CODIGOS_PROTEGIDOS[tipo] ?? []).includes(codigo);
 
 const NIVEL_COLOR: Record<string, string> = {
   info: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
@@ -575,9 +586,14 @@ export default function ConfiguracionPage() {
                 <tr><Th>Código</Th><Th>Nombre</Th><Th>Descripción</Th><Th>Activo</Th><Th className="text-right">Acciones</Th></tr>
               </thead>
               <tbody>
-                {tablaData.length > 0 ? tablaData.map((t) => (
+                {tablaData.length > 0 ? tablaData.map((t) => {
+                  const protegido = esCodigoProtegido(tipoTabla, t.codigo);
+                  return (
                   <Tr key={t.id}>
-                    <Td><span className="font-mono text-xs font-bold">{t.codigo}</span></Td>
+                    <Td>
+                      <span className="font-mono text-xs font-bold">{t.codigo}</span>
+                      {protegido && <span className="ml-2"><Badge value="default" label="Sistema" /></span>}
+                    </Td>
                     <Td><span className="text-sm font-medium">{t.nombre}</span></Td>
                     <Td><span className="text-xs text-muted-foreground">{t.descripcion ?? '—'}</span></Td>
                     <Td>
@@ -591,13 +607,19 @@ export default function ConfiguracionPage() {
                         <button onClick={() => openEdit('tabla', t)} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all">
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
-                        <button onClick={() => { if (confirm('¿Eliminar?')) deleteTablaMutation.mutate(t.id); }} className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all">
+                        <button
+                          disabled={protegido}
+                          title={protegido ? 'Categoría usada internamente por el sistema, no se puede eliminar' : undefined}
+                          onClick={() => { if (!protegido && confirm('¿Eliminar?')) deleteTablaMutation.mutate(t.id); }}
+                          className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                        >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </Td>
                   </Tr>
-                )) : <tr><td colSpan={5}><EmptyState message="Sin registros. Inicializa defaults o crea uno nuevo." /></td></tr>}
+                  );
+                }) : <tr><td colSpan={5}><EmptyState message="Sin registros. Inicializa defaults o crea uno nuevo." /></td></tr>}
               </tbody>
             </Table>
           )}
@@ -686,6 +708,7 @@ export default function ConfiguracionPage() {
               <option value="BOLETA">Boleta de venta</option>
               <option value="NOTA_CREDITO">Nota de crédito</option>
               <option value="GUIA">Guía de remisión</option>
+              <option value="GUIA_TRANSPORTISTA">Guía de transportista</option>
               <option value="OTRO">Otro</option>
             </Select>
           </FormField>

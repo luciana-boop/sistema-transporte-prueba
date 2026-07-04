@@ -88,7 +88,29 @@ const DEFAULTS_TABLAS: Array<{ tipo: string; codigo: string; nombre: string; des
   { tipo: 'motivo_mantenimiento', codigo: 'ACEITE',  nombre: 'Aceite',  orden: 3 },
   { tipo: 'motivo_mantenimiento', codigo: 'FRENOS',  nombre: 'Frenos',  orden: 4 },
   { tipo: 'motivo_mantenimiento', codigo: 'OTRO',    nombre: 'Otro',    orden: 5 },
+  // ── NUEVO: Categorías de ingreso/egreso (módulo Movimientos) ───────────────
+  // PAGO_FACTURA y MANTENIMIENTO son códigos "de sistema": el backend los usa
+  // literalmente para disparar Cobranza y Mantenimiento (ver CODIGOS_PROTEGIDOS
+  // en configuracionService.deleteTablaMaestra), por eso no se pueden eliminar.
+  { tipo: 'categoria_ingreso', codigo: 'PAGO_FACTURA', nombre: 'Pago de factura', orden: 1 },
+  { tipo: 'categoria_ingreso', codigo: 'CAJA_CHICA',   nombre: 'Caja chica',      orden: 2 },
+  { tipo: 'categoria_ingreso', codigo: 'LIQUIDACION',  nombre: 'Liquidación',     orden: 3 },
+  { tipo: 'categoria_ingreso', codigo: 'OTRO',         nombre: 'Otro',            orden: 4 },
+  { tipo: 'categoria_egreso', codigo: 'COMBUSTIBLE',   nombre: 'Combustible',    orden: 1 },
+  { tipo: 'categoria_egreso', codigo: 'MANTENIMIENTO', nombre: 'Mantenimiento',  orden: 2 },
+  { tipo: 'categoria_egreso', codigo: 'CAJA_CHICA',    nombre: 'Caja chica',     orden: 3 },
+  { tipo: 'categoria_egreso', codigo: 'PLANILLA',      nombre: 'Planilla',       orden: 4 },
+  { tipo: 'categoria_egreso', codigo: 'OTROS',         nombre: 'Otros',          orden: 5 },
 ];
+
+// Códigos "de sistema": el backend liga lógica de negocio a estos valores
+// exactos (Cobranza usa categoriaIngreso === 'PAGO_FACTURA', Mantenimiento usa
+// categoriaEgreso === 'MANTENIMIENTO'), así que no se pueden eliminar desde
+// Configuración aunque el resto de la categoría sí sea editable.
+const CODIGOS_PROTEGIDOS: Record<string, string[]> = {
+  categoria_ingreso: ['PAGO_FACTURA'],
+  categoria_egreso: ['MANTENIMIENTO'],
+};
 
 const DEFAULTS_SERIES = [
   { serie: 'F001', tipoDocumento: 'FACTURA',  descripcion: 'Facturas principales' },
@@ -99,39 +121,29 @@ const DEFAULTS_SERIES = [
 export class ConfiguracionService {
 
   // ── Inicializar defaults (llamar en seed) ───────────────────────────────────
+  // NOTA: antes esto hacía un upsert por fila (uno por uno, en serie). Contra una
+  // base remota cada round-trip cuesta cientos de ms, y con ~50 filas totales
+  // (crecientes según se agregan tablas) el conjunto superaba el timeout de 30s
+  // del cliente. `createMany` con `skipDuplicates` inserta todo en un solo
+  // round-trip por tabla; como el "update" del upsert original era un no-op
+  // (`update: {}`), el comportamiento (insertar solo si no existe) es idéntico.
   async inicializarDefaults() {
-    // Configuraciones generales
-    for (const [clave, def] of Object.entries(DEFAULTS_CONFIGURACION)) {
-      await prisma.configuracion.upsert({
-        where: { clave },
-        update: {},
-        create: { clave, ...def },
-      });
-    }
-    // Alertas
-    for (const a of DEFAULTS_ALERTAS) {
-      await prisma.configuracionAlerta.upsert({
-        where: { clave: a.clave },
-        update: {},
-        create: a,
-      });
-    }
-    // Tablas maestras (incluye unidad_medida y codigo_factura)
-    for (const t of DEFAULTS_TABLAS) {
-      await prisma.tablaMaestra.upsert({
-        where: { tipo_codigo: { tipo: t.tipo, codigo: t.codigo } },
-        update: {},
-        create: t,
-      });
-    }
-    // Series de facturación
-    for (const s of DEFAULTS_SERIES) {
-      await prisma.serieFacturacion.upsert({
-        where: { serie: s.serie },
-        update: {},
-        create: s,
-      });
-    }
+    await prisma.configuracion.createMany({
+      data: Object.entries(DEFAULTS_CONFIGURACION).map(([clave, def]) => ({ clave, ...def })),
+      skipDuplicates: true,
+    });
+    await prisma.configuracionAlerta.createMany({
+      data: DEFAULTS_ALERTAS,
+      skipDuplicates: true,
+    });
+    await prisma.tablaMaestra.createMany({
+      data: DEFAULTS_TABLAS,
+      skipDuplicates: true,
+    });
+    await prisma.serieFacturacion.createMany({
+      data: DEFAULTS_SERIES,
+      skipDuplicates: true,
+    });
     return { message: 'Defaults inicializados correctamente' };
   }
 
@@ -278,6 +290,9 @@ export class ConfiguracionService {
   async deleteTablaMaestra(id: number) {
     const t = await prisma.tablaMaestra.findUnique({ where: { id } });
     if (!t) throw new Error('Registro no encontrado');
+    if ((CODIGOS_PROTEGIDOS[t.tipo] ?? []).includes(t.codigo)) {
+      throw new Error(`"${t.nombre}" es una categoría usada internamente por el sistema y no puede eliminarse`);
+    }
     return prisma.tablaMaestra.delete({ where: { id } });
   }
 

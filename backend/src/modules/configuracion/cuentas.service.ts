@@ -56,12 +56,8 @@ export class CuentasService {
 
   // ── Inicializar defaults ────────────────────────────────────────────────────
   async inicializarDefaults() {
-    for (const m of DEFAULTS_MONEDAS) {
-      await prisma.moneda.upsert({ where: { codigo: m.codigo }, update: {}, create: m });
-    }
-    for (const t of DEFAULTS_TIPOS_PAGO) {
-      await prisma.tipoPago.upsert({ where: { codigo: t.codigo }, update: {}, create: t });
-    }
+    await prisma.moneda.createMany({ data: DEFAULTS_MONEDAS, skipDuplicates: true });
+    await prisma.tipoPago.createMany({ data: DEFAULTS_TIPOS_PAGO, skipDuplicates: true });
 
     // Create default cuentas if none exist
     const count = await prisma.cuentaDinero.count();

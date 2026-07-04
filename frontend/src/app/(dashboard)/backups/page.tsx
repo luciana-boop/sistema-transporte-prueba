@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Download, Upload, AlertTriangle, CheckCircle, Database, FileSpreadsheet, FileJson } from 'lucide-react';
 import { backupsApi, clientesApi, pedidosApi, conductoresApi, vehiculosApi, liquidacionesApi, combustibleApi, usuariosApi, fetchAllPages } from '@/services/api';
-import { facturacionApi, guiasApi, movimientosApi } from '@/services/api';
+import { facturacionApi, guiasApi, movimientosApi, mantenimientoApi, cobranzaApi } from '@/services/api';
 import { PageHeader, Button, StatCard } from '@/components/shared';
 import { formatCurrency, formatDate, getErrorMessage, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
@@ -54,6 +54,7 @@ export default function BackupsPage() {
       const [
         cData, pData, facData, condData, vehData,
         liqData, combData, guiaData, movData,
+        mantData, cobData,
       ] = await Promise.all([
         fetchAllPages((p) => clientesApi.listar(p).then(r => r.data.data)),
         fetchAllPages((p) => pedidosApi.listar(p).then(r => r.data.data)),
@@ -64,6 +65,8 @@ export default function BackupsPage() {
         fetchAllPages((p) => combustibleApi.listar(p).then(r => r.data.data)),
         fetchAllPages((p) => guiasApi.listar(p).then(r => r.data.data)),
         fetchAllPages((p) => movimientosApi.listar(p).then(r => r.data.data)),
+        mantenimientoApi.listar().then(r => r.data.data),
+        cobranzaApi.listar().then(r => r.data.data),
       ]);
 
       // Sheet: Clientes
@@ -118,6 +121,25 @@ export default function BackupsPage() {
           Concepto: m.concepto, 'Monto S/': Number(m.monto), Referencia: m.referencia ?? '',
         }))
       ), 'Movimientos');
+
+      // Sheet: Mantenimiento
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+        (mantData as any[]).map(m => ({
+          Fecha: formatDate(m.fecha), Placa: m.mantenimiento?.vehiculo?.placa ?? '',
+          Conductor: m.mantenimiento?.conductor?.nombre ?? '', Motivo: m.mantenimiento?.motivoCodigo ?? '',
+          Descripción: m.mantenimiento?.descripcion ?? '', Concepto: m.concepto, 'Monto S/': Number(m.monto),
+        }))
+      ), 'Mantenimiento');
+
+      // Sheet: Cobranza
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+        (cobData as any[]).map(c => ({
+          Fecha: formatDate(c.fechaPago), Cliente: c.cliente?.razonSocial ?? '', RUC: c.cliente?.ruc ?? '',
+          'Monto S/': Number(c.monto),
+          'Aplicado a': c.aplicaciones?.map((a: any) => a.factura?.numeroFactura).filter(Boolean).join(', ') || '—',
+          Estado: c.anulado ? 'Anulado' : (c.aplicaciones?.length ? 'Aplicado' : 'Pendiente'),
+        }))
+      ), 'Cobranza');
 
       XLSX.writeFile(wb, `backup_completo_${new Date().toISOString().split('T')[0]}.xlsx`);
       toast.success('Excel completo descargado — ' + wb.SheetNames.length + ' hojas');
@@ -200,7 +222,7 @@ export default function BackupsPage() {
               'Usuarios', 'Clientes', 'Pedidos', 'Facturas y detalles',
               'Cajas y movimientos', 'Conductores', 'Vehículos',
               'Liquidaciones y pedidos asociados', 'Combustible',
-              'Guías de remisión (SUNAT)',
+              'Guías de remisión (SUNAT)', 'Mantenimiento de vehículos',
               'Cuentas, monedas, movimientos y cobranza', 'Configuración del sistema',
               'Permisos de usuarios', 'Registro de actividad',
             ].map(m => (
@@ -226,7 +248,7 @@ export default function BackupsPage() {
             </div>
           </div>
           <ul className="text-xs text-muted-foreground space-y-1 pl-1">
-            {['Clientes', 'Pedidos', 'Facturación', 'Conductores', 'Vehículos', 'Liquidaciones', 'Combustible', 'Guías', 'Movimientos'].map(m => (
+            {['Clientes', 'Pedidos', 'Facturación', 'Conductores', 'Vehículos', 'Liquidaciones', 'Combustible', 'Guías', 'Movimientos', 'Mantenimiento', 'Cobranza'].map(m => (
               <li key={m} className="flex items-center gap-1.5"><CheckCircle className="w-3 h-3 text-emerald-500" />{m}</li>
             ))}
           </ul>

@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import {
   Upload, Plus, Eye, XCircle, FileSpreadsheet, AlertTriangle, Pencil,
 } from 'lucide-react';
-import { movimientosApi, cuentasApi, clientesApi } from '@/services/api';
+import { movimientosApi, cuentasApi, clientesApi, configuracionApi } from '@/services/api';
 import { CuentaSelector, MonedaSelector, TipoPagoSelector } from '@/components/shared/FinancialSelectors';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge,
@@ -20,23 +20,6 @@ import { parseExcelMovimientos, type FilaMovimientoImportado } from '@/lib/parse
 import type { MovimientoCuenta } from '@/types';
 
 type Tab = 'INGRESO' | 'EGRESO';
-
-const CATEGORIAS_EGRESO: { value: string; label: string }[] = [
-  { value: 'COMBUSTIBLE', label: 'Combustible' },
-  { value: 'MANTENIMIENTO', label: 'Mantenimiento' },
-  { value: 'CAJA_CHICA', label: 'Caja chica' },
-  { value: 'PLANILLA', label: 'Planilla' },
-  { value: 'OTROS', label: 'Otros' },
-];
-const categoriaLabel = (v?: string | null) => CATEGORIAS_EGRESO.find((c) => c.value === v)?.label ?? v ?? '—';
-
-const CATEGORIAS_INGRESO: { value: string; label: string }[] = [
-  { value: 'PAGO_FACTURA', label: 'Pago de factura' },
-  { value: 'CAJA_CHICA', label: 'Caja chica' },
-  { value: 'LIQUIDACION', label: 'Liquidación' },
-  { value: 'OTRO', label: 'Otro' },
-];
-const categoriaIngresoLabel = (v?: string | null) => CATEGORIAS_INGRESO.find((c) => c.value === v)?.label ?? v ?? '—';
 
 const estadoCobranza = (m: MovimientoCuenta) => {
   if (!m.cobranza || m.cobranza.anulado) return null;
@@ -87,6 +70,18 @@ export default function MovimientosPage() {
     queryKey: ['cuentas', true],
     queryFn: () => cuentasApi.getCuentas({ activo: true }).then((r) => r.data.data).catch(() => []),
   });
+
+  // Categorías de ingreso/egreso: configurables desde Configuración > Tablas Maestras
+  const { data: categoriasEgreso = [] } = useQuery({
+    queryKey: ['config', 'tabla', 'categoria_egreso'],
+    queryFn: () => configuracionApi.getTablaMaestra('categoria_egreso').then((r) => r.data.data.filter((t) => t.activo)),
+  });
+  const { data: categoriasIngreso = [] } = useQuery({
+    queryKey: ['config', 'tabla', 'categoria_ingreso'],
+    queryFn: () => configuracionApi.getTablaMaestra('categoria_ingreso').then((r) => r.data.data.filter((t) => t.activo)),
+  });
+  const categoriaLabel = (v?: string | null) => categoriasEgreso.find((c) => c.codigo === v)?.nombre ?? v ?? '—';
+  const categoriaIngresoLabel = (v?: string | null) => categoriasIngreso.find((c) => c.codigo === v)?.nombre ?? v ?? '—';
 
   const { data: viewing } = useQuery({
     queryKey: ['movimientos', 'detalle', viewingId],
@@ -410,7 +405,7 @@ export default function MovimientosPage() {
             <FormField label="Categoría" required hint="Determina en qué módulo se podrá usar este egreso">
               <Select value={formRegistrar.categoriaEgreso ?? ''} onChange={(e) => setFormRegistrar((p) => ({ ...p, categoriaEgreso: e.target.value }))}>
                 <option value="">Selecciona una categoría</option>
-                {CATEGORIAS_EGRESO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                {categoriasEgreso.map((c) => <option key={c.codigo} value={c.codigo}>{c.nombre}</option>)}
               </Select>
             </FormField>
           )}
@@ -423,7 +418,7 @@ export default function MovimientosPage() {
             <FormField label="Categoría" required hint="Pago de factura permite relacionar este ingreso a una o más facturas del cliente desde Cobranza">
               <Select value={formRegistrar.categoriaIngreso ?? ''} onChange={(e) => setFormRegistrar((p) => ({ ...p, categoriaIngreso: e.target.value, clienteId: '', notaIngreso: '' }))}>
                 <option value="">Selecciona una categoría</option>
-                {CATEGORIAS_INGRESO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                {categoriasIngreso.map((c) => <option key={c.codigo} value={c.codigo}>{c.nombre}</option>)}
               </Select>
             </FormField>
           )}
@@ -538,7 +533,7 @@ export default function MovimientosPage() {
               <FormField label="Categoría" hint="Solo se puede cambiar si el egreso no está vinculado a Combustible, Caja chica o Mantenimiento">
                 <Select value={formCategoriaEgreso} onChange={(e) => setFormCategoriaEgreso(e.target.value)}>
                   <option value="">Sin categoría</option>
-                  {CATEGORIAS_EGRESO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  {categoriasEgreso.map((c) => <option key={c.codigo} value={c.codigo}>{c.nombre}</option>)}
                 </Select>
               </FormField>
             )}
@@ -554,7 +549,7 @@ export default function MovimientosPage() {
                   onChange={(e) => { setFormCategoriaIngreso(e.target.value); setFormClienteIdEdicion(''); setFormNotaIngreso(''); }}
                 >
                   <option value="">Sin categoría</option>
-                  {CATEGORIAS_INGRESO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  {categoriasIngreso.map((c) => <option key={c.codigo} value={c.codigo}>{c.nombre}</option>)}
                 </Select>
               </FormField>
             )}

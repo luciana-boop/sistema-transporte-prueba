@@ -11,10 +11,15 @@ export class BackupService {
       configuraciones, seriesFacturacion, tablasMaestras,
       configuracionAlertas, tiposVehiculo,
       permisosModulos, permisosAcciones,
-      monedas, tiposPago, cuentasDinero, movimientosCuenta, pagosV2,
-      guias,
+      monedas, tiposPago, cuentasDinero, movimientosCuenta, pagosV2, pagosV2AplicacionesFactura,
+      guias, mantenimientoDetalles,
     ] = await Promise.all([
-      prisma.usuario.findMany({ select: { id: true, nombre: true, email: true, rol: true, activo: true, creadoEn: true } }),
+      prisma.usuario.findMany({
+        select: {
+          id: true, nombre: true, email: true, rol: true, activo: true, creadoEn: true,
+          restriccionHorarioActiva: true, diasPermitidos: true, horaInicio: true, horaFin: true,
+        },
+      }),
       prisma.cliente.findMany(),
       prisma.pedido.findMany(),
       prisma.factura.findMany({ include: { lineas: true } }),
@@ -36,11 +41,13 @@ export class BackupService {
       prisma.cuentaDinero.findMany(),
       prisma.movimientoCuentaV2.findMany(),
       prisma.pagoV2.findMany(),
+      prisma.pagoV2AplicacionFactura.findMany(),
       prisma.guia.findMany({ include: { detalles: true, transportistasAdicionales: true } }),
+      prisma.mantenimientoDetalle.findMany(),
     ]);
 
     return {
-      version: '3.1',
+      version: '3.2',
       exportadoEn: new Date().toISOString(),
       data: {
         usuarios, clientes, pedidos, facturas,
@@ -49,8 +56,8 @@ export class BackupService {
         configuraciones, seriesFacturacion, tablasMaestras,
         configuracionAlertas, tiposVehiculo,
         permisosModulos, permisosAcciones,
-        monedas, tiposPago, cuentasDinero, movimientosCuenta, pagosV2,
-        guias,
+        monedas, tiposPago, cuentasDinero, movimientosCuenta, pagosV2, pagosV2AplicacionesFactura,
+        guias, mantenimientoDetalles,
       },
     };
   }
@@ -66,6 +73,7 @@ export class BackupService {
       vehiculos:     () => prisma.vehiculo.findMany(),
       movimientos:   () => prisma.movimientoCuentaV2.findMany({ include: { cuenta: { select: { nombre: true } } } }),
       guias:         () => prisma.guia.findMany({ include: { cliente: { select: { razonSocial: true } } } }),
+      mantenimiento: () => prisma.mantenimientoDetalle.findMany({ include: { vehiculo: { select: { placa: true } }, conductor: { select: { nombre: true } } } }),
     };
 
     const fn = map[modulo];

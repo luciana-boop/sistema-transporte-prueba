@@ -21,8 +21,11 @@ const crearValidations = [
   body('referencia').optional({ values: 'falsy' }).isString().isLength({ max: 255 }).withMessage('N° de operación inválido'),
   body('fecha').optional({ values: 'falsy' }).isISO8601().withMessage('fecha inválida'),
   body('notaEgreso').optional({ values: 'falsy' }).isString().isLength({ max: 500 }).withMessage('referencia inválida'),
-  body('categoriaEgreso').optional({ values: 'falsy' }).isIn(['COMBUSTIBLE', 'MANTENIMIENTO', 'CAJA_CHICA', 'PLANILLA', 'OTROS']).withMessage('categoriaEgreso inválida'),
-  body('categoriaIngreso').optional({ values: 'falsy' }).isIn(['PAGO_FACTURA', 'CAJA_CHICA', 'LIQUIDACION', 'OTRO']).withMessage('categoriaIngreso inválida'),
+  // Las categorías son configurables desde Configuración > Tablas Maestras
+  // (tipo categoria_ingreso/categoria_egreso), por eso no se valida contra una
+  // lista fija: solo se exige que sea un código de tabla maestra razonable.
+  body('categoriaEgreso').optional({ values: 'falsy' }).isString().isLength({ max: 50 }).withMessage('categoriaEgreso inválida'),
+  body('categoriaIngreso').optional({ values: 'falsy' }).isString().isLength({ max: 50 }).withMessage('categoriaIngreso inválida'),
   body('notaIngreso').optional({ values: 'falsy' }).isString().isLength({ max: 500 }).withMessage('observación inválida'),
   body('clienteId').optional({ values: 'falsy' }).isInt({ gt: 0 }).withMessage('clienteId inválido'),
 ];
@@ -32,9 +35,9 @@ const actualizarValidations = [
   body('referencia').optional({ values: 'falsy' }).isString().isLength({ max: 255 }).withMessage('N° de operación inválido'),
   body('fecha').optional({ values: 'falsy' }).isISO8601().withMessage('fecha inválida'),
   body('notaEgreso').optional({ nullable: true }).isString().isLength({ max: 500 }).withMessage('referencia inválida'),
-  body('categoriaEgreso').optional({ nullable: true }).isIn(['COMBUSTIBLE', 'MANTENIMIENTO', 'CAJA_CHICA', 'PLANILLA', 'OTROS']).withMessage('categoriaEgreso inválida'),
+  body('categoriaEgreso').optional({ nullable: true }).isString().isLength({ max: 50 }).withMessage('categoriaEgreso inválida'),
   body('notaIngreso').optional({ nullable: true }).isString().isLength({ max: 500 }).withMessage('observación inválida'),
-  body('categoriaIngreso').optional({ nullable: true }).isIn(['PAGO_FACTURA', 'CAJA_CHICA', 'LIQUIDACION', 'OTRO']).withMessage('categoriaIngreso inválida'),
+  body('categoriaIngreso').optional({ nullable: true }).isString().isLength({ max: 50 }).withMessage('categoriaIngreso inválida'),
   body('clienteId').optional({ nullable: true }).isInt({ gt: 0 }).withMessage('clienteId inválido'),
 ];
 
