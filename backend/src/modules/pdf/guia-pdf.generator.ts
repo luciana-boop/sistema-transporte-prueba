@@ -113,7 +113,7 @@ export async function generarPdfGuia(guia: any): Promise<string> {
     const cuartoAncho = ANCHO / 4 - 12;
     filaTexto(M + 8, yTrasladoContenido, cuartoAncho, 'Fecha emisión', fmtFecha(guia.fechaEmision));
     filaTexto(M + 8 + ANCHO / 4, yTrasladoContenido, cuartoAncho, 'Inicio traslado', fmtFecha(guia.fechaInicioTraslado));
-    filaTexto(M + 8 + ANCHO / 2, yTrasladoContenido, cuartoAncho, 'Motivo', `${motivoCod} - ${MOTIVOS[motivoCod] ?? motivoCod}`);
+    filaTexto(M + 8 + ANCHO / 2, yTrasladoContenido, cuartoAncho, 'Motivo', esTransportista ? '—' : `${motivoCod} - ${MOTIVOS[motivoCod] ?? motivoCod}`);
     filaTexto(M + 8 + ANCHO * 0.75, yTrasladoContenido, cuartoAncho, 'Modalidad', guia.modalidadTransporte === '01' ? '01 - PÚBLICO' : '02 - PRIVADO');
     filaTexto(M + 8, yTrasladoContenido + ALTO_FILA, cuartoAncho, 'Peso bruto total', guia.pesoTotal ? `${Number(guia.pesoTotal).toFixed(2)} kg` : '—');
     filaTexto(M + 8 + ANCHO / 4, yTrasladoContenido + ALTO_FILA, cuartoAncho, 'Pedido', guia.pedido ? `${guia.pedido.origen} → ${guia.pedido.destino}` : '—');

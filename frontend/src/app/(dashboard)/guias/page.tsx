@@ -16,7 +16,7 @@ import api, { guiasApi, pedidosApi, clientesApi, conductoresApi, vehiculosApi, c
 import { useConfig } from '@/hooks/useConfig';
 import { getErrorMessage, formatDate, formatCurrency } from '@/lib/utils';
 import { buscarPorCodigo, detectarUbigeo, type UbigeoEntry } from '@/lib/ubigeo';
-import { MOTIVOS_TRASLADO } from '@/lib/sunatCatalogos';
+import { MOTIVOS_TRASLADO, DOCUMENTOS_RELACIONADOS } from '@/lib/sunatCatalogos';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
   EmptyState, Modal, FormField, Input, Select, Textarea, SmartSearchInput,
@@ -273,7 +273,7 @@ export default function GuiasPage() {
       remitenteId: d.tipoGuia === 'TRANSPORTISTA' && d.remitenteId ? parseInt(d.remitenteId) : undefined,
       pedidoId: d.tipoGuia === 'REMITENTE' && d.pedidoId ? parseInt(d.pedidoId) : undefined,
       serie: d.serie || undefined,
-      motivoTraslado: d.motivoTraslado,
+      motivoTraslado: d.tipoGuia === 'TRANSPORTISTA' ? undefined : d.motivoTraslado,
       modalidadTransporte: d.modalidadTransporte,
       fechaInicioTraslado: d.fechaInicioTraslado || undefined,
       ubigeoOrigen: d.ubigeoOrigen || undefined,
@@ -323,6 +323,20 @@ export default function GuiasPage() {
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
+  // Vincular pedido — usado en guías sin pedido de origen (típicamente
+  // creadas por un chofer desde el celular, que no elige pedido).
+  const [pedidoVincularOpt, setPedidoVincularOpt] = useState<{ id: number | string; label: string } | null>(null);
+  const vincularPedidoM = useMutation({
+    mutationFn: (pedidoId: number) => guiasApi.vincularPedido(viewing!.id, pedidoId),
+    onSuccess: (res) => {
+      setViewing(res.data.data);
+      setPedidoVincularOpt(null);
+      toast.success('Guía vinculada al pedido');
+      invalidate();
+    },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
   // Envío manual en lote — botón general "Enviar a SUNAT" del listado.
   const enviarSunatLoteM = useMutation({
     mutationFn: (ids: number[]) => guiasApi.enviarSunatLote(ids),
@@ -340,6 +354,7 @@ export default function GuiasPage() {
   const guias = data?.items ?? [];
 
   const openDetalle = async (id: number) => {
+    setPedidoVincularOpt(null);
     const r = await guiasApi.obtener(id);
     setViewing(r.data.data ?? null);
   };
@@ -426,7 +441,7 @@ export default function GuiasPage() {
                 <Td className="text-xs">{g.tipoGuia === 'TRANSPORTISTA' ? 'Transportista' : 'Remitente'}</Td>
                 <Td className="font-medium">{g.cliente?.razonSocial ?? g.clienteNombre ?? `#${g.clienteId}`}</Td>
                 <Td className="text-sm">{formatDate(g.fechaEmision)}</Td>
-                <Td className="text-sm">{g.motivoTraslado ?? '—'}</Td>
+                <Td className="text-sm">{g.tipoGuia === 'TRANSPORTISTA' ? '—' : (g.motivoTraslado ?? '—')}</Td>
                 <Td className="text-sm font-mono">{g.pedido ? `${g.pedido.origen} → ${g.pedido.destino}` : '—'}</Td>
                 <Td className="text-sm font-mono">{g.factura?.numeroFactura ?? '—'}</Td>
                 <Td><Badge value={g.estado} label={g.estado === 'EMITIDA' ? 'Emitida' : 'Anulada'} /></Td>
@@ -530,11 +545,16 @@ export default function GuiasPage() {
           <div className="border rounded-lg p-4 space-y-3">
             <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Traslado (SUNAT)</h3>
             <div className="grid grid-cols-3 gap-4">
-              <FormField label="Motivo de traslado">
-                <Select {...register('motivoTraslado')}>
-                  {MOTIVOS_TRASLADO.map(m => <option key={m.code} value={m.code}>{m.label}</option>)}
-                </Select>
-              </FormField>
+              {/* Motivo de traslado (catálogo 20) no aplica en guía Transportista
+                  (31): esa guía sustenta el servicio de transporte en sí, no el
+                  motivo del traslado de la mercadería del remitente. */}
+              {!esTransportista && (
+                <FormField label="Motivo de traslado">
+                  <Select {...register('motivoTraslado')}>
+                    {MOTIVOS_TRASLADO.map(m => <option key={m.code} value={m.code}>{m.label}</option>)}
+                  </Select>
+                </FormField>
+              )}
               {/* Modalidad pública/privada no aplica en Transportista: la
                   empresa emisora siempre transporta con su propio conductor
                   y vehículo, sin distinción de modalidad. */}
@@ -691,9 +711,7 @@ export default function GuiasPage() {
                 <FormField label="Doc. relacionado *" hint="GRE Remitente del remitente, o Factura/Boleta si no la emite" error={errors.docRelTipo?.message}>
                   <Select {...register('docRelTipo')}>
                     <option value="">Seleccione</option>
-                    <option value="09">09 - Guía de Remisión Remitente</option>
-                    <option value="01">01 - Factura</option>
-                    <option value="03">03 - Boleta de Venta</option>
+                    {DOCUMENTOS_RELACIONADOS.map((d) => <option key={d.code} value={d.code}>{d.label}</option>)}
                   </Select>
                 </FormField>
                 <FormField label="Serie">
@@ -773,7 +791,7 @@ export default function GuiasPage() {
 
       {/* Detalle de guía */}
       {viewing && (
-        <Modal open={!!viewing} onClose={() => setViewing(null)} title={`Guía ${viewing.numero}`} maxWidth="max-w-2xl">
+        <Modal open={!!viewing} onClose={() => { setViewing(null); setPedidoVincularOpt(null); }} title={`Guía ${viewing.numero}`} maxWidth="max-w-2xl">
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
               <div><span className="text-muted-foreground">Tipo:</span> <span className="font-medium">{viewing.tipoGuia === 'TRANSPORTISTA' ? '31 - Transportista' : '09 - Remitente'}</span></div>
@@ -786,7 +804,9 @@ export default function GuiasPage() {
               )}
               <div><span className="text-muted-foreground">{viewing.tipoGuia === 'TRANSPORTISTA' ? 'Destinatario' : 'Cliente'}:</span> <span className="font-medium">{viewing.cliente?.razonSocial ?? viewing.clienteNombre}{viewing.clienteNumDoc ? ` (${viewing.clienteNumDoc})` : ''}</span></div>
               <div><span className="text-muted-foreground">Fecha emisión:</span> {formatDate(viewing.fechaEmision)}</div>
-              <div><span className="text-muted-foreground">Motivo:</span> {viewing.motivoTraslado ?? '—'}</div>
+              {viewing.tipoGuia !== 'TRANSPORTISTA' && (
+                <div><span className="text-muted-foreground">Motivo:</span> {viewing.motivoTraslado ?? '—'}</div>
+              )}
               <div><span className="text-muted-foreground">Modalidad:</span> {viewing.modalidadTransporte === '01' ? 'Pública' : 'Privada'}</div>
               {viewing.fechaInicioTraslado && (
                 <div><span className="text-muted-foreground">Fecha traslado:</span> {formatDate(viewing.fechaInicioTraslado)}</div>
@@ -817,6 +837,30 @@ export default function GuiasPage() {
                 <div><span className="text-muted-foreground">Factura:</span> <span className="font-mono">{viewing.factura.numeroFactura}</span></div>
               )}
             </div>
+
+            {!viewing.pedido && !viewing.anulado && (
+              <div className="flex items-end gap-2 border border-border rounded-lg p-3">
+                <FormField label="Vincular a un pedido" hint="Útil para guías creadas por un chofer, sin pedido de origen">
+                  <SmartSearchInput
+                    queryFn={async (q) => {
+                      const r = await pedidosApi.listar({ search: q, limit: 10 });
+                      return (r.data.data?.items ?? []).map((p: any) => ({ id: p.id, label: `${p.origen} → ${p.destino} (${p.cliente?.razonSocial ?? ''})` }));
+                    }}
+                    value={pedidoVincularOpt}
+                    onChange={setPedidoVincularOpt}
+                    placeholder="Buscar pedido…"
+                  />
+                </FormField>
+                <Button
+                  size="sm"
+                  disabled={!pedidoVincularOpt}
+                  loading={vincularPedidoM.isPending}
+                  onClick={() => vincularPedidoM.mutate(Number(pedidoVincularOpt!.id))}
+                >
+                  Vincular
+                </Button>
+              </div>
+            )}
 
             <Table>
               <thead><tr><Th>Descripción</Th><Th>Cantidad</Th><Th>Unidad</Th></tr></thead>

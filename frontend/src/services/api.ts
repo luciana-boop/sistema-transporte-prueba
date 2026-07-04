@@ -192,6 +192,8 @@ export const guiasApi = {
   anular: (id: number) => api.post<ApiResponse<Guia>>(`/api/guias/${id}/anular`, {}),
   vincularFactura: (id: number, facturaId: number) =>
     api.patch<ApiResponse<Guia>>(`/api/guias/${id}/factura`, { facturaId }),
+  vincularPedido: (id: number, pedidoId: number) =>
+    api.patch<ApiResponse<Guia>>(`/api/guias/${id}/pedido`, { pedidoId }),
   pendientesSunat: () =>
     api.get<ApiResponse<GuiaPendienteSunat[]>>('/api/guias/pendientes-sunat'),
   enviarSunat: (id: number) => api.post<ApiResponse<Guia>>(`/api/guias/${id}/enviar-sunat`, {}),
@@ -204,11 +206,14 @@ export const guiasApi = {
 // conductor sale de Usuario.conductorId en el backend, nunca se manda desde acá.
 export const guiasChoferApi = {
   crear: (data: {
+    remitenteId: number;
     clienteId?: number; clienteNombre?: string; clienteNumDoc?: string;
-    motivoTraslado?: string; fechaInicioTraslado?: string;
+    fechaInicioTraslado?: string;
+    ubigeoOrigen?: string; direccionPartida?: string;
     ubigeoDestino?: string; direccionEntrega?: string;
     vehiculoId: number; vehiculoCarretaId?: number;
     pesoTotal?: number; observaciones?: string;
+    docRelTipo: string; docRelSerie?: string; docRelNumero: string; docRelRucEmisor: string;
     detalles: Array<{ descripcion: string; cantidad: number; unidadMedida?: string }>;
   }) => api.post<ApiResponse<Guia>>('/api/guias-chofer', data),
   mias: (params?: { page?: number; limit?: number }) =>

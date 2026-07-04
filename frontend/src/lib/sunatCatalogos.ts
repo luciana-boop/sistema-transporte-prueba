@@ -13,3 +13,11 @@ export const MOTIVOS_TRASLADO = [
   { code: '14', label: '14 - Venta sujeta a confirmación' },
   { code: '18', label: '18 - Traslado emisor itinerante' },
 ];
+
+// Catálogo SUNAT 61 (subconjunto) — documento relacionado obligatorio en
+// guías de tipo Transportista (ver guias.service.ts DOC_RELACIONADO_DESC).
+export const DOCUMENTOS_RELACIONADOS = [
+  { code: '09', label: '09 - Guía de Remisión Remitente' },
+  { code: '01', label: '01 - Factura' },
+  { code: '03', label: '03 - Boleta de Venta' },
+];

@@ -84,6 +84,15 @@ export const guiasController = {
     } catch (e) { handle(res, e); }
   },
 
+  async vincularPedido(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseId(req, res); if (id === null) return;
+      const { pedidoId } = req.body;
+      if (!pedidoId) { R.badRequest(res, 'pedidoId es requerido'); return; }
+      R.ok(res, await guiasService.vincularPedido(id, Number(pedidoId)), 'Guía vinculada a pedido');
+    } catch (e) { handle(res, e); }
+  },
+
   // ── Envío manual a SUNAT ─────────────────────────────────────────────────────
   async pendientesSunat(req: Request, res: Response): Promise<void> {
     try {
@@ -111,9 +120,12 @@ export const guiasController = {
   // ── Rol CHOFER: formulario reducido desde el celular ─────────────────────────
   async crearReducida(req: Request, res: Response): Promise<void> {
     try {
-      const { clienteId, clienteNombre, clienteNumDoc, vehiculoId, detalles } = req.body;
-      if ((!clienteId && !(clienteNombre && clienteNumDoc)) || !vehiculoId || !Array.isArray(detalles) || detalles.length === 0) {
-        R.badRequest(res, 'Indique clienteId o (clienteNombre + clienteNumDoc), vehiculoId, y detalles (array)'); return;
+      const { clienteId, clienteNombre, clienteNumDoc, remitenteId, vehiculoId, detalles } = req.body;
+      if (
+        (!clienteId && !(clienteNombre && clienteNumDoc)) || !remitenteId || !vehiculoId ||
+        !Array.isArray(detalles) || detalles.length === 0
+      ) {
+        R.badRequest(res, 'Indique remitenteId, clienteId o (clienteNombre + clienteNumDoc), vehiculoId, y detalles (array)'); return;
       }
       const guia = await guiasService.crearParaChofer(req.usuario!.id, req.body);
       R.created(res, guia, 'Guía creada');

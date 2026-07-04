@@ -85,21 +85,31 @@ export interface CreateGuiaDto {
   detalles: GuiaDetalleDto[];
 }
 
-// Formulario reducido para el rol CHOFER: siempre guía Remitente, modalidad
-// privada, con conductor tomado de Usuario.conductorId (nunca del body) y
-// origen autocompletado desde Configuración — ver crearParaChofer().
+// Formulario reducido para el rol CHOFER: siempre guía Transportista (31) —
+// la empresa transporta carga de terceros, no propia — modalidad privada,
+// con conductor tomado de Usuario.conductorId (nunca del body). El origen cae
+// en la dirección de la empresa (Configuración) solo si el chofer no indica
+// una dirección de partida — ver crearParaChofer().
 export interface CrearGuiaChoferDto {
+  // Remitente: quien origina el traslado (tercero, obligatorio en Transportista).
+  remitenteId: number;
   clienteId?: number;
   clienteNombre?: string;
   clienteNumDoc?: string;
-  motivoTraslado?: string;
   fechaInicioTraslado?: string;
+  ubigeoOrigen?: string;
+  direccionPartida?: string;
   ubigeoDestino?: string;
   direccionEntrega?: string;
   vehiculoId: number;
   vehiculoCarretaId?: number;
   pesoTotal?: number;
   observaciones?: string;
+  // Documento relacionado (catálogo SUNAT 61) — obligatorio en Transportista.
+  docRelTipo: string;
+  docRelSerie?: string;
+  docRelNumero: string;
+  docRelRucEmisor: string;
   detalles: GuiaDetalleDto[];
 }
 
@@ -381,20 +391,26 @@ export const guiasService = {
     }
 
     return this.crear({
-      tipoGuia: 'REMITENTE',
+      tipoGuia: 'TRANSPORTISTA',
       modalidadTransporte: '02',
       conductorId: usuario.conductorId,
+      remitenteId: dto.remitenteId,
       clienteId: dto.clienteId,
       clienteNombre: dto.clienteNombre,
       clienteNumDoc: dto.clienteNumDoc,
-      motivoTraslado: dto.motivoTraslado,
       fechaInicioTraslado: dto.fechaInicioTraslado,
+      ubigeoOrigen: dto.ubigeoOrigen,
+      direccionPartida: dto.direccionPartida,
       ubigeoDestino: dto.ubigeoDestino,
       direccionEntrega: dto.direccionEntrega,
       vehiculoId: dto.vehiculoId,
       vehiculoCarretaId: dto.vehiculoCarretaId,
       pesoTotal: dto.pesoTotal,
       observaciones: dto.observaciones,
+      docRelTipo: dto.docRelTipo,
+      docRelSerie: dto.docRelSerie,
+      docRelNumero: dto.docRelNumero,
+      docRelRucEmisor: dto.docRelRucEmisor,
       detalles: dto.detalles,
     }, usuarioId);
   },
@@ -594,6 +610,18 @@ export const guiasService = {
     const factura = await prisma.factura.findUnique({ where: { id: facturaId } });
     if (!factura) throw new Error('Factura no encontrada');
     return prisma.guia.update({ where: { id }, data: { facturaId } });
+  },
+
+  // Vincula manualmente una guía (típicamente creada por un chofer, sin
+  // pedido de origen) con un pedido existente — usado por un secretario desde
+  // el detalle de la guía en el módulo de oficina.
+  async vincularPedido(id: number, pedidoId: number) {
+    const guia = await this.obtener(id);
+    if (guia.anulado) throw new Error('La guía está anulada');
+    const pedido = await prisma.pedido.findUnique({ where: { id: pedidoId } });
+    if (!pedido) throw new Error('Pedido no encontrado');
+    if (pedido.estado === 'ANULADO') throw new Error('No se puede vincular un pedido anulado');
+    return prisma.guia.update({ where: { id }, data: { pedidoId } });
   },
 
   // Guías nunca enviadas a SUNAT (estadoSunat null), no anuladas. Alimenta

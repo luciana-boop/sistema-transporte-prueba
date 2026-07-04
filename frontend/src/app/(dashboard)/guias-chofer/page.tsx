@@ -16,7 +16,7 @@ import { Plus, Trash2, FileText, CheckCircle2 } from 'lucide-react';
 import api, { guiasChoferApi, clientesApi } from '@/services/api';
 import { getErrorMessage, formatDatetime } from '@/lib/utils';
 import { buscarPorCodigo, detectarUbigeo, type UbigeoEntry } from '@/lib/ubigeo';
-import { MOTIVOS_TRASLADO } from '@/lib/sunatCatalogos';
+import { DOCUMENTOS_RELACIONADOS } from '@/lib/sunatCatalogos';
 import {
   PageHeader, Button, Badge, EmptyState,
   FormField, Input, Select, Textarea, SmartSearchInput,
@@ -31,16 +31,22 @@ const detalleSchema = z.object({
 });
 
 const schema = z.object({
+  remitenteId: z.string().min(1, 'Requerido'),
   clienteId: z.string().optional(),
   clienteNombre: z.string().optional(),
   clienteNumDoc: z.string().optional(),
-  motivoTraslado: z.string().default('01'),
   fechaInicioTraslado: z.string().min(1, 'Requerido'),
+  ubigeoOrigen: z.string().optional(),
+  direccionPartida: z.string().min(1, 'Requerido'),
   ubigeoDestino: z.string().optional(),
   direccionEntrega: z.string().min(1, 'Requerido'),
   vehiculoId: z.string().min(1, 'Seleccioná el tracto'),
   vehiculoCarretaId: z.string().optional(),
   pesoTotal: z.string().min(1, 'Requerido'),
+  docRelTipo: z.string().min(1, 'Requerido'),
+  docRelSerie: z.string().optional(),
+  docRelNumero: z.string().min(1, 'Requerido'),
+  docRelRucEmisor: z.string().min(1, 'Requerido'),
   observaciones: z.string().optional(),
   detalles: z.array(detalleSchema).min(1),
 }).superRefine((data, ctx) => {
@@ -72,13 +78,13 @@ export default function GuiasChoferPage() {
   const qc = useQueryClient();
   const [clienteMode, setClienteMode] = useState<'buscar' | 'libre'>('buscar');
   const [clienteOpt, setClienteOpt] = useState<{ id: number | string; label: string } | null>(null);
+  const [remitenteOpt, setRemitenteOpt] = useState<{ id: number | string; label: string } | null>(null);
   const [candidatosDestino, setCandidatosDestino] = useState<UbigeoEntry[]>([]);
   const [guiaCreada, setGuiaCreada] = useState<{ id: number; numero: string } | null>(null);
 
   const { register, control, handleSubmit, reset, watch, setValue, formState: { isSubmitting, errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
-      motivoTraslado: '01',
       fechaInicioTraslado: nowLocalDatetime(),
       detalles: [{ descripcion: '', cantidad: '1', unidadMedida: 'NIU' }],
     },
@@ -86,9 +92,23 @@ export default function GuiasChoferPage() {
 
   const { fields, append, remove } = useFieldArray({ control, name: 'detalles' });
 
+  const direccionPartidaVal = watch('direccionPartida');
+  const ubigeoOrigenVal = watch('ubigeoOrigen');
   const direccionEntregaVal = watch('direccionEntrega');
   const ubigeoDestinoVal = watch('ubigeoDestino');
   const vehiculoIdVal = watch('vehiculoId');
+  const [candidatosOrigen, setCandidatosOrigen] = useState<UbigeoEntry[]>([]);
+
+  useEffect(() => {
+    if (ubigeoOrigenVal || !direccionPartidaVal || direccionPartidaVal.trim().length < 6) { setCandidatosOrigen([]); return; }
+    const t = setTimeout(() => {
+      const res = detectarUbigeo(direccionPartidaVal);
+      if (res.estado === 'encontrado') { setValue('ubigeoOrigen', res.entry.ubigeo); setCandidatosOrigen([]); }
+      else if (res.estado === 'ambiguo') setCandidatosOrigen(res.candidatos);
+      else setCandidatosOrigen([]);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [direccionPartidaVal, ubigeoOrigenVal, setValue]);
 
   useEffect(() => {
     if (ubigeoDestinoVal || !direccionEntregaVal || direccionEntregaVal.trim().length < 6) { setCandidatosDestino([]); return; }
@@ -101,7 +121,23 @@ export default function GuiasChoferPage() {
     return () => clearTimeout(t);
   }, [direccionEntregaVal, ubigeoDestinoVal, setValue]);
 
+  const ubigeoOrigenResuelto = buscarPorCodigo(ubigeoOrigenVal);
   const ubigeoDestinoResuelto = buscarPorCodigo(ubigeoDestinoVal);
+
+  // Al elegir remitente, autocompleta la dirección de partida con su
+  // dirección registrada (el chofer suele recoger la carga ahí) — sigue
+  // siendo editable por si el retiro es en otro lugar.
+  const handleRemitenteChange = async (opt: { id: number | string; label: string } | null) => {
+    setRemitenteOpt(opt);
+    setValue('remitenteId', opt ? String(opt.id) : '');
+    if (!opt) return;
+    try {
+      const r = await clientesApi.obtener(Number(opt.id));
+      const cliente = r.data.data;
+      if (cliente?.direccion) setValue('direccionPartida', cliente.direccion);
+      if (cliente?.ubigeo) setValue('ubigeoOrigen', cliente.ubigeo);
+    } catch { /* autocompletado best-effort */ }
+  };
 
   const handleClienteChange = async (opt: { id: number | string; label: string } | null) => {
     setClienteOpt(opt);
@@ -129,16 +165,22 @@ export default function GuiasChoferPage() {
 
   const crearM = useMutation({
     mutationFn: (d: FormData) => guiasChoferApi.crear({
+      remitenteId: parseInt(d.remitenteId),
       clienteId: d.clienteId ? parseInt(d.clienteId) : undefined,
       clienteNombre: d.clienteNombre || undefined,
       clienteNumDoc: d.clienteNumDoc || undefined,
-      motivoTraslado: d.motivoTraslado,
       fechaInicioTraslado: d.fechaInicioTraslado,
+      ubigeoOrigen: d.ubigeoOrigen || undefined,
+      direccionPartida: d.direccionPartida,
       ubigeoDestino: d.ubigeoDestino || undefined,
       direccionEntrega: d.direccionEntrega,
       vehiculoId: parseInt(d.vehiculoId),
       vehiculoCarretaId: d.vehiculoCarretaId ? parseInt(d.vehiculoCarretaId) : undefined,
       pesoTotal: parseFloat(d.pesoTotal),
+      docRelTipo: d.docRelTipo,
+      docRelSerie: d.docRelSerie || undefined,
+      docRelNumero: d.docRelNumero,
+      docRelRucEmisor: d.docRelRucEmisor,
       observaciones: d.observaciones || undefined,
       detalles: d.detalles.map((det) => ({
         descripcion: det.descripcion,
@@ -151,12 +193,12 @@ export default function GuiasChoferPage() {
       toast.success(`Guía ${guia.numero} creada`);
       setGuiaCreada({ id: guia.id, numero: guia.numero });
       reset({
-        motivoTraslado: '01',
         fechaInicioTraslado: nowLocalDatetime(),
         detalles: [{ descripcion: '', cantidad: '1', unidadMedida: 'NIU' }],
       });
       setClienteOpt(null);
       setClienteMode('buscar');
+      setRemitenteOpt(null);
       qc.invalidateQueries({ queryKey: ['guias-chofer', 'mias'] });
     },
     onError: (e) => toast.error(getErrorMessage(e)),
@@ -183,6 +225,39 @@ export default function GuiasChoferPage() {
       )}
 
       <form onSubmit={handleSubmit((d) => crearM.mutate(d))} className="flex flex-col gap-4">
+
+        {/* Remitente: quien origina el traslado (siempre un cliente registrado) */}
+        <FormField label="Remitente" required hint="Quien origina el traslado (dueño de la carga)" error={errors.remitenteId?.message}>
+          <SmartSearchInput
+            queryFn={async (q) => { const r = await clientesApi.listar({ search: q, limit: 10 }); return (r.data.data?.items ?? []).map((c: any) => ({ id: c.id, label: c.razonSocial })); }}
+            value={remitenteOpt}
+            onChange={handleRemitenteChange}
+            placeholder="Buscar remitente…"
+          />
+        </FormField>
+
+        <FormField label="Dirección de partida" required hint="Dónde se recoge la carga" error={errors.direccionPartida?.message}>
+          <Textarea rows={2} placeholder="Av. / calle, número, referencia" {...register('direccionPartida')} />
+        </FormField>
+        {candidatosOrigen.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 -mt-2">
+            {candidatosOrigen.map((c) => (
+              <button
+                key={c.ubigeo}
+                type="button"
+                onClick={() => { setValue('ubigeoOrigen', c.ubigeo); setCandidatosOrigen([]); }}
+                className="text-xs px-2 py-1 rounded-md border border-border hover:bg-muted"
+              >
+                {c.distrito}, {c.provincia}
+              </button>
+            ))}
+          </div>
+        )}
+        {ubigeoOrigenResuelto && (
+          <p className="text-xs text-muted-foreground -mt-2">
+            Ubigeo detectado: {ubigeoOrigenResuelto.distrito}, {ubigeoOrigenResuelto.provincia}
+          </p>
+        )}
 
         {/* Destinatario */}
         <div className="flex flex-col gap-2">
@@ -217,12 +292,6 @@ export default function GuiasChoferPage() {
           )}
           {errors.clienteId && <p className="text-xs text-destructive">{errors.clienteId.message}</p>}
         </div>
-
-        <FormField label="Motivo de traslado" required>
-          <Select {...register('motivoTraslado')}>
-            {MOTIVOS_TRASLADO.map((m) => <option key={m.code} value={m.code}>{m.label}</option>)}
-          </Select>
-        </FormField>
 
         <FormField label="Fecha y hora de inicio" required error={errors.fechaInicioTraslado?.message}>
           <Input type="datetime-local" {...register('fechaInicioTraslado')} />
@@ -306,6 +375,25 @@ export default function GuiasChoferPage() {
               )}
             </div>
           ))}
+        </div>
+
+        {/* Documento relacionado: sustenta el traslado (factura o guía del remitente) */}
+        <div className="flex flex-col gap-2 border border-border rounded-lg p-3">
+          <label className="text-sm font-medium">Documento relacionado <span className="text-destructive">*</span></label>
+          <p className="text-xs text-muted-foreground -mt-1">Factura o guía del remitente que sustenta el traslado</p>
+          <Select {...register('docRelTipo')}>
+            <option value="">Seleccionar tipo…</option>
+            {DOCUMENTOS_RELACIONADOS.map((d) => <option key={d.code} value={d.code}>{d.label}</option>)}
+          </Select>
+          {errors.docRelTipo && <p className="text-xs text-destructive">{errors.docRelTipo.message}</p>}
+          <div className="grid grid-cols-3 gap-2">
+            <Input placeholder="Serie" {...register('docRelSerie')} />
+            <Input className="col-span-1" placeholder="Número" {...register('docRelNumero')} />
+            <Input className="col-span-1" placeholder="RUC emisor" maxLength={11} {...register('docRelRucEmisor')} />
+          </div>
+          {(errors.docRelNumero || errors.docRelRucEmisor) && (
+            <p className="text-xs text-destructive">{errors.docRelNumero?.message || errors.docRelRucEmisor?.message}</p>
+          )}
         </div>
 
         <FormField label="Observaciones">

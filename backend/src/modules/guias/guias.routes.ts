@@ -18,5 +18,6 @@ router.get('/:id/pdf',                       (req, res) => guiasController.gener
 router.post('/:id/anular',                   verificarAccion('anular_guia'), (req, res) => guiasController.anular(req, res));
 router.post('/:id/enviar-sunat',             (req, res) => guiasController.enviarSunat(req, res));
 router.patch('/:id/factura',                 (req, res) => guiasController.vincularFactura(req, res));
+router.patch('/:id/pedido',                  (req, res) => guiasController.vincularPedido(req, res));
 
 export default router;

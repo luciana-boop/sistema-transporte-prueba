@@ -97,7 +97,7 @@ export function SmartSearchInput({
         />
       </div>
       {open && results.length > 0 && (
-        <div className="absolute z-50 left-0 top-full mt-1 w-full min-w-[200px] bg-popover border border-border rounded-lg shadow-lg max-h-56 overflow-y-auto">
+        <div className="absolute z-50 left-0 top-full mt-1 w-full min-w-[200px] bg-card border border-border rounded-lg shadow-lg max-h-56 overflow-y-auto">
           {results.map((opt) => (
             <button
               key={opt.id}
