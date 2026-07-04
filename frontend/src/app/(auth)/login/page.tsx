@@ -66,7 +66,7 @@ export default function LoginPage() {
           <Truck className="w-6 h-6 text-white" />
         </div>
         <div className="text-center">
-          <h1 className="text-2xl font-bold tracking-tight">TransportES</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Transportes Salvador</h1>
           <p className="text-sm text-muted-foreground mt-1">Sistema de gestión empresarial</p>
         </div>
       </div>

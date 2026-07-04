@@ -4,7 +4,7 @@ import './globals.css';
 import { Providers } from '@/components/layout/Providers';
 
 export const metadata: Metadata = {
-  title: { default: 'TransportES', template: '%s | TransportES' },
+  title: { default: 'Transportes Salvador', template: '%s | Transportes Salvador' },
   description: 'Sistema de gestión para empresa de transportes',
 };
 
