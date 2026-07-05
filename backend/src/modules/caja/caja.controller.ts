@@ -27,6 +27,26 @@ export class CajaController {
     }
   }
 
+  async generarPdf(req: Request, res: Response): Promise<void> {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
+      const caja = await cajaService.findById(id);
+      const fs = require('fs');
+      const path = require('path');
+      const { generarPdfReporteCaja } = await import('../pdf/caja-pdf.generator');
+      const rutaRel = await generarPdfReporteCaja(caja);
+      const rutaAbs = path.join(process.cwd(), rutaRel);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="caja-${caja.id}.pdf"`);
+      fs.createReadStream(rutaAbs).pipe(res);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'Caja no encontrada') R.notFound(res, msg);
+      else R.serverError(res, e);
+    }
+  }
+
   async cajaActual(req: Request, res: Response): Promise<void> {
     try {
       const data = await cajaService.cajaActual(req.usuario!.id);

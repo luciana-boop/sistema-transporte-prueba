@@ -32,6 +32,75 @@ export function fmtFecha(fecha: Date | string | null | undefined): string {
   return new Date(fecha).toLocaleDateString('es-PE', { year: 'numeric', month: '2-digit', day: '2-digit' });
 }
 
+// ─── Monto en letras (SON: ... CON 00/100 SOLES) ─────────────────────────────
+
+const UNIDADES = ['', 'UNO', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE'];
+const ESPECIALES_10_19 = ['DIEZ', 'ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE', 'DIECISÉIS', 'DIECISIETE', 'DIECIOCHO', 'DIECINUEVE'];
+const ESPECIALES_20_29 = ['VEINTE', 'VEINTIUNO', 'VEINTIDÓS', 'VEINTITRÉS', 'VEINTICUATRO', 'VEINTICINCO', 'VEINTISÉIS', 'VEINTISIETE', 'VEINTIOCHO', 'VEINTINUEVE'];
+const DECENAS = ['', '', '', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA'];
+const CENTENAS = ['', 'CIENTO', 'DOSCIENTOS', 'TRESCIENTOS', 'CUATROCIENTOS', 'QUINIENTOS', 'SEISCIENTOS', 'SETECIENTOS', 'OCHOCIENTOS', 'NOVECIENTOS'];
+
+function decenasYUnidades(n: number): string {
+  if (n < 10) return UNIDADES[n];
+  if (n < 20) return ESPECIALES_10_19[n - 10];
+  if (n < 30) return ESPECIALES_20_29[n - 20];
+  const d = Math.floor(n / 10);
+  const u = n % 10;
+  return u === 0 ? DECENAS[d] : `${DECENAS[d]} Y ${UNIDADES[u]}`;
+}
+
+function centenasGrupo(n: number): string {
+  if (n === 0) return '';
+  if (n === 100) return 'CIEN';
+  const c = Math.floor(n / 100);
+  const resto = n % 100;
+  const partes: string[] = [];
+  if (c > 0) partes.push(CENTENAS[c]);
+  if (resto > 0) partes.push(decenasYUnidades(resto));
+  return partes.join(' ');
+}
+
+// Apocope de "UNO" -> "UN"/"ÚN" antes de MIL/MILLONES (VEINTIUNO MIL -> VEINTIÚN MIL,
+// CIENTO UNO MIL -> CIENTO UN MIL), igual que en cualquier texto legal/cheque en español.
+function apocope(texto: string): string {
+  if (texto === 'UNO') return 'UN';
+  if (texto.endsWith('VEINTIUNO')) return `${texto.slice(0, -3)}ÚN`;
+  if (texto.endsWith(' UNO')) return `${texto.slice(0, -3)}UN`;
+  return texto;
+}
+
+function numeroALetras(n: number): string {
+  if (n === 0) return 'CERO';
+  if (n < 0) return `MENOS ${numeroALetras(-n)}`;
+  if (n > 999_999_999) return String(n); // fuera del rango realista de un comprobante
+
+  const millones = Math.floor(n / 1_000_000);
+  const miles = Math.floor((n % 1_000_000) / 1000);
+  const resto = n % 1000;
+
+  const partes: string[] = [];
+  if (millones > 0) {
+    partes.push(millones === 1 ? 'UN MILLÓN' : `${apocope(centenasGrupo(millones))} MILLONES`);
+  }
+  if (miles > 0) {
+    partes.push(miles === 1 ? 'MIL' : `${apocope(centenasGrupo(miles))} MIL`);
+  }
+  if (resto > 0) {
+    partes.push(centenasGrupo(resto));
+  }
+  return partes.join(' ');
+}
+
+// Convierte un monto a su representación en letras para la línea "SON: ..." de
+// documentos financieros: "DOSCIENTOS SETENTA Y OCHO CON 00/100 SOLES".
+export function montoEnLetras(monto: number): string {
+  const valor = Math.abs(Number(monto) || 0);
+  let entero = Math.floor(valor);
+  let centavos = Math.round((valor - entero) * 100);
+  if (centavos === 100) { entero += 1; centavos = 0; }
+  return `${numeroALetras(entero)} CON ${String(centavos).padStart(2, '0')}/100 SOLES`;
+}
+
 // ─── Datos del emisor (parámetros empresa_* de Configuración) ────────────────
 
 export interface DatosEmisor {
@@ -145,6 +214,57 @@ export function dibujarEncabezado(opts: OpcionesEncabezado): number {
   doc.moveTo(M, yHeader).lineTo(M + ANCHO, yHeader).strokeColor(color).lineWidth(1.4).stroke();
 
   return yHeader + 14;
+}
+
+// ─── Tarjeta de información (recuadro con barra de título y líneas) ──────────
+
+export function dibujarTarjetaInfo(
+  doc: PDFKit.PDFDocument,
+  x: number, y: number, w: number, h: number,
+  titulo: string, lineas: string[], color: string,
+): void {
+  doc.roundedRect(x, y, w, h, 4).lineWidth(0.75).stroke(NEUTRO.borde);
+  doc.rect(x + 1, y + 1, w - 2, 18).fill(NEUTRO.fondoSutil);
+  doc.moveTo(x, y + 20).lineTo(x + w, y + 20).strokeColor(NEUTRO.borde).lineWidth(0.5).stroke();
+  doc.fillColor(color).font('Helvetica-Bold').fontSize(7.5)
+    .text(titulo.toUpperCase(), x + 10, y + 6, { width: w - 20, characterSpacing: 0.3 });
+
+  let ly = y + 28;
+  doc.font('Helvetica').fontSize(8.5);
+  for (const linea of lineas) {
+    if (!linea) continue;
+    doc.fillColor(NEUTRO.texto).text(linea, x + 10, ly, { width: w - 20 });
+    ly = doc.y + 2;
+  }
+}
+
+// ─── Tarjeta de totales (recuadro con barra de acento a la izquierda) ────────
+
+export function dibujarTarjetaTotales(
+  doc: PDFKit.PDFDocument,
+  x: number, y: number, w: number,
+  filas: Array<{ label: string; valor: string; destacado?: boolean }>,
+  color: string,
+): number {
+  const altoFila = 17;
+  const padding = 12;
+  const alto = filas.length * altoFila + padding * 2 - 4;
+
+  doc.roundedRect(x, y, w, alto, 5).fill(NEUTRO.fondoSutil);
+  doc.rect(x, y, 3.5, alto).fill(color);
+
+  let fy = y + padding;
+  filas.forEach((f) => {
+    doc.fillColor(f.destacado ? NEUTRO.texto : NEUTRO.textoSuave)
+      .font(f.destacado ? 'Helvetica-Bold' : 'Helvetica').fontSize(f.destacado ? 10.5 : 8.5)
+      .text(f.label, x + padding + 4, fy, { width: w - padding * 2 - 4, continued: false });
+    doc.fillColor(f.destacado ? color : NEUTRO.texto)
+      .font(f.destacado ? 'Helvetica-Bold' : 'Helvetica').fontSize(f.destacado ? 10.5 : 8.5)
+      .text(f.valor, x + padding, fy, { width: w - padding * 2, align: 'right' });
+    fy += altoFila;
+  });
+
+  return y + alto;
 }
 
 // ─── Encabezado de tabla ──────────────────────────────────────────────────────

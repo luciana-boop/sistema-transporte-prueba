@@ -61,6 +61,7 @@ router.post('/', validate(crearValidations), liquidacionesController.crear.bind(
 
 // Rutas dinámicas
 router.get('/:id',    liquidacionesController.obtener.bind(liquidacionesController));
+router.get('/:id/pdf', liquidacionesController.generarPdf.bind(liquidacionesController));
 router.put('/:id',    validate(actualizarValidations), liquidacionesController.actualizar.bind(liquidacionesController));
 router.delete('/:id', liquidacionesController.eliminar.bind(liquidacionesController));
 

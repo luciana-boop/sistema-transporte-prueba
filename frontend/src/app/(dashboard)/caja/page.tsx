@@ -14,7 +14,7 @@ import {
   Plus, Lock, FileDown, Eye, Filter, X,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { cajaApi, cuentasApi } from '@/services/api';
+import api, { cajaApi, cuentasApi } from '@/services/api';
 import { formatCurrency, formatDatetime, formatDate, getErrorMessage } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -60,59 +60,12 @@ function cajaNombre(caja: Caja): string {
   return `Caja – ${caja.usuario?.nombre ?? '?'} – ${fecha}`;
 }
 
-// ─── PDF print helper ────────────────────────────────────────────────────────
-interface PrintData {
-  caja: Caja;
-  movimientos: MovimientoEnriquecido[];
-  saldoInicial: number;
-  totalIngresos: number;
-  totalEgresos: number;
-  saldoFinal: number;
-  desde?: string;
-  hasta?: string;
-}
-
-function printMovimientos(data: PrintData) {
-  const { caja, movimientos, saldoInicial, totalIngresos, totalEgresos, saldoFinal, desde, hasta } = data;
-  const nombre = cajaNombre(caja);
-  const rango = desde || hasta
-    ? `${desde ? formatDate(desde) : '—'} al ${hasta ? formatDate(hasta) : '—'}`
-    : 'Todos los movimientos';
-
-  const filas = movimientos.map((m) => `
-    <tr>
-      <td>${formatDatetime(m.fecha)}</td>
-      <td>${m.tipo === 'INGRESO' ? 'Ingreso' : 'Egreso'}</td>
-      <td>${m.concepto}</td>
-      <td>${m.referencia ?? '—'}</td>
-      <td style="color:${m.tipo === 'INGRESO' ? '#16a34a' : 'inherit'}">${m.tipo === 'INGRESO' ? formatCurrency(m.monto) : '—'}</td>
-      <td style="color:${m.tipo === 'EGRESO' ? '#dc2626' : 'inherit'}">${m.tipo === 'EGRESO' ? formatCurrency(m.monto) : '—'}</td>
-      <td style="font-weight:600">${formatCurrency(m.saldoAcumulado)}</td>
-    </tr>
-  `).join('');
-
-  const html = `<!DOCTYPE html><html lang="es">
-    <head><meta charset="UTF-8"/><title>Reporte de Caja</title>
-    <style>body{font-family:Arial,sans-serif;font-size:11px;color:#111;margin:20px}h1{font-size:16px;margin-bottom:4px}.meta{color:#555;margin-bottom:16px;font-size:11px}table{width:100%;border-collapse:collapse;margin-top:8px}th{background:#f3f4f6;border:1px solid #d1d5db;padding:6px 8px;text-align:left;font-size:10px}td{border:1px solid #e5e7eb;padding:5px 8px;font-size:10px}tr:nth-child(even) td{background:#f9fafb}.resumen{display:flex;gap:24px;margin-top:16px;padding:12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:4px}.resumen div{flex:1}.resumen .label{font-size:9px;color:#6b7280;text-transform:uppercase}.resumen .value{font-size:13px;font-weight:700;margin-top:2px}.green{color:#16a34a}.red{color:#dc2626}@media print{body{margin:8mm}}</style>
-    </head><body>
-      <h1>Reporte de Caja</h1>
-      <div class="meta"><strong>${nombre}</strong><br/>Período: ${rango}</div>
-      <table><thead><tr><th>Fecha</th><th>Tipo</th><th>Concepto</th><th>Referencia</th><th>Ingreso</th><th>Egreso</th><th>Saldo</th></tr></thead>
-      <tbody>${filas}</tbody></table>
-      <div class="resumen">
-        <div><div class="label">Saldo inicial</div><div class="value">${formatCurrency(saldoInicial)}</div></div>
-        <div><div class="label">Total ingresos</div><div class="value green">${formatCurrency(totalIngresos)}</div></div>
-        <div><div class="label">Total egresos</div><div class="value red">${formatCurrency(totalEgresos)}</div></div>
-        <div><div class="label">Saldo final</div><div class="value">${formatCurrency(saldoFinal)}</div></div>
-      </div>
-    </body></html>`;
-
-  const win = window.open('', '_blank', 'width=900,height=700');
-  if (!win) { toast.error('Permite ventanas emergentes para imprimir'); return; }
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  setTimeout(() => { win.print(); }, 400);
+// ─── PDF (reporte oficial generado en backend) ───────────────────────────────
+async function downloadPdf(url: string) {
+  const r = await api.get(url, { responseType: 'blob' });
+  const u = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
+  window.open(u, '_blank', 'noopener,noreferrer');
+  setTimeout(() => URL.revokeObjectURL(u), 60_000);
 }
 
 function exportMovimientosExcel(movimientos: MovimientoEnriquecido[], saldoInicial: number, nombreCaja: string) {
@@ -261,8 +214,8 @@ export default function CajaPage() {
   }
 
   function handlePrint() {
-    if (!movData || !showMovimientos) return;
-    printMovimientos({ caja: showMovimientos, movimientos: movData.movimientos, saldoInicial: movData.saldoInicial, totalIngresos: movData.totalIngresos, totalEgresos: movData.totalEgresos, saldoFinal: movData.saldoFinal, desde: filtroMovDesde || undefined, hasta: filtroMovHasta || undefined });
+    if (!showMovimientos) return;
+    downloadPdf(`/api/caja/${showMovimientos.id}/pdf`).catch((e) => toast.error(getErrorMessage(e)));
   }
 
   const egresoAperturaSeleccionado = egresosDisponibles.find((e: any) => String(e.id) === abrirForm.watch('movimientoCuentaId'));

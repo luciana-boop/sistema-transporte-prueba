@@ -16,7 +16,7 @@ import {
   Plus, Search, Trash2, Eye, Printer, Download, Package, X,
   CreditCard, History, ClipboardList, CheckCircle, Lock,
 } from 'lucide-react';
-import { liquidacionesApi, conductoresApi, vehiculosApi, cuentasApi, fetchAllPages } from '@/services/api';
+import api, { liquidacionesApi, conductoresApi, vehiculosApi, cuentasApi, fetchAllPages } from '@/services/api';
 import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, TableSkeleton,
@@ -75,6 +75,14 @@ const ESTADO_COLOR: Record<string, string> = {
 const CATEGORIA_LABEL: Record<string, string> = {
   PEAJE: 'Peaje', BALANZA: 'Balanza', VIATICO: 'Viático', TOLDO: 'Toldo', OTROS: 'Otros',
 };
+
+// ─── PDF (reporte oficial generado en backend) ───────────────────────────────
+async function downloadPdf(url: string) {
+  const r = await api.get(url, { responseType: 'blob' });
+  const u = URL.createObjectURL(new Blob([r.data], { type: 'application/pdf' }));
+  window.open(u, '_blank', 'noopener,noreferrer');
+  setTimeout(() => URL.revokeObjectURL(u), 60_000);
+}
 
 // ─── Página ───────────────────────────────────────────────────────────────────
 
@@ -327,32 +335,7 @@ export default function LiquidacionesPage() {
   };
 
   const handlePrint = (liq: Liquidacion) => {
-    const pedidoRows = (liq.pedidos ?? []).map(
-      (lp) => `<tr><td>#${lp.pedido.id}</td><td>${lp.pedido.cliente.razonSocial}</td><td>${lp.pedido.origen}</td><td>${lp.pedido.destino}</td></tr>`,
-    ).join('');
-    const w = window.open('', '_blank');
-    if (!w) return;
-    w.document.write(`<html><head><title>Liquidación #${liq.id}</title>
-      <style>body{font-family:sans-serif;padding:20px;font-size:13px}h2{margin-bottom:4px}
-      table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}
-      th{background:#f5f5f5}.totals{margin-top:16px;text-align:right}.totals p{margin:4px 0}.bold{font-weight:700}h3{margin-top:16px;font-size:13px}</style></head>
-      <body>
-        <h2>Liquidación #${liq.id}</h2>
-        <p>Fecha: ${formatDate(liq.fecha)} | Estado: ${ESTADO_LABEL[liq.estado] ?? liq.estado}</p>
-        <p>Conductor: ${liq.conductor?.nombre} | Tracto: ${liq.placaTracto}${liq.placaCarreta ? ' | Carreta: ' + liq.placaCarreta : ''}</p>
-        <table><tr><th>Categoría</th><th>Descripción</th><th>Monto</th></tr>
-        ${(liq.detalles || []).map((d) => `<tr><td>${CATEGORIA_LABEL[d.categoria]}</td><td>${d.descripcion}</td><td>S/ ${Number(d.monto).toFixed(2)}</td></tr>`).join('')}
-        </table>
-        ${pedidoRows ? `<h3>Pedidos</h3><table><tr><th>Pedido</th><th>Cliente</th><th>Origen</th><th>Destino</th></tr>${pedidoRows}</table>` : ''}
-        <div class="totals">
-          <p>Monto entregado: <span class="bold">S/ ${Number(liq.montoEntregado).toFixed(2)}</span></p>
-          ${liq.montoPagado ? `<p>Monto pagado: <span class="bold">S/ ${Number(liq.montoPagado).toFixed(2)}</span></p>` : ''}
-          <p>Total gastos: <span class="bold">S/ ${Number(liq.totalGastos).toFixed(2)}</span></p>
-          ${Number(liq.devolucion) > 0 ? `<p style="color:green">Devolución: <span class="bold">S/ ${Number(liq.devolucion).toFixed(2)}</span></p>` : ''}
-          ${Number(liq.reintegro) > 0 ? `<p style="color:red">Reintegro: <span class="bold">S/ ${Number(liq.reintegro).toFixed(2)}</span></p>` : ''}
-        </div>
-      </body></html>`);
-    w.document.close(); w.print();
+    downloadPdf(`/api/liquidaciones/${liq.id}/pdf`).catch((e) => toast.error(getErrorMessage(e)));
   };
 
   const filtered = liquidaciones.filter((l) =>

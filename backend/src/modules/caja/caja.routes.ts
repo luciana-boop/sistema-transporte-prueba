@@ -53,6 +53,7 @@ router.patch('/movimientos/:movimientoId/anular', verificarAccion('anular_movimi
 
 // ── Rutas dinámicas (/:id al final para no capturar estáticas) ───────────────
 router.get('/:id', cajaController.obtener.bind(cajaController));
+router.get('/:id/pdf', cajaController.generarPdf.bind(cajaController));
 router.get('/:id/movimientos', cajaController.getMovimientos.bind(cajaController));
 router.post('/abrir', validate(abrirValidations), cajaController.abrir.bind(cajaController));
 router.patch('/:id/cerrar', validate(cerrarValidations), cajaController.cerrar.bind(cajaController));
