@@ -69,29 +69,6 @@ export class ClientesService {
         creadoPor: { select: { id: true, nombre: true } },
         actualizadoPor: { select: { id: true, nombre: true } },
         contactos: { orderBy: { creadoEn: 'asc' } },
-        pedidos: {
-          orderBy: { creadoEn: 'desc' },
-          take: 10,
-          select: {
-            id: true,
-            origen: true,
-            destino: true,
-            tarifa: true,
-            estado: true,
-            fechaPedido: true,
-          },
-        },
-        facturas: {
-          orderBy: { creadoEn: 'desc' },
-          take: 10,
-          select: {
-            id: true,
-            numeroFactura: true,
-            total: true,
-            estado: true,
-            fechaEmision: true,
-          },
-        },
       },
     });
 

@@ -60,8 +60,6 @@ export interface Cliente {
   actualizadoEn?: string | null;
   _count?: { pedidos: number; facturas: number };
   contactos?: ClienteContacto[];
-  pedidos?: { id: number; origen: string; destino: string; tarifa: number; estado: string; fechaPedido: string }[];
-  facturas?: { id: number; numeroFactura: string; total: number; estado: string; fechaEmision: string }[];
 }
 
 export interface ClienteContacto {

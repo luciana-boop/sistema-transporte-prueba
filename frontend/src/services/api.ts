@@ -99,6 +99,8 @@ export const clientesApi = {
   eliminar: (id: number) => api.delete<ApiResponse<null>>(`/api/clientes/${id}`),
   agregarContacto: (clienteId: number, data: { nombre: string; telefono?: string; email?: string }) =>
     api.post<ApiResponse<ClienteContacto>>(`/api/clientes/${clienteId}/contactos`, data),
+  actualizarContacto: (contactoId: number, data: { nombre: string; telefono?: string; email?: string }) =>
+    api.put<ApiResponse<ClienteContacto>>(`/api/clientes/contactos/${contactoId}`, data),
   eliminarContacto: (contactoId: number) =>
     api.delete<ApiResponse<null>>(`/api/clientes/contactos/${contactoId}`),
 };

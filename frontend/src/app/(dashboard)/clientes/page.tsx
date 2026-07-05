@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, Edit2, Trash2, Download, Eye, UserPlus } from 'lucide-react';
 import { clientesApi, fetchAllPages } from '@/services/api';
-import { getErrorMessage, CONDICION_PAGO_LABEL, formatCurrency, formatDate } from '@/lib/utils';
+import { getErrorMessage, CONDICION_PAGO_LABEL } from '@/lib/utils';
 import { buscarPorCodigo, detectarUbigeo, type UbigeoEntry } from '@/lib/ubigeo';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -36,6 +36,127 @@ const schema = z.object({
 });
 type FormData = z.infer<typeof schema>;
 
+// Aislado en su propio componente: sus mutaciones invalidan/refetchean la
+// consulta de contactos, y si esa lógica vivía en el formulario base de
+// cliente, cada refetch reasignaba el ref de react-hook-form en TODOS los
+// inputs base (razonSocial, ruc, etc.) — provocando que, en una carrera con
+// la limpieza interna de RHF, el valor de esos campos se vaciara solo. Al
+// vivir en un componente separado, sus re-renders no tocan el formulario base.
+function ContactosEditor({ clienteId }: { clienteId: number }) {
+  const qc = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  const { data } = useQuery({
+    queryKey: ['cliente-detalle', clienteId],
+    queryFn: () => clientesApi.obtener(clienteId).then((r) => r.data.data),
+  });
+
+  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<ContactoFormData>({
+    resolver: zodResolver(contactoSchema),
+  });
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['cliente-detalle', clienteId] });
+  const cerrarForm = () => { setShowForm(false); setEditingId(null); reset(); };
+
+  const agregarMutation = useMutation({
+    mutationFn: (d: ContactoFormData) => clientesApi.agregarContacto(clienteId, d),
+    onSuccess: () => { toast.success('Contacto agregado'); cerrarForm(); invalidate(); },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+  const actualizarMutation = useMutation({
+    mutationFn: (d: ContactoFormData) => clientesApi.actualizarContacto(editingId!, d),
+    onSuccess: () => { toast.success('Contacto actualizado'); cerrarForm(); invalidate(); },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+  const eliminarMutation = useMutation({
+    mutationFn: (contactoId: number) => clientesApi.eliminarContacto(contactoId),
+    onSuccess: () => { toast.success('Contacto eliminado'); invalidate(); },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+
+  const onSubmit = (d: ContactoFormData) => (editingId ? actualizarMutation.mutate(d) : agregarMutation.mutate(d));
+  const abrirEditar = (ct: { id: number; nombre: string; telefono?: string | null; email?: string | null }) => {
+    setEditingId(ct.id);
+    reset({ nombre: ct.nombre, telefono: ct.telefono ?? '', email: ct.email ?? '' });
+    setShowForm(true);
+  };
+
+  return (
+    <div className="pt-2 border-t border-border">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contactos</p>
+        {!showForm && (
+          <Button size="sm" variant="secondary" type="button" onClick={() => { setEditingId(null); reset({ nombre: '', telefono: '', email: '' }); setShowForm(true); }}>
+            <UserPlus className="w-3.5 h-3.5" /> Agregar contacto
+          </Button>
+        )}
+      </div>
+
+      {showForm && (
+        <div
+          className="grid grid-cols-3 gap-2 items-start bg-muted/30 rounded-lg p-3 mb-2"
+          onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+        >
+          <FormField label="Nombre" error={errors.nombre?.message}>
+            <Input placeholder="Nombre del contacto" {...register('nombre')} />
+          </FormField>
+          <FormField label="Teléfono" error={errors.telefono?.message}>
+            <Input placeholder="01-234 5678" {...register('telefono')} />
+          </FormField>
+          <FormField label="Correo" error={errors.email?.message}>
+            <Input type="email" placeholder="correo@empresa.com" {...register('email')} />
+          </FormField>
+          <div className="col-span-3 flex justify-end gap-2">
+            <Button type="button" size="sm" variant="secondary" onClick={cerrarForm}>Cancelar</Button>
+            <Button
+              type="button"
+              size="sm"
+              loading={isSubmitting || agregarMutation.isPending || actualizarMutation.isPending}
+              onClick={handleSubmit(onSubmit)}
+            >
+              {editingId ? 'Guardar cambios' : 'Guardar contacto'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {data?.contactos && data.contactos.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          {data.contactos.map((ct) => (
+            <div key={ct.id} className="flex items-center justify-between text-sm bg-muted/20 rounded px-3 py-2">
+              <div>
+                <p className="font-medium">{ct.nombre}</p>
+                <p className="text-xs text-muted-foreground">{[ct.telefono, ct.email].filter(Boolean).join(' · ') || '—'}</p>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => abrirEditar(ct)}
+                  className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
+                  title="Modificar contacto"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { if (confirm('¿Eliminar contacto?')) eliminarMutation.mutate(ct.id); }}
+                  className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                  title="Eliminar contacto"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        !showForm && <p className="text-xs text-muted-foreground">Sin contactos adicionales registrados.</p>
+      )}
+    </div>
+  );
+}
+
 export default function ClientesPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
@@ -43,7 +164,6 @@ export default function ClientesPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Cliente | null>(null);
   const [viewingId, setViewingId] = useState<number | null>(null);
-  const [showContactoForm, setShowContactoForm] = useState(false);
 
   const limit = 20;
   const { data, isLoading } = useQuery({
@@ -59,11 +179,6 @@ export default function ClientesPage() {
     queryFn: () => clientesApi.obtener(viewingId!).then((r) => r.data.data),
     enabled: !!viewingId,
   });
-
-  const {
-    register: registerContacto, handleSubmit: handleSubmitContacto, reset: resetContacto,
-    formState: { errors: errorsContacto, isSubmitting: isSubmittingContacto },
-  } = useForm<ContactoFormData>({ resolver: zodResolver(contactoSchema) });
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -110,27 +225,13 @@ export default function ClientesPage() {
 
   const updateMutation = useMutation({
     mutationFn: (d: FormData) => clientesApi.actualizar(editing!.id, d),
-    onSuccess: () => { toast.success('Cliente actualizado'); setEditing(null); reset(); invalidate(); },
+    onSuccess: () => { toast.success('Cliente actualizado'); closeEditModal(); invalidate(); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => clientesApi.eliminar(id),
     onSuccess: () => { toast.success('Cliente eliminado'); invalidate(); },
-    onError: (e) => toast.error(getErrorMessage(e)),
-  });
-
-  const invalidateDetalle = () => qc.invalidateQueries({ queryKey: ['cliente-detalle', viewingId] });
-
-  const agregarContactoMutation = useMutation({
-    mutationFn: (d: ContactoFormData) => clientesApi.agregarContacto(viewingId!, d),
-    onSuccess: () => { toast.success('Contacto agregado'); setShowContactoForm(false); resetContacto(); invalidateDetalle(); },
-    onError: (e) => toast.error(getErrorMessage(e)),
-  });
-
-  const eliminarContactoMutation = useMutation({
-    mutationFn: (contactoId: number) => clientesApi.eliminarContacto(contactoId),
-    onSuccess: () => { toast.success('Contacto eliminado'); invalidateDetalle(); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
@@ -144,6 +245,8 @@ export default function ClientesPage() {
     setValue('email', c.email ?? '');
     setValue('condicionPago', c.condicionPago as CondicionPago);
   };
+
+  const closeEditModal = () => { setShowForm(false); setEditing(null); reset(); };
 
   const onSubmit = (d: FormData) => editing ? updateMutation.mutate(d) : createMutation.mutate(d);
 
@@ -241,7 +344,7 @@ export default function ClientesPage() {
       {/* Ver cliente (solo lectura) */}
       <Modal
         open={!!viewingId}
-        onClose={() => { setViewingId(null); setShowContactoForm(false); resetContacto(); }}
+        onClose={() => setViewingId(null)}
         title={viewing ? viewing.razonSocial : 'Cliente'}
         maxWidth="max-w-2xl"
       >
@@ -279,36 +382,9 @@ export default function ClientesPage() {
               </div>
             </div>
 
-            {/* Contactos */}
+            {/* Contactos (solo lectura — se agregan/modifican desde Editar) */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contactos</p>
-                <Button size="sm" variant="secondary" onClick={() => setShowContactoForm((v) => !v)}>
-                  <UserPlus className="w-3.5 h-3.5" /> Agregar contacto
-                </Button>
-              </div>
-
-              {showContactoForm && (
-                <form
-                  onSubmit={handleSubmitContacto((d) => agregarContactoMutation.mutate(d))}
-                  className="grid grid-cols-3 gap-2 items-start bg-muted/30 rounded-lg p-3 mb-2"
-                >
-                  <FormField label="Nombre" error={errorsContacto.nombre?.message}>
-                    <Input placeholder="Nombre del contacto" {...registerContacto('nombre')} />
-                  </FormField>
-                  <FormField label="Teléfono" error={errorsContacto.telefono?.message}>
-                    <Input placeholder="01-234 5678" {...registerContacto('telefono')} />
-                  </FormField>
-                  <FormField label="Correo" error={errorsContacto.email?.message}>
-                    <Input type="email" placeholder="correo@empresa.com" {...registerContacto('email')} />
-                  </FormField>
-                  <div className="col-span-3 flex justify-end gap-2">
-                    <Button type="button" size="sm" variant="secondary" onClick={() => { setShowContactoForm(false); resetContacto(); }}>Cancelar</Button>
-                    <Button type="submit" size="sm" loading={isSubmittingContacto || agregarContactoMutation.isPending}>Guardar contacto</Button>
-                  </div>
-                </form>
-              )}
-
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Contactos</p>
               {viewing.contactos && viewing.contactos.length > 0 ? (
                 <div className="flex flex-col gap-1">
                   {viewing.contactos.map((ct) => (
@@ -317,49 +393,13 @@ export default function ClientesPage() {
                         <p className="font-medium">{ct.nombre}</p>
                         <p className="text-xs text-muted-foreground">{[ct.telefono, ct.email].filter(Boolean).join(' · ') || '—'}</p>
                       </div>
-                      <button
-                        onClick={() => { if (confirm('¿Eliminar contacto?')) eliminarContactoMutation.mutate(ct.id); }}
-                        className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
-                        title="Eliminar contacto"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
                     </div>
                   ))}
                 </div>
               ) : (
-                !showContactoForm && <p className="text-xs text-muted-foreground">Sin contactos adicionales registrados.</p>
+                <p className="text-xs text-muted-foreground">Sin contactos adicionales registrados.</p>
               )}
             </div>
-
-            {/* Pedidos y facturas recientes */}
-            {viewing.pedidos && viewing.pedidos.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Últimos pedidos</p>
-                <div className="flex flex-col gap-1">
-                  {viewing.pedidos.map((p) => (
-                    <div key={p.id} className="flex items-center justify-between text-sm bg-muted/20 rounded px-3 py-1.5">
-                      <span className="text-xs text-muted-foreground">#{p.id} · {p.origen} → {p.destino} · {formatDate(p.fechaPedido)}</span>
-                      <span className="font-medium">{formatCurrency(Number(p.tarifa))}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {viewing.facturas && viewing.facturas.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Últimas facturas</p>
-                <div className="flex flex-col gap-1">
-                  {viewing.facturas.map((f) => (
-                    <div key={f.id} className="flex items-center justify-between text-sm bg-muted/20 rounded px-3 py-1.5">
-                      <span className="text-xs text-muted-foreground">{f.numeroFactura} · {formatDate(f.fechaEmision)}</span>
-                      <span className="font-medium">{formatCurrency(Number(f.total))}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
             <AuditInfo
               creadoPor={viewing.creadoPor}
@@ -379,7 +419,8 @@ export default function ClientesPage() {
       </Modal>
 
       {/* Create/Edit Modal */}
-      <Modal open={modalOpen} onClose={() => { setShowForm(false); setEditing(null); reset(); }} title={editing ? 'Editar cliente' : 'Nuevo cliente'}>
+      <Modal open={modalOpen} onClose={closeEditModal} title={editing ? 'Editar cliente' : 'Nuevo cliente'}>
+        <div className="flex flex-col gap-4">
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
@@ -434,23 +475,31 @@ export default function ClientesPage() {
               <Input type="email" placeholder="contacto@empresa.com" {...register('email')} />
             </FormField>
           </div>
-          {editing && (
-            <AuditInfo
-              creadoPor={editing.creadoPor}
-              creadoEn={editing.creadoEn}
-              actualizadoPor={editing.actualizadoPor}
-              actualizadoEn={editing.actualizadoEn}
-            />
-          )}
-          <div className="flex justify-end gap-2 pt-2 border-t border-border">
-            <Button variant="secondary" type="button" onClick={() => { setShowForm(false); setEditing(null); reset(); }}>
-              Cancelar
-            </Button>
-            <Button type="submit" loading={isSubmitting || createMutation.isPending || updateMutation.isPending}>
-              {editing ? 'Guardar cambios' : 'Crear cliente'}
-            </Button>
-          </div>
         </form>
+
+        {/* Contactos — fuera del <form> base a propósito: sus propias mutaciones
+            no deben mutar el DOM dentro del <form> que contiene los campos del
+            cliente (ver nota en ContactosEditor). Solo disponible al editar un
+            cliente ya existente. */}
+        {editing && <ContactosEditor key={editing.id} clienteId={editing.id} />}
+
+        {editing && (
+          <AuditInfo
+            creadoPor={editing.creadoPor}
+            creadoEn={editing.creadoEn}
+            actualizadoPor={editing.actualizadoPor}
+            actualizadoEn={editing.actualizadoEn}
+          />
+        )}
+        <div className="flex justify-end gap-2 pt-2 border-t border-border">
+          <Button variant="secondary" type="button" onClick={closeEditModal}>
+            Cancelar
+          </Button>
+          <Button type="button" onClick={handleSubmit(onSubmit)} loading={isSubmitting || createMutation.isPending || updateMutation.isPending}>
+            {editing ? 'Guardar cambios' : 'Crear cliente'}
+          </Button>
+        </div>
+        </div>
       </Modal>
     </div>
   );
