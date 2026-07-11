@@ -9,9 +9,9 @@ import api, { cobranzaApi, clientesApi } from '@/services/api';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge,
   Modal, FormField, Input, Select, StatCard,
-  TableSkeleton, EmptyState,
+  TableSkeleton, EmptyState, Pagination,
 } from '@/components/shared';
-import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
+import { formatCurrency, formatDate, getErrorMessage, PAGE_SIZE } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
 import type { MovimientoCobranza } from '@/types';
 import * as XLSX from 'xlsx';
@@ -32,6 +32,7 @@ export default function CobranzaPage() {
   const [hasta, setHasta] = useState('');
   const [clienteId, setClienteId] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
 
   const { data: clientesFiltro = [] } = useQuery({
     queryKey: ['clientes', 'activos-filtro-cobranza'],
@@ -107,6 +108,9 @@ export default function CobranzaPage() {
     ? (pagos ?? []).reduce((s, p) => s + saldoPorAplicar(p), 0)
     : 0;
 
+  const totalPagesPagos = Math.ceil((pagos?.length ?? 0) / PAGE_SIZE);
+  const pagosPagina = (pagos ?? []).slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   // ── Facturas por cobrar (todas, o filtradas por cliente) ─────────────────
   const { data: facturasPorCobrar = [], isLoading: loadingFacturasPorCobrar } = useQuery({
     queryKey: ['cobranza', 'facturas-pendientes-todas', clienteId],
@@ -115,6 +119,8 @@ export default function CobranzaPage() {
     }).then((r) => r.data.data),
     enabled: tab === 'por_cobrar',
   });
+  const totalPagesFacturasPorCobrar = Math.ceil(facturasPorCobrar.length / PAGE_SIZE);
+  const facturasPorCobrarPagina = facturasPorCobrar.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const exportarFacturasPorCobrarExcel = () => {
     const rows = facturasPorCobrar.map((f) => ({
@@ -208,7 +214,7 @@ export default function CobranzaPage() {
         {(['por_aplicar', 'aplicado', 'por_cobrar'] as Tab[]).map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => { setTab(t); setPage(1); }}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${
               tab === t ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
@@ -222,19 +228,19 @@ export default function CobranzaPage() {
       <div className="flex flex-wrap gap-3 items-end">
         {tab !== 'por_cobrar' && (
           <>
-            <FormField label="Desde"><Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></FormField>
-            <FormField label="Hasta"><Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></FormField>
+            <FormField label="Desde"><Input type="date" value={desde} onChange={(e) => { setDesde(e.target.value); setPage(1); }} /></FormField>
+            <FormField label="Hasta"><Input type="date" value={hasta} onChange={(e) => { setHasta(e.target.value); setPage(1); }} /></FormField>
           </>
         )}
         <FormField label="Cliente">
-          <Select value={clienteId} onChange={(e) => setClienteId(e.target.value)} className="w-56">
+          <Select value={clienteId} onChange={(e) => { setClienteId(e.target.value); setPage(1); }} className="w-56">
             <option value="">Todos</option>
             {clientesFiltro.map((c: any) => <option key={c.id} value={c.id}>{c.razonSocial}</option>)}
           </Select>
         </FormField>
         {tab !== 'por_cobrar' && (
           <FormField label="Buscar">
-            <Input placeholder="Cliente o RUC..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Input placeholder="Cliente o RUC..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
           </FormField>
         )}
       </div>
@@ -270,7 +276,7 @@ export default function CobranzaPage() {
               </tr>
             </thead>
             <tbody>
-              {facturasPorCobrar.length ? facturasPorCobrar.map((f) => (
+              {facturasPorCobrarPagina.length ? facturasPorCobrarPagina.map((f) => (
                 <Tr key={f.id}>
                   <Td><span className="text-sm font-medium">{f.cliente?.razonSocial}</span></Td>
                   <Td><span className="text-sm">{f.numeroFactura}</span></Td>
@@ -294,7 +300,7 @@ export default function CobranzaPage() {
             </tr>
           </thead>
           <tbody>
-            {(pagos ?? []).length ? pagos!.map((p) => (
+            {pagosPagina.length ? pagosPagina.map((p) => (
               <Tr key={p.id}>
                 <Td><span className="text-sm">{formatDate(p.fechaPago)}</span></Td>
                 <Td><span className="text-sm font-medium">{p.cliente.razonSocial}</span></Td>
@@ -332,6 +338,8 @@ export default function CobranzaPage() {
           </tbody>
         </Table>
       )}
+
+      <Pagination page={page} totalPages={tab === 'por_cobrar' ? totalPagesFacturasPorCobrar : totalPagesPagos} onChange={setPage} />
 
       {/* Modal: Aplicar pago a facturas */}
       <Modal open={!!aplicandoPago} onClose={cerrarAplicar} title="Aplicar pago a facturas" maxWidth="max-w-2xl">

@@ -10,10 +10,10 @@ import { toast } from 'sonner';
 import { Plus, Edit2, Trash2, Key, ShieldAlert, ShieldCheck, Clock, QrCode, Copy, RefreshCw, Ban } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { usuariosApi, conductoresApi } from '@/services/api';
-import { formatDatetime, getErrorMessage, cn } from '@/lib/utils';
+import { formatDatetime, getErrorMessage, cn, PAGE_SIZE } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
-  EmptyState, Modal, FormField, Input, Select,
+  EmptyState, Modal, FormField, Input, Select, Pagination,
 } from '@/components/shared';
 import { useAuthStore } from '@/store/auth.store';
 import { useRouter } from 'next/navigation';
@@ -135,7 +135,7 @@ export default function UsuariosPage() {
   }, [usuario, router]);
 
   const [page, setPage] = useState(1);
-  const limit = 20;
+  const limit = PAGE_SIZE;
   const { data, isLoading } = useQuery({
     queryKey: ['usuarios', page],
     queryFn: () => usuariosApi.listar({ page, limit }).then((r) => r.data.data),
@@ -339,17 +339,7 @@ export default function UsuariosPage() {
         </Table>
       )}
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            Anterior
-          </Button>
-          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
-          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-            Siguiente
-          </Button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
 
       {/* Create */}
       <Modal open={showCreate} onClose={() => { setShowCreate(false); createForm.reset(); }} title="Nuevo usuario">

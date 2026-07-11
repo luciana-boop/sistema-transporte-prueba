@@ -9,9 +9,9 @@ import { mantenimientoApi, vehiculosApi, conductoresApi, configuracionApi } from
 import {
   PageHeader, Button, Table, Th, Td, Tr,
   Modal, FormField, Select, Textarea, Input,
-  TableSkeleton, EmptyState,
+  TableSkeleton, EmptyState, Pagination,
 } from '@/components/shared';
-import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
+import { formatCurrency, formatDate, getErrorMessage, PAGE_SIZE } from '@/lib/utils';
 import type { MovimientoMantenimiento } from '@/services/api';
 import * as XLSX from 'xlsx';
 
@@ -31,6 +31,7 @@ export default function MantenimientoPage() {
   const [vehiculoIdFiltro, setVehiculoIdFiltro] = useState('');
   const [motivoFiltro, setMotivoFiltro] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
 
   const filtrosActivos = {
     estado: tab,
@@ -45,6 +46,8 @@ export default function MantenimientoPage() {
     queryKey: ['mantenimiento', filtrosActivos],
     queryFn: () => mantenimientoApi.listar(filtrosActivos).then((r) => r.data.data),
   });
+  const totalPages = Math.ceil((gastos?.length ?? 0) / PAGE_SIZE);
+  const gastosPagina = (gastos ?? []).slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const { data: vehiculos = [] } = useQuery({
     queryKey: ['vehiculos', 'activos'],
@@ -121,7 +124,7 @@ export default function MantenimientoPage() {
         {(['por_relacionar', 'relacionado'] as Tab[]).map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => { setTab(t); setPage(1); }}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-all ${
               tab === t ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
@@ -133,22 +136,22 @@ export default function MantenimientoPage() {
 
       {/* Filtros */}
       <div className="flex flex-wrap gap-3 items-end">
-        <FormField label="Desde"><Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></FormField>
-        <FormField label="Hasta"><Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></FormField>
+        <FormField label="Desde"><Input type="date" value={desde} onChange={(e) => { setDesde(e.target.value); setPage(1); }} /></FormField>
+        <FormField label="Hasta"><Input type="date" value={hasta} onChange={(e) => { setHasta(e.target.value); setPage(1); }} /></FormField>
         <FormField label="Vehículo">
-          <Select value={vehiculoIdFiltro} onChange={(e) => setVehiculoIdFiltro(e.target.value)} className="w-48">
+          <Select value={vehiculoIdFiltro} onChange={(e) => { setVehiculoIdFiltro(e.target.value); setPage(1); }} className="w-48">
             <option value="">Todos</option>
             {vehiculos.map((v: any) => <option key={v.id} value={v.id}>{v.placa}</option>)}
           </Select>
         </FormField>
         <FormField label="Motivo">
-          <Select value={motivoFiltro} onChange={(e) => setMotivoFiltro(e.target.value)} className="w-48">
+          <Select value={motivoFiltro} onChange={(e) => { setMotivoFiltro(e.target.value); setPage(1); }} className="w-48">
             <option value="">Todos</option>
             {motivos.map((m: any) => <option key={m.codigo} value={m.codigo}>{m.nombre}</option>)}
           </Select>
         </FormField>
         <FormField label="Buscar">
-          <Input placeholder="Concepto..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input placeholder="Concepto..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
         </FormField>
       </div>
 
@@ -166,7 +169,7 @@ export default function MantenimientoPage() {
             </tr>
           </thead>
           <tbody>
-            {(gastos ?? []).length ? gastos!.map((g) => (
+            {gastosPagina.length ? gastosPagina.map((g) => (
               <Tr key={g.id}>
                 <Td><span className="text-sm">{formatDate(g.fecha)}</span></Td>
                 <Td><span className="text-sm font-medium">{g.concepto}</span></Td>
@@ -184,6 +187,8 @@ export default function MantenimientoPage() {
           </tbody>
         </Table>
       )}
+
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
 
       <Modal open={!!relacionando} onClose={cerrarRelacionar} title="Relacionar gasto de mantenimiento">
         {relacionando && (

@@ -396,6 +396,27 @@ export function Tr({ children, onClick, className }: { children: React.ReactNode
   );
 }
 
+// ─── PAGINATION ──────────────────────────────────────────────────────────────
+// Controles de "Anterior / Página X de Y / Siguiente" — usar en todos los
+// listados junto a PAGE_SIZE (src/lib/utils.ts) para un tamaño de página
+// consistente en todo el sistema.
+export function Pagination({
+  page, totalPages, onChange,
+}: { page: number; totalPages: number; onChange: (page: number) => void }) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => onChange(page - 1)}>
+        Anterior
+      </Button>
+      <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
+      <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => onChange(page + 1)}>
+        Siguiente
+      </Button>
+    </div>
+  );
+}
+
 // ─── SMART SEARCH ────────────────────────────────────────────────────────────
 export { SmartSearchInput } from './SmartSearchInput';
 export type { SmartSearchOption } from './SmartSearchInput';

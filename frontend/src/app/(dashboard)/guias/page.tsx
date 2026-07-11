@@ -14,12 +14,12 @@ import { toast } from 'sonner';
 import { Plus, Eye, X, Download, Send } from 'lucide-react';
 import api, { guiasApi, pedidosApi, clientesApi, conductoresApi, vehiculosApi, configuracionApi } from '@/services/api';
 import { useConfig } from '@/hooks/useConfig';
-import { getErrorMessage, formatDate, formatCurrency } from '@/lib/utils';
+import { getErrorMessage, formatDate, formatCurrency, PAGE_SIZE } from '@/lib/utils';
 import { buscarPorCodigo, detectarUbigeo, type UbigeoEntry } from '@/lib/ubigeo';
 import { MOTIVOS_TRASLADO, DOCUMENTOS_RELACIONADOS } from '@/lib/sunatCatalogos';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
-  EmptyState, Modal, FormField, Input, Select, Textarea, SmartSearchInput,
+  EmptyState, Modal, FormField, Input, Select, Textarea, SmartSearchInput, Pagination,
 } from '@/components/shared';
 import type { Guia, Pedido, EstadoGuia } from '@/types';
 import * as XLSX from 'xlsx';
@@ -120,17 +120,20 @@ export default function GuiasPage() {
   const [hasta, setHasta] = useState('');
   const [estadoFiltro, setEstadoFiltro] = useState('');
   const [clienteFiltro, setClienteFiltro] = useState<{ id: number | string; label: string } | null>(null);
+  const [page, setPage] = useState(1);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['guias', desde, hasta, estadoFiltro, clienteFiltro?.id],
+    queryKey: ['guias', desde, hasta, estadoFiltro, clienteFiltro?.id, page],
     queryFn: () => guiasApi.listar({
-      limit: 50,
+      page,
+      limit: PAGE_SIZE,
       desde: desde || undefined,
       hasta: hasta || undefined,
       estado: (estadoFiltro || undefined) as EstadoGuia | undefined,
       clienteId: clienteFiltro ? Number(clienteFiltro.id) : undefined,
     }).then(r => r.data.data),
   });
+  const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 1;
 
   const { data: pendientesSunat = [] } = useQuery({
     queryKey: ['guias', 'pendientes-sunat'],
@@ -385,18 +388,18 @@ export default function GuiasPage() {
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap items-end gap-3">
-          <FormField label="Desde"><Input type="date" className="w-36" value={desde} onChange={(e) => setDesde(e.target.value)} max={hasta || undefined} /></FormField>
-          <FormField label="Hasta"><Input type="date" className="w-36" value={hasta} onChange={(e) => setHasta(e.target.value)} min={desde || undefined} /></FormField>
+          <FormField label="Desde"><Input type="date" className="w-36" value={desde} onChange={(e) => { setDesde(e.target.value); setPage(1); }} max={hasta || undefined} /></FormField>
+          <FormField label="Hasta"><Input type="date" className="w-36" value={hasta} onChange={(e) => { setHasta(e.target.value); setPage(1); }} min={desde || undefined} /></FormField>
           <FormField label="Cliente">
             <SmartSearchInput
               queryFn={async (q) => { const r = await clientesApi.listar({ search: q, limit: 10 }); return (r.data.data?.items ?? []).map((c: any) => ({ id: c.id, label: c.razonSocial })); }}
               value={clienteFiltro}
-              onChange={setClienteFiltro}
+              onChange={(opt) => { setClienteFiltro(opt); setPage(1); }}
               placeholder="Todos"
             />
           </FormField>
           <FormField label="Estado">
-            <Select className="w-36" value={estadoFiltro} onChange={(e) => setEstadoFiltro(e.target.value)}>
+            <Select className="w-36" value={estadoFiltro} onChange={(e) => { setEstadoFiltro(e.target.value); setPage(1); }}>
               <option value="">Todos</option>
               <option value="EMITIDA">Emitida</option>
               <option value="ANULADA">Anulada</option>
@@ -451,6 +454,8 @@ export default function GuiasPage() {
           </tbody>
         </Table>
       )}
+
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
 
       {/* Formulario nueva guía */}
       <Modal open={showForm} onClose={closeForm} title="Nueva Guía de Remisión" maxWidth="max-w-4xl">

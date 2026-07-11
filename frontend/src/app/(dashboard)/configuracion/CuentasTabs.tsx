@@ -6,10 +6,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Plus, Edit2, Trash2, ArrowUpCircle, ArrowDownCircle, ArrowLeftRight, Eye, Ban } from 'lucide-react';
 import { cuentasApi, fetchAllPages } from '@/services/api';
-import { formatDate, formatDatetime, getErrorMessage } from '@/lib/utils';
+import { formatDate, formatDatetime, getErrorMessage, PAGE_SIZE } from '@/lib/utils';
 import {
   Button, Table, Th, Td, Tr, TableSkeleton, EmptyState,
-  Modal, FormField, Input, Select, Textarea,
+  Modal, FormField, Input, Select, Textarea, Pagination,
 } from '@/components/shared';
 import { MonedaBadge, TipoCuentaBadge } from '@/components/shared/FinancialSelectors';
 import type { Moneda, TipoPago, CuentaDinero, MovimientoCuenta } from '@/types';
@@ -205,6 +205,7 @@ export function CuentasTab() {
   // P7: filtros de movimientos — predeterminado Desde/Hasta = hoy, configurable
   const [movDesde, setMovDesde] = useState(() => new Date().toISOString().split('T')[0]);
   const [movHasta, setMovHasta] = useState(() => new Date().toISOString().split('T')[0]);
+  const [movPage, setMovPage] = useState(1);
   // P7: ver detalle / editar / anular
   const [viewingMov, setViewingMov] = useState<MovimientoCuenta | null>(null);
   const [editingMov, setEditingMov] = useState<MovimientoCuenta | null>(null);
@@ -230,6 +231,8 @@ export function CuentasTab() {
     queryFn: () => fetchAllPages((p) => cuentasApi.getMovimientos({ cuentaId: showMovs!.id, desde: movDesde || undefined, hasta: movHasta || undefined, ...p }).then(r => r.data.data)),
     enabled: !!showMovs,
   });
+  const movTotalPages = Math.ceil(movimientos.length / PAGE_SIZE);
+  const movimientosPagina = movimientos.slice((movPage - 1) * PAGE_SIZE, movPage * PAGE_SIZE);
   // P7: detalle del movimiento seleccionado (incluye "origen del movimiento")
   const { data: detalleMov, isLoading: loadingDetalleMov } = useQuery({
     queryKey: ['movimiento-detalle', viewingMov?.id],
@@ -318,7 +321,7 @@ export function CuentasTab() {
                 <Td>
                   <div className="flex items-center justify-end gap-1">
                     <button onClick={() => { setShowNuevoMov(c); setForm({ tipo: 'INGRESO' }); }} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-emerald-500 transition-all" title="Nuevo movimiento"><ArrowUpCircle className="w-3.5 h-3.5" /></button>
-                    <button onClick={() => setShowMovs(c)} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Ver movimientos"><ArrowLeftRight className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => { setShowMovs(c); setMovPage(1); }} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all" title="Ver movimientos"><ArrowLeftRight className="w-3.5 h-3.5" /></button>
                     <button onClick={() => openEdit(c)} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all"><Edit2 className="w-3.5 h-3.5" /></button>
                     <button onClick={() => { if (confirm(`¿Eliminar "${c.nombre}"?`)) deleteC.mutate(c.id); }} className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
@@ -370,14 +373,14 @@ export function CuentasTab() {
           </div>
           {/* P7: filtros de fecha — predeterminado hoy, configurable */}
           <div className="grid grid-cols-2 gap-3">
-            <FormField label="Desde"><Input type="date" value={movDesde} onChange={e => setMovDesde(e.target.value)} /></FormField>
-            <FormField label="Hasta"><Input type="date" value={movHasta} onChange={e => setMovHasta(e.target.value)} /></FormField>
+            <FormField label="Desde"><Input type="date" value={movDesde} onChange={e => { setMovDesde(e.target.value); setMovPage(1); }} /></FormField>
+            <FormField label="Hasta"><Input type="date" value={movHasta} onChange={e => { setMovHasta(e.target.value); setMovPage(1); }} /></FormField>
           </div>
           <div className="max-h-80 overflow-y-auto">
             <Table>
               <thead><tr><Th>Fecha</Th><Th>Tipo</Th><Th>Concepto</Th><Th>Método</Th><Th className="text-right">Monto</Th><Th className="text-right">Acciones</Th></tr></thead>
               <tbody>
-                {movimientos.length > 0 ? movimientos.map(m => (
+                {movimientosPagina.length > 0 ? movimientosPagina.map(m => (
                   <Tr key={m.id}>
                     <Td><span className="text-xs text-muted-foreground">{formatDate(m.fecha)}</span></Td>
                     <Td>
@@ -414,6 +417,7 @@ export function CuentasTab() {
               </tbody>
             </Table>
           </div>
+          <Pagination page={movPage} totalPages={movTotalPages} onChange={setMovPage} />
           <div className="flex justify-between pt-2 border-t border-border">
             <Button variant="secondary" size="sm" onClick={() => { setShowNuevoMov(showMovs); setShowMovs(null); setForm({ tipo: 'INGRESO' }); }}>
               <Plus className="w-3 h-3" /> Nuevo movimiento

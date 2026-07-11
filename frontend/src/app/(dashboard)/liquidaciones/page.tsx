@@ -17,10 +17,10 @@ import {
   CreditCard, History, ClipboardList, CheckCircle, Lock,
 } from 'lucide-react';
 import api, { liquidacionesApi, conductoresApi, vehiculosApi, cuentasApi, fetchAllPages } from '@/services/api';
-import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
+import { formatCurrency, formatDate, getErrorMessage, PAGE_SIZE } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, TableSkeleton,
-  EmptyState, Modal, FormField, Input, Select, Textarea, StatCard, AuditInfo,
+  EmptyState, Modal, FormField, Input, Select, Textarea, StatCard, AuditInfo, Pagination,
 } from '@/components/shared';
 import type { Liquidacion, PedidoResumen } from '@/types';
 import * as XLSX from 'xlsx';
@@ -345,7 +345,7 @@ export default function LiquidacionesPage() {
       : true,
   );
 
-  const limit = 20;
+  const limit = PAGE_SIZE;
   const totalPages = Math.ceil(filtered.length / limit);
   const pageItems = filtered.slice((page - 1) * limit, page * limit);
 
@@ -495,17 +495,7 @@ export default function LiquidacionesPage() {
         </Table>
       )}
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            Anterior
-          </Button>
-          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
-          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-            Siguiente
-          </Button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
 
       {/* ─── Modal: Nueva Liquidación ────────────────────────────────────────── */}
       <Modal open={showForm} onClose={() => { setShowForm(false); resetForm(); }} title="Nueva liquidación" maxWidth="max-w-2xl">

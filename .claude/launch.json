@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "frontend", "--", "-p", "3055"],
+      "port": 3055,
+      "env": {
+        "NEXT_PUBLIC_API_URL": "http://localhost:3999"
+      }
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "backend"],
+      "port": 3999,
+      "env": {
+        "PORT": "3999"
+      }
+    }
+  ]
+}

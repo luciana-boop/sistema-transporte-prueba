@@ -38,6 +38,9 @@ export const NOMBRES_MES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
 
+// Tamaño de página estándar para todos los listados del sistema.
+export const PAGE_SIZE = 15;
+
 export function rangoMes(year: number, month: number): { desde: string; hasta: string } {
   const desde = new Date(year, month - 1, 1);
   const hasta = new Date(year, month, 0);

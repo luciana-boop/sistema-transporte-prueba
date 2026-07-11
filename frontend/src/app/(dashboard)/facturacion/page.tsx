@@ -28,10 +28,10 @@ import { toast } from 'sonner';
 import { Plus, Search, XCircle, Upload, FileText, Download, Trash2, Eye, ExternalLink, AlertCircle, Pencil, Package } from 'lucide-react';
 import { useRef } from 'react';
 import api, { facturacionApi, clientesApi, pedidosApi, configuracionApi, fetchAllPages } from '@/services/api';
-import { formatCurrency, formatDate, getErrorMessage, ESTADO_FACTURA_LABEL } from '@/lib/utils';
+import { formatCurrency, formatDate, getErrorMessage, ESTADO_FACTURA_LABEL, PAGE_SIZE } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
-  EmptyState, Modal, FormField, Input, Select, Textarea, StatCard, AuditInfo,
+  EmptyState, Modal, FormField, Input, Select, Textarea, StatCard, AuditInfo, Pagination,
 } from '@/components/shared';
 import { useAuthStore } from '@/store/auth.store';
 import { useConfig } from '@/hooks/useConfig';
@@ -420,7 +420,7 @@ export default function FacturacionPage() {
     );
   });
 
-  const limit = 20;
+  const limit = PAGE_SIZE;
   const totalPages = Math.ceil(facturas.length / limit);
   const facturasPagina = facturas.slice((page - 1) * limit, page * limit);
 
@@ -1108,17 +1108,7 @@ export default function FacturacionPage() {
         </Table>
       )}
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            Anterior
-          </Button>
-          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
-          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-            Siguiente
-          </Button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
 
       {/* ─── MODAL: NUEVA FACTURA / EDITAR FACTURA ────────────────────────── */}
       <Modal

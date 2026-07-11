@@ -9,11 +9,11 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, Edit2, Trash2, Download, Eye, UserPlus } from 'lucide-react';
 import { clientesApi, fetchAllPages } from '@/services/api';
-import { getErrorMessage, CONDICION_PAGO_LABEL } from '@/lib/utils';
+import { getErrorMessage, CONDICION_PAGO_LABEL, PAGE_SIZE } from '@/lib/utils';
 import { buscarPorCodigo, detectarUbigeo, type UbigeoEntry } from '@/lib/ubigeo';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
-  EmptyState, Modal, FormField, Input, Select, AuditInfo,
+  EmptyState, Modal, FormField, Input, Select, AuditInfo, Pagination,
 } from '@/components/shared';
 import type { Cliente, CondicionPago } from '@/types';
 import * as XLSX from 'xlsx';
@@ -165,7 +165,7 @@ export default function ClientesPage() {
   const [editing, setEditing] = useState<Cliente | null>(null);
   const [viewingId, setViewingId] = useState<number | null>(null);
 
-  const limit = 20;
+  const limit = PAGE_SIZE;
   const { data, isLoading } = useQuery({
     queryKey: ['clientes', search, page],
     queryFn: () => clientesApi.listar({ search: search || undefined, page, limit }).then((r) => r.data.data),
@@ -329,17 +329,7 @@ export default function ClientesPage() {
         </Table>
       )}
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            Anterior
-          </Button>
-          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
-          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-            Siguiente
-          </Button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
 
       {/* Ver cliente (solo lectura) */}
       <Modal

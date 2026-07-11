@@ -9,10 +9,10 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, Edit2, Trash2, AlertTriangle, Download } from 'lucide-react';
 import { vehiculosApi, fetchAllPages } from '@/services/api';
-import { formatDate, getErrorMessage } from '@/lib/utils';
+import { formatDate, getErrorMessage, PAGE_SIZE } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
-  EmptyState, Modal, FormField, Input, Select, Textarea, AuditInfo,
+  EmptyState, Modal, FormField, Input, Select, Textarea, AuditInfo, Pagination,
 } from '@/components/shared';
 import type { Vehiculo } from '@/types';
 import * as XLSX from 'xlsx';
@@ -62,7 +62,7 @@ export default function VehiculosPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Vehiculo | null>(null);
 
-  const limit = 20;
+  const limit = PAGE_SIZE;
   const { data, isLoading } = useQuery({
     queryKey: ['vehiculos', search, filtroTipo, page],
     queryFn: () => vehiculosApi.listar({ search: search || undefined, tipo: filtroTipo || undefined, page, limit }).then((r) => r.data.data),
@@ -194,17 +194,7 @@ export default function VehiculosPage() {
         </Table>
       )}
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            Anterior
-          </Button>
-          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
-          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-            Siguiente
-          </Button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
 
       <Modal open={showForm || !!editing} onClose={() => { setShowForm(false); setEditing(null); reset(); }} title={editing ? 'Editar vehículo' : 'Nuevo vehículo'} maxWidth="max-w-2xl">
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">

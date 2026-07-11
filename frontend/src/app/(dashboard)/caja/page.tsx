@@ -15,10 +15,10 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import api, { cajaApi, cuentasApi } from '@/services/api';
-import { formatCurrency, formatDatetime, formatDate, getErrorMessage } from '@/lib/utils';
+import { formatCurrency, formatDatetime, formatDate, getErrorMessage, PAGE_SIZE } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
-  EmptyState, Modal, FormField, Input, Select, Textarea, StatCard,
+  EmptyState, Modal, FormField, Input, Select, Textarea, StatCard, Pagination,
 } from '@/components/shared';
 import { MonedaBadge, TipoCuentaBadge } from '@/components/shared/FinancialSelectors';
 import { useAuthStore } from '@/store/auth.store';
@@ -103,6 +103,7 @@ export default function CajaPage() {
   const [filtroListaDesde, setFiltroListaDesde] = useState('');
   const [filtroListaHasta, setFiltroListaHasta] = useState('');
   const [cajasPage, setCajasPage] = useState(1);
+  const [movPage, setMovPage] = useState(1);
 
   // ── Queries ──────────────────────────────────────────────────────────────
   const { data: movData, isLoading: isLoadingMov, error: errorMov } = useQuery({
@@ -112,7 +113,7 @@ export default function CajaPage() {
     enabled: !!showMovimientos,
   });
 
-  const cajasLimit = 20;
+  const cajasLimit = PAGE_SIZE;
   const { data: cajasData, isLoading } = useQuery({
     queryKey: ['cajas', filtroListaDesde, filtroListaHasta, cajasPage],
     queryFn: () => cajaApi.listar({ desde: filtroListaDesde || undefined, hasta: filtroListaHasta || undefined, page: cajasPage, limit: cajasLimit }).then((r) => r.data.data),
@@ -209,7 +210,7 @@ export default function CajaPage() {
   });
 
   function handleVerMovimientos(caja: Caja) {
-    setFiltroMovDesde(''); setFiltroMovHasta(''); setFiltroMovTipo('');
+    setFiltroMovDesde(''); setFiltroMovHasta(''); setFiltroMovTipo(''); setMovPage(1);
     setShowMovimientos(caja);
   }
 
@@ -341,17 +342,7 @@ export default function CajaPage() {
             </Table>
           )}
 
-          {cajasTotalPages > 1 && (
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="secondary" size="sm" disabled={cajasPage <= 1} onClick={() => setCajasPage((p) => p - 1)}>
-                Anterior
-              </Button>
-              <span className="text-sm text-muted-foreground">Página {cajasPage} de {cajasTotalPages}</span>
-              <Button variant="secondary" size="sm" disabled={cajasPage >= cajasTotalPages} onClick={() => setCajasPage((p) => p + 1)}>
-                Siguiente
-              </Button>
-            </div>
-          )}
+          <Pagination page={cajasPage} totalPages={cajasTotalPages} onChange={setCajasPage} />
       </>
 
       {/* ── MODALES ──────────────────────────────────────────────────────────── */}
@@ -364,22 +355,22 @@ export default function CajaPage() {
             <div className="flex flex-wrap gap-2 flex-1">
               <div className="flex flex-col gap-0.5">
                 <label className="text-xs text-muted-foreground">Desde</label>
-                <input type="date" value={filtroMovDesde} onChange={(e) => setFiltroMovDesde(e.target.value)} className="text-xs border border-border rounded px-2 py-1 bg-background" />
+                <input type="date" value={filtroMovDesde} onChange={(e) => { setFiltroMovDesde(e.target.value); setMovPage(1); }} className="text-xs border border-border rounded px-2 py-1 bg-background" />
               </div>
               <div className="flex flex-col gap-0.5">
                 <label className="text-xs text-muted-foreground">Hasta</label>
-                <input type="date" value={filtroMovHasta} onChange={(e) => setFiltroMovHasta(e.target.value)} className="text-xs border border-border rounded px-2 py-1 bg-background" />
+                <input type="date" value={filtroMovHasta} onChange={(e) => { setFiltroMovHasta(e.target.value); setMovPage(1); }} className="text-xs border border-border rounded px-2 py-1 bg-background" />
               </div>
               <div className="flex flex-col gap-0.5">
                 <label className="text-xs text-muted-foreground">Tipo</label>
-                <select value={filtroMovTipo} onChange={(e) => setFiltroMovTipo(e.target.value)} className="text-xs border border-border rounded px-2 py-1 bg-background">
+                <select value={filtroMovTipo} onChange={(e) => { setFiltroMovTipo(e.target.value); setMovPage(1); }} className="text-xs border border-border rounded px-2 py-1 bg-background">
                   <option value="">Todos</option>
                   <option value="INGRESO">Ingreso</option>
                   <option value="EGRESO">Egreso</option>
                 </select>
               </div>
               {(filtroMovDesde || filtroMovHasta || filtroMovTipo) && (
-                <button onClick={() => { setFiltroMovDesde(''); setFiltroMovHasta(''); setFiltroMovTipo(''); }} className="self-end text-xs text-muted-foreground hover:text-foreground underline">Limpiar</button>
+                <button onClick={() => { setFiltroMovDesde(''); setFiltroMovHasta(''); setFiltroMovTipo(''); setMovPage(1); }} className="self-end text-xs text-muted-foreground hover:text-foreground underline">Limpiar</button>
               )}
             </div>
             <div className="flex gap-2">
@@ -412,7 +403,7 @@ export default function CajaPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {movData?.movimientos.map((m: MovimientoEnriquecido & { esLiquidacion?: boolean; liquidacionId?: number }) => (
+                  {movData?.movimientos.slice((movPage - 1) * PAGE_SIZE, movPage * PAGE_SIZE).map((m: MovimientoEnriquecido & { esLiquidacion?: boolean; liquidacionId?: number }) => (
                     <Tr key={m.id} className={m.anulado ? 'opacity-50' : ''}>
                       <Td>
                         <span className={`text-xs ${m.anulado ? 'line-through text-muted-foreground' : 'text-muted-foreground'}`}>{formatDatetime(m.fecha)}</span>
@@ -451,6 +442,10 @@ export default function CajaPage() {
                 </tbody>
               </table>
             </div>
+          )}
+
+          {movData && movData.movimientos.length > 0 && (
+            <Pagination page={movPage} totalPages={Math.ceil(movData.movimientos.length / PAGE_SIZE)} onChange={setMovPage} />
           )}
         </div>
       </Modal>

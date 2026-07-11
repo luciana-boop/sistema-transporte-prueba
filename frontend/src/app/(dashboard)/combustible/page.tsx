@@ -13,10 +13,10 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, Trash2, Fuel, Eye, Pencil } from 'lucide-react';
 import { combustibleApi, vehiculosApi, conductoresApi, liquidacionesApi, fetchAllPages } from '@/services/api';
-import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
+import { formatCurrency, formatDate, getErrorMessage, PAGE_SIZE } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, TableSkeleton,
-  EmptyState, Modal, FormField, Input, Select, Textarea, StatCard,
+  EmptyState, Modal, FormField, Input, Select, Textarea, StatCard, Pagination,
 } from '@/components/shared';
 import { useAuthStore } from '@/store/auth.store';
 import {
@@ -212,7 +212,7 @@ export default function CombustiblePage() {
       : true
   );
 
-  const limit = 20;
+  const limit = PAGE_SIZE;
   const totalPages = Math.ceil(filtered.length / limit);
   const pageItems = filtered.slice((page - 1) * limit, page * limit);
 
@@ -333,17 +333,7 @@ export default function CombustiblePage() {
         </Table>
       )}
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            Anterior
-          </Button>
-          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
-          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-            Siguiente
-          </Button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
 
       <Modal open={showForm} onClose={() => { setShowForm(false); reset(); }} title="Registrar carga de combustible">
         <form onSubmit={handleSubmit((d) => createMutation.mutate(d))} className="flex flex-col gap-4">

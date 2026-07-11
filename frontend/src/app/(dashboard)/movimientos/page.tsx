@@ -12,9 +12,9 @@ import { CuentaSelector, MonedaSelector, TipoPagoSelector } from '@/components/s
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge,
   Modal, FormField, Input, Select, Textarea, StatCard,
-  TableSkeleton, EmptyState, AuditInfo,
+  TableSkeleton, EmptyState, AuditInfo, Pagination,
 } from '@/components/shared';
-import { formatCurrency, formatDate, getErrorMessage } from '@/lib/utils';
+import { formatCurrency, formatDate, getErrorMessage, PAGE_SIZE } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
 import { parseExcelMovimientos, type FilaMovimientoImportado } from '@/lib/parseExcelMovimientos';
 import type { MovimientoCuenta } from '@/types';
@@ -53,7 +53,7 @@ export default function MovimientosPage() {
     hasta: hasta || undefined,
     search: search || undefined,
     page,
-    limit: 20,
+    limit: PAGE_SIZE,
   };
 
   const { data: lista, isLoading } = useQuery({
@@ -373,12 +373,7 @@ export default function MovimientosPage() {
         </Table>
       )}
 
-      {lista && lista.total > 20 && (
-        <div className="flex justify-end gap-2">
-          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Anterior</Button>
-          <Button variant="secondary" size="sm" disabled={page * 20 >= lista.total} onClick={() => setPage((p) => p + 1)}>Siguiente</Button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={lista ? Math.ceil(lista.total / PAGE_SIZE) : 1} onChange={setPage} />
 
       {/* Modal: Registrar movimiento manual */}
       <Modal open={showRegistrar} onClose={() => { setShowRegistrar(false); setFormRegistrar({}); }} title={`Registrar ${tab === 'INGRESO' ? 'ingreso' : 'egreso'}`}>

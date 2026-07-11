@@ -11,10 +11,10 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, Edit2, XCircle, Download, Eye, X } from 'lucide-react';
 import { pedidosApi, clientesApi, vehiculosApi, configuracionApi, fetchAllPages } from '@/services/api';
-import { formatCurrency, formatDate, getErrorMessage, ESTADO_PEDIDO_LABEL } from '@/lib/utils';
+import { formatCurrency, formatDate, getErrorMessage, ESTADO_PEDIDO_LABEL, PAGE_SIZE } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
-  EmptyState, Modal, FormField, Input, Select, Textarea, AuditInfo,
+  EmptyState, Modal, FormField, Input, Select, Textarea, AuditInfo, Pagination,
 } from '@/components/shared';
 import { useAuthStore } from '@/store/auth.store';
 import * as XLSX from 'xlsx';
@@ -45,7 +45,7 @@ export default function PedidosPage() {
   const [viewing, setViewing] = useState<any>(null);
   const [page, setPage] = useState(1);
 
-  const limit = 20;
+  const limit = PAGE_SIZE;
   const { data, isLoading } = useQuery({
     queryKey: ['pedidos', search, filtroEstado, filtroDesde, filtroHasta, page],
     queryFn: () => pedidosApi.listar({
@@ -243,17 +243,7 @@ export default function PedidosPage() {
         </Table>
       )}
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            Anterior
-          </Button>
-          <span className="text-sm text-muted-foreground">Página {page} de {totalPages}</span>
-          <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-            Siguiente
-          </Button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
 
       {/* MEJORA 4: Modal de detalle */}
       <Modal open={!!viewing} onClose={() => setViewing(null)} title={`Pedido #${viewing?.id}`} maxWidth="max-w-2xl">
