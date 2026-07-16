@@ -32,6 +32,8 @@ const registrarMovimientoValidations = [
   body('concepto').isString().trim().isLength({ min: 1, max: 255 }).withMessage('concepto debe tener entre 1 y 255 caracteres'),
   body('fecha').optional({ values: 'falsy' }).isISO8601().withMessage('fecha inválida'),
   body('referencia').optional({ values: 'falsy' }).isString().isLength({ max: 255 }).withMessage('referencia inválida'),
+  body('categoriaEgreso').optional({ values: 'falsy' }).isString().isLength({ max: 50 }).withMessage('categoriaEgreso inválida'),
+  body('vehiculoId').optional({ values: 'falsy' }).isInt({ gt: 0 }).withMessage('vehiculoId inválido'),
 ];
 
 const editarMovimientoValidations = [
@@ -39,6 +41,8 @@ const editarMovimientoValidations = [
   body('concepto').optional().isString().trim().isLength({ min: 1, max: 255 }).withMessage('concepto debe tener entre 1 y 255 caracteres'),
   body('fecha').optional({ values: 'falsy' }).isISO8601().withMessage('fecha inválida'),
   body('referencia').optional({ values: 'falsy' }).isString().isLength({ max: 255 }).withMessage('referencia inválida'),
+  body('categoriaEgreso').optional({ values: 'falsy' }).isString().isLength({ max: 50 }).withMessage('categoriaEgreso inválida'),
+  body('vehiculoId').optional({ values: 'falsy' }).isInt({ gt: 0 }).withMessage('vehiculoId inválido'),
 ];
 
 // ── Rutas estáticas (deben ir ANTES de /:id) ─────────────────────────────────

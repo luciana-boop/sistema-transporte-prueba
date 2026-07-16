@@ -340,7 +340,7 @@ export const cajaApi = {
     api.patch<ApiResponse<Caja>>(`/api/caja/${id}/cerrar`, data),
   registrarMovimiento: (id: number, data: {
     tipo: 'INGRESO' | 'EGRESO'; monto: number; concepto: string;
-    fecha?: string; referencia?: string;
+    fecha?: string; referencia?: string; categoriaEgreso?: string; vehiculoId?: number;
   }) => api.post<ApiResponse<Caja>>(`/api/caja/${id}/movimiento`, data),
   getMovimientos: (id: number, params?: { desde?: string; hasta?: string; tipo?: string }) =>
     api.get<ApiResponse<MovimientosCajaResponse>>(`/api/caja/${id}/movimientos`, { params }),
@@ -348,6 +348,7 @@ export const cajaApi = {
     api.get<ApiResponse<MovimientosGlobalResponse>>('/api/caja/movimientos', { params }),
   editarMovimiento: (movimientoId: number, data: {
     monto?: number; concepto?: string; fecha?: string; referencia?: string;
+    categoriaEgreso?: string; vehiculoId?: number | null;
   }) => api.put<ApiResponse<any>>(`/api/caja/movimientos/${movimientoId}`, data),
   anularMovimiento: (movimientoId: number) =>
     api.patch<ApiResponse<any>>(`/api/caja/movimientos/${movimientoId}/anular`),

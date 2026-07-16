@@ -218,6 +218,8 @@ export interface MovimientoEnriquecido {
   saldoAcumulado: number;
   anulado: boolean;
   esManual: boolean;
+  categoriaEgreso?: string | null;
+  vehiculo?: { id: number; placa: string } | null;
 }
 
 /** NUEVO: movimiento global (con datos de su caja) */
@@ -231,6 +233,8 @@ export interface MovimientoGlobal {
   concepto: string;
   referencia: string | null;
   fecha: string;
+  categoriaEgreso?: string | null;
+  vehiculo?: { id: number; placa: string } | null;
 }
 
 /** NUEVO: respuesta del endpoint de movimientos por caja */

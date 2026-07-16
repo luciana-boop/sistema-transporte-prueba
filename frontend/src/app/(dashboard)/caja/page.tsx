@@ -14,7 +14,7 @@ import {
   Plus, Lock, FileDown, Eye, Filter, X,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import api, { cajaApi, cuentasApi } from '@/services/api';
+import api, { cajaApi, cuentasApi, configuracionApi, vehiculosApi } from '@/services/api';
 import { formatCurrency, formatDatetime, formatDate, getErrorMessage, PAGE_SIZE } from '@/lib/utils';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -45,13 +45,23 @@ const movSchema = z.object({
   concepto: z.string().min(2, 'Concepto requerido'),
   fecha: z.string().min(1, 'Fecha requerida'),
   referencia: z.string().optional(),
+  categoriaEgreso: z.string().optional(),
+  vehiculoId: z.string().optional(),
+}).refine((d) => d.tipo !== 'EGRESO' || !!d.categoriaEgreso, {
+  message: 'Selecciona una categoría para el egreso',
+  path: ['categoriaEgreso'],
 });
 const editMovSchema = z.object({
   monto: z.string().min(1, 'Monto requerido'),
   concepto: z.string().min(2, 'Concepto requerido'),
   fecha: z.string().min(1, 'Fecha requerida'),
   referencia: z.string().optional(),
+  categoriaEgreso: z.string().optional(),
+  vehiculoId: z.string().optional(),
 });
+
+// Categorías vehicle-related: al elegirlas se puede (opcionalmente) asociar un vehículo.
+const CATEGORIAS_CON_VEHICULO = ['MANTENIMIENTO', 'COMBUSTIBLE'];
 
 // ─── Helper: nombre de caja ──────────────────────────────────────────────────
 function cajaNombre(caja: Caja): string {
@@ -138,6 +148,19 @@ export default function CajaPage() {
     enabled: showAbrir,
   });
 
+  // Categorías de egreso (mismo catálogo que Movimientos) — excluye "Caja chica"
+  // porque no tiene sentido categorizar así un gasto dentro de una caja ya abierta.
+  const { data: categoriasEgreso = [] } = useQuery({
+    queryKey: ['config', 'tabla', 'categoria_egreso'],
+    queryFn: () => configuracionApi.getTablaMaestra('categoria_egreso').then((r) => r.data.data.filter((t) => t.activo && t.codigo !== 'CAJA_CHICA')),
+  });
+  const categoriaLabel = (v?: string | null) => categoriasEgreso.find((c) => c.codigo === v)?.nombre ?? v ?? '—';
+
+  const { data: vehiculos = [] } = useQuery({
+    queryKey: ['vehiculos', 'activos-caja'],
+    queryFn: () => vehiculosApi.listar({ activo: true, limit: 200 }).then((r) => r.data.data.items).catch(() => []),
+  });
+
   // ── Forms ────────────────────────────────────────────────────────────────
   const abrirForm = useForm<z.infer<typeof abrirSchema>>({ resolver: zodResolver(abrirSchema) });
   const cerrarForm = useForm<z.infer<typeof cerrarSchema>>({ resolver: zodResolver(cerrarSchema) });
@@ -177,7 +200,15 @@ export default function CajaPage() {
 
   const movMutation = useMutation({
     mutationFn: (d: z.infer<typeof movSchema>) =>
-      cajaApi.registrarMovimiento(showMov!, { tipo: d.tipo as TipoMov, monto: parseFloat(d.monto), concepto: d.concepto, fecha: d.fecha, referencia: d.referencia }),
+      cajaApi.registrarMovimiento(showMov!, {
+        tipo: d.tipo as TipoMov,
+        monto: parseFloat(d.monto),
+        concepto: d.concepto,
+        fecha: d.fecha,
+        referencia: d.referencia,
+        categoriaEgreso: d.tipo === 'EGRESO' ? d.categoriaEgreso : undefined,
+        vehiculoId: d.tipo === 'EGRESO' && d.vehiculoId ? parseInt(d.vehiculoId) : undefined,
+      }),
     onSuccess: () => {
       toast.success('Movimiento registrado');
       setShowMov(null); movForm.reset(); invalidate();
@@ -188,7 +219,16 @@ export default function CajaPage() {
 
   const editarMovMutation = useMutation({
     mutationFn: (d: z.infer<typeof editMovSchema>) =>
-      cajaApi.editarMovimiento(editandoMov!.id, { monto: parseFloat(d.monto), concepto: d.concepto, fecha: d.fecha, referencia: d.referencia }),
+      cajaApi.editarMovimiento(editandoMov!.id, {
+        monto: parseFloat(d.monto),
+        concepto: d.concepto,
+        fecha: d.fecha,
+        referencia: d.referencia,
+        ...(editandoMov!.tipo === 'EGRESO' ? {
+          categoriaEgreso: d.categoriaEgreso,
+          vehiculoId: d.vehiculoId ? parseInt(d.vehiculoId) : null,
+        } : {}),
+      }),
     onSuccess: () => {
       toast.success('Movimiento actualizado');
       setEditandoMov(null); editMovForm.reset();
@@ -416,6 +456,14 @@ export default function CajaPage() {
                           {m.esLiquidacion && !m.anulado && (
                             <span className="ml-2 text-[10px] font-medium text-violet-600 bg-violet-500/10 px-1.5 py-0.5 rounded border border-violet-500/20">LIQUIDACIÓN</span>
                           )}
+                          {m.tipo === 'EGRESO' && m.categoriaEgreso && (
+                            <div className="mt-0.5 flex items-center gap-1 flex-wrap">
+                              <span className="text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">{categoriaLabel(m.categoriaEgreso)}</span>
+                              {m.vehiculo && (
+                                <span className="text-[10px] font-medium text-blue-600 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">{m.vehiculo.placa}</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </Td>
                       <Td><span className="text-xs text-muted-foreground">{m.referencia ?? '—'}</span></Td>
@@ -431,7 +479,7 @@ export default function CajaPage() {
                           {/* Movimientos manuales: editar y anular */}
                           {m.esManual && !m.anulado && !m.esLiquidacion && (
                             <>
-                              <Button size="xs" variant="ghost" onClick={() => { setEditandoMov(m); editMovForm.reset({ monto: String(m.monto), concepto: m.concepto, fecha: m.fecha.split('T')[0], referencia: m.referencia ?? '' }); }}>Editar</Button>
+                              <Button size="xs" variant="ghost" onClick={() => { setEditandoMov(m); editMovForm.reset({ monto: String(m.monto), concepto: m.concepto, fecha: m.fecha.split('T')[0], referencia: m.referencia ?? '', categoriaEgreso: m.categoriaEgreso ?? '', vehiculoId: m.vehiculo ? String(m.vehiculo.id) : '' }); }}>Editar</Button>
                               <Button size="xs" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setAnulandoMov(m)}>Anular</Button>
                             </>
                           )}
@@ -459,6 +507,23 @@ export default function CajaPage() {
           </div>
           <FormField label="Concepto" required error={editMovForm.formState.errors.concepto?.message}><Input placeholder="Descripción..." {...editMovForm.register('concepto')} /></FormField>
           <FormField label="Referencia"><Input placeholder="N° factura, comprobante..." {...editMovForm.register('referencia')} /></FormField>
+          {editandoMov?.tipo === 'EGRESO' && (
+            <>
+              <FormField label="Categoría" required error={editMovForm.formState.errors.categoriaEgreso?.message}>
+                <Select {...editMovForm.register('categoriaEgreso')}>
+                  {categoriasEgreso.map((c) => <option key={c.codigo} value={c.codigo}>{c.nombre}</option>)}
+                </Select>
+              </FormField>
+              {CATEGORIAS_CON_VEHICULO.includes(editMovForm.watch('categoriaEgreso') ?? '') && (
+                <FormField label="Vehículo (opcional)" hint="Para que este gasto aparezca agrupado por vehículo en Reportes > Mantenimiento">
+                  <Select {...editMovForm.register('vehiculoId')}>
+                    <option value="">Sin vehículo</option>
+                    {vehiculos.map((v: any) => <option key={v.id} value={v.id}>{v.placa} — {v.marca} {v.modelo}</option>)}
+                  </Select>
+                </FormField>
+              )}
+            </>
+          )}
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="secondary" type="button" onClick={() => { setEditandoMov(null); editMovForm.reset(); }}>Cancelar</Button>
             <Button type="submit" loading={editarMovMutation.isPending}>Guardar cambios</Button>
@@ -560,6 +625,24 @@ export default function CajaPage() {
           </FormField>
           <FormField label="Monto (S/)" required error={movForm.formState.errors.monto?.message}><Input type="number" step="0.01" placeholder="0.00" {...movForm.register('monto')} /></FormField>
           <FormField label="Concepto" required error={movForm.formState.errors.concepto?.message}><Input placeholder="Descripción del movimiento" {...movForm.register('concepto')} /></FormField>
+          {movForm.watch('tipo') === 'EGRESO' && (
+            <>
+              <FormField label="Categoría" required error={movForm.formState.errors.categoriaEgreso?.message} hint="Determina en qué reporte se podrá ver este gasto">
+                <Select {...movForm.register('categoriaEgreso')}>
+                  <option value="">Selecciona una categoría</option>
+                  {categoriasEgreso.map((c) => <option key={c.codigo} value={c.codigo}>{c.nombre}</option>)}
+                </Select>
+              </FormField>
+              {CATEGORIAS_CON_VEHICULO.includes(movForm.watch('categoriaEgreso') ?? '') && (
+                <FormField label="Vehículo (opcional)" hint="Para que este gasto aparezca agrupado por vehículo en Reportes > Mantenimiento">
+                  <Select {...movForm.register('vehiculoId')}>
+                    <option value="">Sin vehículo</option>
+                    {vehiculos.map((v: any) => <option key={v.id} value={v.id}>{v.placa} — {v.marca} {v.modelo}</option>)}
+                  </Select>
+                </FormField>
+              )}
+            </>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Fecha" required error={movForm.formState.errors.fecha?.message}><Input type="date" {...movForm.register('fecha')} /></FormField>
             <FormField label="Referencia"><Input placeholder="N° factura, recibo..." {...movForm.register('referencia')} /></FormField>

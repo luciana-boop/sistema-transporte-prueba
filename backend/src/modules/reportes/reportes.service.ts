@@ -460,24 +460,51 @@ export class ReportesService {
     return { cajas: resumen, totalesGlobales };
   }
 
-  // Módulo Movimientos: los egresos ya no tienen categoría ni vehículo asociado,
-  // por lo que este reporte se arma directamente sobre el ledger MovimientoCuentaV2.
+  // El retiro de dinero del banco hacia una caja chica (MovimientoCuentaV2 con
+  // categoriaEgreso = CAJA_CHICA) es una transferencia interna, no un gasto real
+  // — se excluye aquí para no duplicarlo. El gasto real se registra cuando esa
+  // plata se usa (MovimientoCaja categorizado dentro de la caja abierta).
   async reporteEgresos(filtros: FiltroReporte) {
-    const where: any = { tipo: 'EGRESO', anulado: false };
+    const whereFecha: any = {};
     if (filtros.desde || filtros.hasta) {
-      where.fecha = {};
-      if (filtros.desde) where.fecha.gte = new Date(filtros.desde);
-      if (filtros.hasta) where.fecha.lte = new Date(filtros.hasta + 'T23:59:59');
+      whereFecha.fecha = {};
+      if (filtros.desde) whereFecha.fecha.gte = new Date(filtros.desde);
+      if (filtros.hasta) whereFecha.fecha.lte = new Date(filtros.hasta + 'T23:59:59');
     }
 
-    const egresos = await prisma.movimientoCuentaV2.findMany({
-      where,
-      orderBy: { fecha: 'desc' },
-      include: {
-        cuenta: { select: { id: true, nombre: true, tipoCuenta: true } },
-        usuario: { select: { id: true, nombre: true } },
-      },
-    });
+    const [egresosCuenta, egresosCaja] = await Promise.all([
+      prisma.movimientoCuentaV2.findMany({
+        where: { tipo: 'EGRESO', anulado: false, categoriaEgreso: { not: 'CAJA_CHICA' }, ...whereFecha },
+        orderBy: { fecha: 'desc' },
+        include: {
+          cuenta: { select: { id: true, nombre: true, tipoCuenta: true } },
+          usuario: { select: { id: true, nombre: true } },
+        },
+      }),
+      prisma.movimientoCaja.findMany({
+        where: { tipo: 'EGRESO', anulado: false, ...whereFecha },
+        orderBy: { fecha: 'desc' },
+        include: {
+          caja: { select: { id: true, nombre: true, usuario: { select: { id: true, nombre: true } } } },
+          vehiculo: { select: { id: true, placa: true } },
+        },
+      }),
+    ]);
+
+    const egresos = [
+      ...egresosCuenta.map((e: any) => ({ ...e, origen: 'CUENTA' })),
+      ...egresosCaja.map((m: any) => ({
+        id: m.id,
+        origen: 'CAJA',
+        fecha: m.fecha,
+        concepto: m.concepto,
+        monto: m.monto,
+        categoriaEgreso: m.categoriaEgreso,
+        cuenta: null,
+        caja: m.caja,
+        vehiculo: m.vehiculo,
+      })),
+    ].sort((a: any, b: any) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 
     const totalEgresos = egresos.reduce((s: number, g: any) => s + Number(g.monto), 0);
 
@@ -488,30 +515,60 @@ export class ReportesService {
   }
 
   // ── Reporte Mantenimiento ─────────────────────────────────────────────────
+  // Incluye tanto los egresos de Movimientos ya "relacionados" a un vehículo
+  // (MantenimientoDetalle) como los egresos de Mantenimiento pagados con caja
+  // chica (MovimientoCaja categorizado, con vehículo asignado).
   async reporteMantenimiento(filtros: FiltroReporte & { vehiculoId?: string }) {
-    const where: any = { tipo: 'EGRESO', anulado: false, categoriaEgreso: 'MANTENIMIENTO' };
+    const whereFecha: any = {};
     if (filtros.desde || filtros.hasta) {
-      where.fecha = {};
-      if (filtros.desde) where.fecha.gte = new Date(filtros.desde);
-      if (filtros.hasta) where.fecha.lte = new Date(filtros.hasta + 'T23:59:59');
+      whereFecha.fecha = {};
+      if (filtros.desde) whereFecha.fecha.gte = new Date(filtros.desde);
+      if (filtros.hasta) whereFecha.fecha.lte = new Date(filtros.hasta + 'T23:59:59');
     }
-    if (filtros.vehiculoId) where.mantenimiento = { vehiculoId: parseInt(filtros.vehiculoId) };
+    const vehiculoIdNum = filtros.vehiculoId ? parseInt(filtros.vehiculoId) : undefined;
 
-    const gastos = await prisma.movimientoCuentaV2.findMany({
-      where,
-      orderBy: { fecha: 'desc' },
-      include: {
-        cuenta: { select: { id: true, nombre: true } },
-        mantenimiento: {
-          include: {
-            vehiculo: { select: { id: true, placa: true, marca: true, modelo: true } },
-            conductor: { select: { id: true, nombre: true } },
+    const whereCuenta: any = { tipo: 'EGRESO', anulado: false, categoriaEgreso: 'MANTENIMIENTO', ...whereFecha };
+    if (vehiculoIdNum) whereCuenta.mantenimiento = { vehiculoId: vehiculoIdNum };
+
+    const whereCaja: any = {
+      tipo: 'EGRESO', anulado: false, categoriaEgreso: 'MANTENIMIENTO',
+      vehiculoId: vehiculoIdNum ?? { not: null },
+      ...whereFecha,
+    };
+
+    const [gastosCuenta, gastosCaja] = await Promise.all([
+      prisma.movimientoCuentaV2.findMany({
+        where: whereCuenta,
+        orderBy: { fecha: 'desc' },
+        include: {
+          cuenta: { select: { id: true, nombre: true } },
+          mantenimiento: {
+            include: {
+              vehiculo: { select: { id: true, placa: true, marca: true, modelo: true } },
+              conductor: { select: { id: true, nombre: true } },
+            },
           },
         },
-      },
-    });
+      }),
+      prisma.movimientoCaja.findMany({
+        where: whereCaja,
+        orderBy: { fecha: 'desc' },
+        include: { vehiculo: { select: { id: true, placa: true, marca: true, modelo: true } } },
+      }),
+    ]);
 
-    const relacionados = gastos.filter((g: any) => g.mantenimiento);
+    const relacionadosCuenta = gastosCuenta.filter((g: any) => g.mantenimiento);
+    const relacionadosCaja = gastosCaja.map((m: any) => ({
+      id: `caja-${m.id}`,
+      origen: 'CAJA',
+      fecha: m.fecha,
+      monto: m.monto,
+      mantenimiento: { vehiculo: m.vehiculo, motivoCodigo: null, descripcion: m.concepto },
+    }));
+
+    const relacionados = [...relacionadosCuenta, ...relacionadosCaja]
+      .sort((a: any, b: any) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+
     const totalGastado = relacionados.reduce((s: number, g: any) => s + Number(g.monto), 0);
 
     const porVehiculo = new Map<string, { vehiculoId: number; placa: string; total: number; cantidad: number }>();
@@ -541,7 +598,7 @@ export class ReportesService {
     const inicioAnio = new Date(anio, 0, 1);
     const finAnio = new Date(anio, 11, 31, 23, 59, 59);
 
-    const [pedidos, facturas, pagos, gastos] = await Promise.all([
+    const [pedidos, facturas, pagos, gastosCuenta, gastosCaja] = await Promise.all([
       prisma.pedido.findMany({
         where: { fechaPedido: { gte: inicioAnio, lte: finAnio } },
         select: { fechaPedido: true, tarifa: true },
@@ -554,7 +611,13 @@ export class ReportesService {
         where: { fechaPago: { gte: inicioAnio, lte: finAnio }, anulado: false },
         select: { fechaPago: true, monto: true },
       }),
+      // Excluye CAJA_CHICA: es una transferencia a la caja chica, no un gasto real.
       prisma.movimientoCuentaV2.findMany({
+        where: { tipo: 'EGRESO', anulado: false, categoriaEgreso: { not: 'CAJA_CHICA' }, fecha: { gte: inicioAnio, lte: finAnio } },
+        select: { fecha: true, monto: true },
+      }),
+      // Gasto real de lo efectivamente pagado con caja chica.
+      prisma.movimientoCaja.findMany({
         where: { tipo: 'EGRESO', anulado: false, fecha: { gte: inicioAnio, lte: finAnio } },
         select: { fecha: true, monto: true },
       }),
@@ -572,7 +635,8 @@ export class ReportesService {
     for (const p of pedidos) meses[p.fechaPedido.getMonth()].pedidos += 1;
     for (const f of facturas) meses[f.fechaEmision.getMonth()].facturado += Number(f.total);
     for (const pg of pagos) meses[pg.fechaPago.getMonth()].cobrado += Number(pg.monto);
-    for (const g of gastos) meses[g.fecha.getMonth()].gastos += Number(g.monto);
+    for (const g of gastosCuenta) meses[g.fecha.getMonth()].gastos += Number(g.monto);
+    for (const g of gastosCaja) meses[g.fecha!.getMonth()].gastos += Number(g.monto);
 
     const mesesConUtilidad = meses.map((m) => ({ ...m, utilidad: Math.round((m.facturado - m.gastos) * 100) / 100 }));
 
@@ -693,7 +757,8 @@ export class ReportesService {
       pedidosPeriodo,
       facturacionPeriodo,
       cobranzaPeriodo,
-      gastosPeriodo,
+      gastosCuentaPeriodo,
+      gastosCajaPeriodo,
       pedidosPorEstado,
     ] = await Promise.all([
       prisma.cliente.count({ where: { activo: true } }),
@@ -706,7 +771,12 @@ export class ReportesService {
         where: { fechaPago: { gte: desde, lte: hasta }, anulado: false },
         _sum: { monto: true },
       }),
+      // Excluye CAJA_CHICA (transferencia interna, no gasto real).
       prisma.movimientoCuentaV2.aggregate({
+        where: { tipo: 'EGRESO', anulado: false, categoriaEgreso: { not: 'CAJA_CHICA' }, fecha: { gte: desde, lte: hasta } },
+        _sum: { monto: true },
+      }),
+      prisma.movimientoCaja.aggregate({
         where: { tipo: 'EGRESO', anulado: false, fecha: { gte: desde, lte: hasta } },
         _sum: { monto: true },
       }),
@@ -719,7 +789,7 @@ export class ReportesService {
 
     const facturado = Number(facturacionPeriodo._sum.total || 0);
     const cobrado = Number(cobranzaPeriodo._sum.monto || 0);
-    const gastos = Number(gastosPeriodo._sum.monto || 0);
+    const gastos = Number(gastosCuentaPeriodo._sum.monto || 0) + Number(gastosCajaPeriodo._sum.monto || 0);
 
     return {
       periodo: { desde, hasta },

@@ -24,6 +24,8 @@ export interface MovimientoManualDto {
   concepto: string;
   fecha?: string;
   referencia?: string;
+  categoriaEgreso?: string;
+  vehiculoId?: number;
 }
 
 export interface FiltrosMovimientosDto {
@@ -38,6 +40,8 @@ export interface EditarMovimientoDto {
   concepto?: string;
   fecha?: string;
   referencia?: string;
+  categoriaEgreso?: string;
+  vehiculoId?: number | null;
 }
 
 export interface MovimientoEnriquecido {
@@ -53,6 +57,8 @@ export interface MovimientoEnriquecido {
   esManual: boolean;
   esLiquidacion: boolean;
   liquidacionId?: number;
+  categoriaEgreso: string | null;
+  vehiculo: { id: number; placa: string } | null;
 }
 
 export class CajaService {
@@ -289,6 +295,13 @@ export class CajaService {
       throw new Error('No puede registrar movimientos en una caja de otro usuario');
     }
     if (dto.monto <= 0) throw new Error('El monto debe ser mayor a 0');
+    if (dto.tipo === TipoMovimientoCaja.EGRESO && !dto.categoriaEgreso) {
+      throw new Error('Debe seleccionar una categoría para el egreso');
+    }
+    if (dto.vehiculoId) {
+      const vehiculo = await prisma.vehiculo.findUnique({ where: { id: dto.vehiculoId } });
+      if (!vehiculo) throw new Error('Vehículo no encontrado');
+    }
 
     return prisma.movimientoCaja.create({
       data: {
@@ -298,6 +311,8 @@ export class CajaService {
         concepto: dto.concepto,
         fecha: dto.fecha ? new Date(dto.fecha) : new Date(),
         referencia: dto.referencia ?? null,
+        categoriaEgreso: dto.tipo === TipoMovimientoCaja.EGRESO ? dto.categoriaEgreso : null,
+        vehiculoId: dto.vehiculoId ?? null,
         creadoPorId: usuarioId,
       },
     });
@@ -331,6 +346,7 @@ export class CajaService {
     const movimientosRaw = await prisma.movimientoCaja.findMany({
       where,
       orderBy: { creadoEn: 'asc' },
+      include: { vehiculo: { select: { id: true, placa: true } } },
     });
 
     const saldoInicial = Number(caja.saldoApertura);
@@ -365,6 +381,8 @@ export class CajaService {
         esManual: !m.pagoId && !m.gastoId && !m.movimientoCuentaId,
         esLiquidacion,
         liquidacionId,
+        categoriaEgreso: m.categoriaEgreso ?? null,
+        vehiculo: m.vehiculo ?? null,
       };
     });
 
@@ -435,6 +453,7 @@ export class CajaService {
               usuario: { select: { id: true, nombre: true } },
             },
           },
+          vehiculo: { select: { id: true, placa: true } },
         },
       }),
     ]);
@@ -453,6 +472,8 @@ export class CajaService {
         concepto: m.concepto,
         referencia,
         fecha: (m.fecha ?? m.creadoEn).toISOString(),
+        categoriaEgreso: m.categoriaEgreso ?? null,
+        vehiculo: m.vehiculo ?? null,
       };
     });
 
@@ -470,6 +491,13 @@ export class CajaService {
     if (mov.caja.usuarioId !== usuarioId) throw new Error('No puede editar movimientos de otro usuario');
     if (mov.caja.estado === 'CERRADA') throw new Error('No se pueden editar movimientos de una caja cerrada');
     if (dto.monto !== undefined && dto.monto <= 0) throw new Error('El monto debe ser mayor a 0');
+    if (dto.categoriaEgreso !== undefined && mov.tipo !== TipoMovimientoCaja.EGRESO) {
+      throw new Error('La categoría solo aplica a egresos');
+    }
+    if (dto.vehiculoId) {
+      const vehiculo = await prisma.vehiculo.findUnique({ where: { id: dto.vehiculoId } });
+      if (!vehiculo) throw new Error('Vehículo no encontrado');
+    }
 
     return prisma.movimientoCaja.update({
       where: { id: movimientoId },
@@ -478,6 +506,8 @@ export class CajaService {
         ...(dto.concepto !== undefined && { concepto: dto.concepto }),
         ...(dto.fecha !== undefined && { fecha: new Date(dto.fecha) }),
         ...(dto.referencia !== undefined && { referencia: dto.referencia }),
+        ...(dto.categoriaEgreso && { categoriaEgreso: dto.categoriaEgreso }),
+        ...(dto.vehiculoId !== undefined && { vehiculoId: dto.vehiculoId }),
       },
     });
   }

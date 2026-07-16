@@ -119,17 +119,31 @@ export class CajaController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      const { tipo, monto, concepto, fecha, referencia } = req.body;
+      const { tipo, monto, concepto, fecha, referencia, categoriaEgreso, vehiculoId } = req.body;
       if (!tipo || !monto || !concepto) { R.badRequest(res, 'tipo, monto y concepto son requeridos'); return; }
       if (!Object.values(TipoMovimientoCaja).includes(tipo)) {
         R.badRequest(res, `tipo inválido. Valores: ${Object.values(TipoMovimientoCaja).join(', ')}`); return;
       }
-      const data = await cajaService.registrarMovimiento(id, { tipo, monto: parseFloat(monto), concepto, fecha, referencia }, req.usuario!.id);
+      if (tipo === TipoMovimientoCaja.EGRESO && !categoriaEgreso) {
+        R.badRequest(res, 'Debe seleccionar una categoría para el egreso'); return;
+      }
+      const data = await cajaService.registrarMovimiento(id, {
+        tipo,
+        monto: parseFloat(monto),
+        concepto,
+        fecha,
+        referencia,
+        categoriaEgreso: tipo === TipoMovimientoCaja.EGRESO ? categoriaEgreso : undefined,
+        vehiculoId: vehiculoId ? parseInt(vehiculoId) : undefined,
+      }, req.usuario!.id);
       R.created(res, data, 'Movimiento registrado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'Caja no encontrada') R.notFound(res, msg);
-      else if (msg.includes('cerrada') || msg.includes('No puede') || msg.includes('mayor a')) R.badRequest(res, msg);
+      else if (
+        msg.includes('cerrada') || msg.includes('No puede') || msg.includes('mayor a') ||
+        msg.includes('categoría') || msg.includes('no encontrado')
+      ) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }
@@ -165,18 +179,20 @@ export class CajaController {
     try {
       const movimientoId = parseInt(req.params.movimientoId);
       if (isNaN(movimientoId)) { R.badRequest(res, 'ID inválido'); return; }
-      const { monto, concepto, fecha, referencia } = req.body;
+      const { monto, concepto, fecha, referencia, categoriaEgreso, vehiculoId } = req.body;
       const dto: any = {};
-      if (monto !== undefined)      dto.monto      = parseFloat(monto);
-      if (concepto !== undefined)   dto.concepto   = concepto;
-      if (fecha !== undefined)      dto.fecha      = fecha;
-      if (referencia !== undefined) dto.referencia = referencia;
+      if (monto !== undefined)          dto.monto           = parseFloat(monto);
+      if (concepto !== undefined)       dto.concepto        = concepto;
+      if (fecha !== undefined)          dto.fecha           = fecha;
+      if (referencia !== undefined)     dto.referencia      = referencia;
+      if (categoriaEgreso !== undefined) dto.categoriaEgreso = categoriaEgreso;
+      if (vehiculoId !== undefined)     dto.vehiculoId      = vehiculoId ? parseInt(vehiculoId) : null;
       const data = await cajaService.editarMovimiento(movimientoId, dto, req.usuario!.id);
       R.ok(res, data, 'Movimiento actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('no encontrado')) R.notFound(res, msg);
-      else if (msg.includes('No se puede') || msg.includes('No puede') || msg.includes('mayor a')) R.badRequest(res, msg);
+      else if (msg.includes('No se puede') || msg.includes('No puede') || msg.includes('mayor a') || msg.includes('solo aplica')) R.badRequest(res, msg);
       else R.serverError(res, e);
     }
   }

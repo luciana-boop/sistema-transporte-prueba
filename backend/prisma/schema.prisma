@@ -340,6 +340,14 @@ model MovimientoCaja {
   // BUG 5 FIX: fecha editable y referencia externa
   fecha              DateTime?          @map("fecha")
   referencia         String?
+  // Categoría del egreso (mismo catálogo que Movimientos: TablaMaestra tipo
+  // 'categoria_egreso'), requerida para movimientos EGRESO. Permite que un
+  // gasto pagado con caja chica (ej. mantenimiento) sea visible en los mismos
+  // reportes que los egresos registrados en Movimientos.
+  categoriaEgreso    String?            @map("categoria_egreso")
+  // Vehículo asociado, opcional — habilita agrupar por vehículo en el reporte
+  // de Mantenimiento cuando categoriaEgreso = MANTENIMIENTO.
+  vehiculoId         Int?               @map("vehiculo_id")
   // MEJORA 2: anulación lógica (false = activo, true = anulado; default false)
   anulado            Boolean            @default(false)
   pagoId             Int?               @map("pago_id")
@@ -350,6 +358,7 @@ model MovimientoCaja {
   creadoPorId        Int?               @map("creado_por_id")
 
   caja             Caja                @relation(fields: [cajaId], references: [id])
+  vehiculo         Vehiculo?           @relation(fields: [vehiculoId], references: [id])
   movimientoCuenta MovimientoCuentaV2? @relation("MovCajaCuenta", fields: [movimientoCuentaId], references: [id])
   creadoPor        Usuario?            @relation("MovimientoCajaCreadoPor", fields: [creadoPorId], references: [id])
 
@@ -431,6 +440,7 @@ model Vehiculo {
   guias            Guia[]
   guiasComoCarreta Guia[]                 @relation("GuiaVehiculoCarreta")
   mantenimientos   MantenimientoDetalle[]
+  movimientosCaja  MovimientoCaja[]
   pedidos          Pedido[]
   creadoPor        Usuario?               @relation("VehiculoCreadoPor", fields: [creadoPorId], references: [id])
   actualizadoPor   Usuario?               @relation("VehiculoActualizadoPor", fields: [actualizadoPorId], references: [id])

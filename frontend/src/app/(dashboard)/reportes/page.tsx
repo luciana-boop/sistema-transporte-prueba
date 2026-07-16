@@ -473,7 +473,7 @@ export default function ReportesPage() {
                   <Tr key={e.id}>
                     <Td><span className="text-sm">{formatDate(e.fecha)}</span></Td>
                     <Td><span className="text-sm font-medium">{e.concepto}</span></Td>
-                    <Td><span className="text-xs text-muted-foreground">{e.cuenta?.nombre ?? '—'}</span></Td>
+                    <Td><span className="text-xs text-muted-foreground">{e.cuenta?.nombre ?? 'Caja chica'}</span></Td>
                     <Td className="text-right"><span className="font-semibold text-destructive">{formatCurrency(Number(e.monto))}</span></Td>
                   </Tr>
                 )) : <tr><td colSpan={4}><EmptyState message="Sin egresos en el período" /></td></tr>}
