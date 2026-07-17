@@ -10,6 +10,7 @@
 
 import prisma from '../../prisma/client';
 import { paginar, PaginacionQuery } from '../../utils/pagination';
+import { fechaHoraSunat } from '../../utils/horario';
 import { configuracionService } from '../configuracion/configuracion.service';
 import {
   enviarGuiaSunat,
@@ -312,7 +313,12 @@ export const guiasService = {
           creadoPorId: usuarioId,
           motivoTraslado: dto.motivoTraslado ?? '01',
           modalidadTransporte: dto.modalidadTransporte ?? '02',
-          fechaInicioTraslado: dto.fechaInicioTraslado ? new Date(dto.fechaInicioTraslado) : undefined,
+          // dto.fechaInicioTraslado llega como "YYYY-MM-DD" (input type=date,
+          // sin hora). new Date("YYYY-MM-DD") lo ancla a medianoche UTC, no
+          // medianoche Peru -- al mostrarlo despues en hora local (navegador
+          // en Lima, PDF, etc.) aparece un dia antes ("ayer"). Anclar
+          // explicitamente a medianoche Peru (-05:00) evita el corrimiento.
+          fechaInicioTraslado: dto.fechaInicioTraslado ? new Date(`${dto.fechaInicioTraslado}T00:00:00-05:00`) : undefined,
           ubigeoOrigen,
           direccionPartida,
           ubigeoDestino,
@@ -462,7 +468,13 @@ export const guiasService = {
     ]);
     if (!guia) return;
 
-    const fechaISO = (d: Date | null | undefined) => (d ?? guia.fechaEmision).toISOString().slice(0, 10);
+    // fechaHoraSunat() extrae el dia calendario en hora de Peru en vez de
+    // usar .toISOString() (que da UTC). Para fechaEmision (instante real,
+    // con hora) esto evita el corrimiento a "mañana" cerca de medianoche.
+    // Para fechaInicioTraslado, que ya se ancla a medianoche Peru al
+    // parsearse (ver crear()), extraer el dia en hora Peru sigue dando el
+    // dia correcto -- no reintroduce el bug de "ayer".
+    const fechaISO = (d: Date | null | undefined) => fechaHoraSunat(d ?? guia.fechaEmision).fecha;
     const serie = guia.serie ?? '';
     const numero = serie && guia.numero.startsWith(`${serie}-`) ? guia.numero.slice(serie.length + 1) : guia.numero;
 

@@ -25,6 +25,31 @@ export function obtenerDiaYHoraActual(): { dia: number; hora: string } {
   return { dia: DIAS_ISO[weekday], hora: `${hour}:${minute}` };
 }
 
+// Formatea un Date real (con hora) a fecha en horario de Peru para el
+// payload de cutyfact. `.toISOString()` siempre devuelve UTC: cualquier
+// instante creado entre las 19:00 y 23:59 hora Peru queda con la fecha del
+// dia siguiente si se usa directamente, porque Lima es UTC-5 fijo (sin
+// horario de verano) y nadie fija TZ=America/Lima en el proceso.
+export function fechaHoraSunat(fecha: Date): { fecha: string; hora: string } {
+  const partes = new Intl.DateTimeFormat('en-US', {
+    timeZone: ZONA_HORARIA,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(fecha);
+
+  const valor = (tipo: string) => partes.find((p) => p.type === tipo)!.value;
+
+  return {
+    fecha: `${valor('year')}-${valor('month')}-${valor('day')}`,
+    hora: `${valor('hour')}:${valor('minute')}:${valor('second')}`,
+  };
+}
+
 export interface RestriccionHorario {
   diasPermitidos: number[];
   horaInicio: string | null;
