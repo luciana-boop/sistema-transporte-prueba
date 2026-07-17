@@ -6,4 +6,5 @@ export type EstadoPedido = 'PENDIENTE' | 'EN_RUTA' | 'ENTREGADO' | 'FACTURADO' |
 export type EstadoFactura = 'EMITIDA' | 'PAGADA' | 'PENDIENTE' | 'ANULADA';
 export type EstadoCaja = 'ABIERTA' | 'CERRADA';
 export type TipoMovimientoCaja = 'INGRESO' | 'EGRESO';
-export type CondicionPago = 'CONTADO' | 'CREDITO_15' | 'CREDITO_30' | 'CREDITO_60';
+// 'CONTADO' o el código de un TablaMaestra tipo='tipo_credito' (ver Configuración)
+export type CondicionPago = string;

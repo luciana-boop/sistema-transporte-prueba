@@ -3,12 +3,16 @@
 //   - Agrega GET /facturacion/unidades-medida  → sin autenticación de admin
 //     (accesible desde el módulo Facturación para poblar los selects)
 //   - Agrega GET /facturacion/codigos-factura   → ídem
+//   - Agrega GET /creditos/tipos → tipos de crédito activos, usado por
+//     Clientes (condición de pago) y Facturación (tipo crédito)
 //   - El resto de rutas NO se modifica
 
+import { Request, Response, NextFunction } from 'express';
 import { Router } from 'express';
 import { configuracionController } from './configuracion.controller';
 import { verificarToken } from '../../middleware/auth.middleware';
 import { verificarModulo } from '../../middleware/permisos.middleware';
+import { permisosService } from '../permisos/permisos.service';
 
 const router = Router();
 
@@ -27,6 +31,33 @@ router.get(
   verificarToken,
   verificarModulo('facturacion'),
   configuracionController.getCodigosFactura.bind(configuracionController),
+);
+
+// Tipos de crédito: los usan tanto Clientes (condición de pago) como
+// Facturación (tipo crédito), así que se acepta cualquiera de los dos módulos.
+const verificarModuloClientesOFacturacion = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const usuarioId = req.usuario?.id;
+  if (!usuarioId) { res.status(401).json({ success: false, error: 'No autenticado' }); return; }
+  try {
+    const [tieneClientes, tieneFacturacion] = await Promise.all([
+      permisosService.tienePermisoModulo(usuarioId, 'clientes'),
+      permisosService.tienePermisoModulo(usuarioId, 'facturacion'),
+    ]);
+    if (!tieneClientes && !tieneFacturacion) {
+      res.status(403).json({ success: false, error: 'No tenés permiso para acceder a este recurso' });
+      return;
+    }
+    next();
+  } catch (error) {
+    console.error('[verificarModuloClientesOFacturacion]', error);
+    res.status(500).json({ success: false, error: 'Error al verificar permisos' });
+  }
+};
+router.get(
+  '/creditos/tipos',
+  verificarToken,
+  verificarModuloClientesOFacturacion,
+  configuracionController.getTiposCredito.bind(configuracionController),
 );
 
 // ── Resto de rutas: requiere permiso de módulo (ADMIN siempre pasa) ────────────

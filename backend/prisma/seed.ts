@@ -1,7 +1,7 @@
 // FILE: prisma/seed.ts
 
 import {
-  PrismaClient, Rol, CondicionPago, EstadoPedido, EstadoFactura,
+  PrismaClient, Rol, EstadoPedido, EstadoFactura,
   EstadoCaja, TipoMovimientoCaja, TipoVehiculo, CategoriaDetalle,
 } from '@prisma/client';
 import bcrypt from 'bcryptjs';
@@ -46,16 +46,16 @@ async function main() {
 
   // ── CLIENTES (10) ─────────────────────────────────────────────────────────
   const [c1, c2, c3, c4, c5, c6, c7, c8, c9, c10] = await Promise.all([
-    prisma.cliente.upsert({ where: { ruc: '20123456789' }, update: {}, create: { razonSocial: 'Distribuidora Lima S.A.C.', ruc: '20123456789', direccion: 'Av. Industrial 1234, Lima', telefono: '01-2345678', email: 'contacto@distribuidoralima.com', condicionPago: CondicionPago.CREDITO_30 } }),
-    prisma.cliente.upsert({ where: { ruc: '20987654321' }, update: {}, create: { razonSocial: 'Exportaciones Norte E.I.R.L.', ruc: '20987654321', direccion: 'Jr. Comercio 567, Trujillo', telefono: '044-567890', email: 'admin@exportnorte.pe', condicionPago: CondicionPago.CREDITO_15 } }),
-    prisma.cliente.upsert({ where: { ruc: '10456789012' }, update: {}, create: { razonSocial: 'Juan Pérez Quispe', ruc: '10456789012', direccion: 'Calle Los Pinos 89, Arequipa', telefono: '054-234567', condicionPago: CondicionPago.CONTADO } }),
-    prisma.cliente.upsert({ where: { ruc: '20345678901' }, update: {}, create: { razonSocial: 'Minera Andina S.A.C.', ruc: '20345678901', direccion: 'Av. Minería 450, Cerro de Pasco', telefono: '063-456789', email: 'logistica@mineraandina.com', condicionPago: CondicionPago.CREDITO_60 } }),
-    prisma.cliente.upsert({ where: { ruc: '20456789013' }, update: {}, create: { razonSocial: 'Agrícola San Martín E.I.R.L.', ruc: '20456789013', direccion: 'Carretera Yurimaguas Km 12, San Martín', telefono: '042-678901', email: 'ventas@agricolasanmartin.pe', condicionPago: CondicionPago.CREDITO_30 } }),
-    prisma.cliente.upsert({ where: { ruc: '20567890124' }, update: {}, create: { razonSocial: 'Textiles Miraflores S.A.', ruc: '20567890124', direccion: 'Jr. Ica 890, Miraflores, Lima', telefono: '01-4567890', email: 'despacho@textilesmiraflores.com', condicionPago: CondicionPago.CREDITO_30 } }),
-    prisma.cliente.upsert({ where: { ruc: '20678901235' }, update: {}, create: { razonSocial: 'Importaciones Callao S.R.L.', ruc: '20678901235', direccion: 'Av. Néstor Gambetta 2345, Callao', telefono: '01-5678901', condicionPago: CondicionPago.CONTADO } }),
-    prisma.cliente.upsert({ where: { ruc: '20789012346' }, update: {}, create: { razonSocial: 'Pesquera del Sur S.A.C.', ruc: '20789012346', direccion: 'Puerto de Ilo, Moquegua', telefono: '053-789012', email: 'logistica@pesqueradelsur.pe', condicionPago: CondicionPago.CREDITO_15 } }),
-    prisma.cliente.upsert({ where: { ruc: '20890123457' }, update: {}, create: { razonSocial: 'Constructora Lima Norte S.A.', ruc: '20890123457', direccion: 'Av. Universitaria 3456, Los Olivos, Lima', telefono: '01-6789012', email: 'obras@constructoraln.com', condicionPago: CondicionPago.CREDITO_60 } }),
-    prisma.cliente.upsert({ where: { ruc: '20901234568' }, update: {}, create: { razonSocial: 'Ferretería Industrial Perú E.I.R.L.', ruc: '20901234568', direccion: 'Calle Los Herreros 123, Ate, Lima', telefono: '01-7890123', email: 'pedidos@ferreteriaperu.com', condicionPago: CondicionPago.CONTADO } }),
+    prisma.cliente.upsert({ where: { ruc: '20123456789' }, update: {}, create: { razonSocial: 'Distribuidora Lima S.A.C.', ruc: '20123456789', direccion: 'Av. Industrial 1234, Lima', telefono: '01-2345678', email: 'contacto@distribuidoralima.com', condicionPago: '30' } }),
+    prisma.cliente.upsert({ where: { ruc: '20987654321' }, update: {}, create: { razonSocial: 'Exportaciones Norte E.I.R.L.', ruc: '20987654321', direccion: 'Jr. Comercio 567, Trujillo', telefono: '044-567890', email: 'admin@exportnorte.pe', condicionPago: '15' } }),
+    prisma.cliente.upsert({ where: { ruc: '10456789012' }, update: {}, create: { razonSocial: 'Juan Pérez Quispe', ruc: '10456789012', direccion: 'Calle Los Pinos 89, Arequipa', telefono: '054-234567', condicionPago: 'CONTADO' } }),
+    prisma.cliente.upsert({ where: { ruc: '20345678901' }, update: {}, create: { razonSocial: 'Minera Andina S.A.C.', ruc: '20345678901', direccion: 'Av. Minería 450, Cerro de Pasco', telefono: '063-456789', email: 'logistica@mineraandina.com', condicionPago: '60' } }),
+    prisma.cliente.upsert({ where: { ruc: '20456789013' }, update: {}, create: { razonSocial: 'Agrícola San Martín E.I.R.L.', ruc: '20456789013', direccion: 'Carretera Yurimaguas Km 12, San Martín', telefono: '042-678901', email: 'ventas@agricolasanmartin.pe', condicionPago: '30' } }),
+    prisma.cliente.upsert({ where: { ruc: '20567890124' }, update: {}, create: { razonSocial: 'Textiles Miraflores S.A.', ruc: '20567890124', direccion: 'Jr. Ica 890, Miraflores, Lima', telefono: '01-4567890', email: 'despacho@textilesmiraflores.com', condicionPago: '30' } }),
+    prisma.cliente.upsert({ where: { ruc: '20678901235' }, update: {}, create: { razonSocial: 'Importaciones Callao S.R.L.', ruc: '20678901235', direccion: 'Av. Néstor Gambetta 2345, Callao', telefono: '01-5678901', condicionPago: 'CONTADO' } }),
+    prisma.cliente.upsert({ where: { ruc: '20789012346' }, update: {}, create: { razonSocial: 'Pesquera del Sur S.A.C.', ruc: '20789012346', direccion: 'Puerto de Ilo, Moquegua', telefono: '053-789012', email: 'logistica@pesqueradelsur.pe', condicionPago: '15' } }),
+    prisma.cliente.upsert({ where: { ruc: '20890123457' }, update: {}, create: { razonSocial: 'Constructora Lima Norte S.A.', ruc: '20890123457', direccion: 'Av. Universitaria 3456, Los Olivos, Lima', telefono: '01-6789012', email: 'obras@constructoraln.com', condicionPago: '60' } }),
+    prisma.cliente.upsert({ where: { ruc: '20901234568' }, update: {}, create: { razonSocial: 'Ferretería Industrial Perú E.I.R.L.', ruc: '20901234568', direccion: 'Calle Los Herreros 123, Ate, Lima', telefono: '01-7890123', email: 'pedidos@ferreteriaperu.com', condicionPago: 'CONTADO' } }),
   ]);
   console.log('✅ Clientes (10)');
 

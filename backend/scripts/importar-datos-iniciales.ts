@@ -14,7 +14,7 @@
 
 import * as path from 'path';
 import * as XLSX from 'xlsx';
-import { PrismaClient, CondicionPago, TipoVehiculo } from '@prisma/client';
+import { PrismaClient, TipoVehiculo } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -88,6 +88,14 @@ function parsearFechaCelda(celda: unknown): Date | null {
   return null;
 }
 
+// Valores del enum antiguo (Cliente.condicionPago era CONTADO/CREDITO_15/30/60);
+// se siguen aceptando en la plantilla y se traducen al código nuevo (días).
+const CONDICION_PAGO_LEGACY: Record<string, string> = {
+  CREDITO_15: '15',
+  CREDITO_30: '30',
+  CREDITO_60: '60',
+};
+
 /** RUC -> id del cliente, para las hojas que dependen de Clientes (Contactos Adicionales). */
 async function importarClientes(wb: XLSX.WorkBook, commit: boolean) {
   const filas = leerHoja(wb, 'Clientes');
@@ -96,6 +104,8 @@ async function importarClientes(wb: XLSX.WorkBook, commit: boolean) {
   const clientesExistentes = await prisma.cliente.findMany({ select: { id: true, ruc: true } });
   const rucsExistentes = new Set(clientesExistentes.map((c) => c.ruc));
   const idPorRuc = new Map<string, number>(clientesExistentes.map((c) => [c.ruc, c.id]));
+  const tiposCreditoActivos = await prisma.tablaMaestra.findMany({ where: { tipo: 'tipo_credito', activo: true }, select: { codigo: true } });
+  const codigosCreditoValidos = new Set(tiposCreditoActivos.map((t) => t.codigo));
 
   let creados = 0;
   for (let i = FILA_DATOS_INICIO - 1; i < filas.length; i++) {
@@ -123,13 +133,15 @@ async function importarClientes(wb: XLSX.WorkBook, commit: boolean) {
       errores.push({ hoja: 'Clientes', fila: numFila, motivo: `RUC "${ruc}" duplicado (ya existe en el archivo o en la base de datos)` });
       continue;
     }
-    let condicionPago: CondicionPago = CondicionPago.CONTADO;
+    let condicionPago = 'CONTADO';
     if (condicionRaw) {
-      if (!(condicionRaw in CondicionPago)) {
-        errores.push({ hoja: 'Clientes', fila: numFila, motivo: `Condición de Pago "${condicionRaw}" inválida (usar CONTADO, CREDITO_15, CREDITO_30 o CREDITO_60)` });
+      const codigo = CONDICION_PAGO_LEGACY[condicionRaw] ?? condicionRaw;
+      if (codigo !== 'CONTADO' && !codigosCreditoValidos.has(codigo)) {
+        const opciones = ['CONTADO', ...Array.from(codigosCreditoValidos)].join(', ');
+        errores.push({ hoja: 'Clientes', fila: numFila, motivo: `Condición de Pago "${condicionRaw}" inválida (usar ${opciones})` });
         continue;
       }
-      condicionPago = CondicionPago[condicionRaw as keyof typeof CondicionPago];
+      condicionPago = codigo;
     }
 
     rucsVistos.add(ruc);

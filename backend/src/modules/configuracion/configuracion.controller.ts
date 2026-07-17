@@ -180,6 +180,11 @@ export class ConfiguracionController {
     try { R.ok(res, await configuracionService.getCodigosFactura()); } catch (e) { R.serverError(res, e); }
   }
 
+  // ── Tipos de crédito (para Clientes y Facturación) ──────────────────────────
+  async getTiposCredito(req: Request, res: Response): Promise<void> {
+    try { R.ok(res, await configuracionService.getTiposCredito()); } catch (e) { R.serverError(res, e); }
+  }
+
   // ── Tipos vehículo ──────────────────────────────────────────────────────────
   async getTiposVehiculo(req: Request, res: Response): Promise<void> {
     try { R.ok(res, await configuracionService.getTiposVehiculo()); } catch (e) { R.serverError(res, e); }

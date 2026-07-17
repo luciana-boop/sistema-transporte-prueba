@@ -8,8 +8,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { Plus, Search, Edit2, Trash2, Download, Eye, UserPlus } from 'lucide-react';
-import { clientesApi, fetchAllPages } from '@/services/api';
-import { getErrorMessage, CONDICION_PAGO_LABEL, PAGE_SIZE } from '@/lib/utils';
+import { clientesApi, configuracionApi, fetchAllPages } from '@/services/api';
+import { getErrorMessage, PAGE_SIZE } from '@/lib/utils';
 import { buscarPorCodigo, detectarUbigeo, type UbigeoEntry } from '@/lib/ubigeo';
 import {
   PageHeader, Button, Table, Th, Td, Tr, Badge, TableSkeleton,
@@ -32,7 +32,7 @@ const schema = z.object({
   ubigeo: z.string().optional(),
   telefono: z.string().optional(),
   email: z.string().email('Email inválido').optional().or(z.literal('')),
-  condicionPago: z.enum(['CONTADO','CREDITO_15','CREDITO_30','CREDITO_60']).default('CONTADO'),
+  condicionPago: z.string().default('CONTADO'),
 });
 type FormData = z.infer<typeof schema>;
 
@@ -180,6 +180,20 @@ export default function ClientesPage() {
     enabled: !!viewingId,
   });
 
+  // Tipos de crédito activos (Configuración → Tablas Maestras → Tipos de crédito).
+  // Reemplaza el enum fijo CONTADO/CREDITO_15/30/60: ahora "Condición de pago"
+  // ofrece exactamente lo que esté configurado ahí (p. ej. 7 días).
+  const { data: tiposCredito = [] } = useQuery({
+    queryKey: ['config', 'tabla', 'tipo_credito', 'activos'],
+    queryFn: () => configuracionApi.getTiposCredito().then((r) => r.data.data),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const condicionPagoLabel = (codigo: string) => {
+    if (!codigo || codigo === 'CONTADO') return 'Contado';
+    return tiposCredito.find((t) => t.codigo === codigo)?.nombre ?? `Crédito ${codigo} días`;
+  };
+
   const { register, handleSubmit, reset, setValue, watch, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
@@ -208,7 +222,7 @@ export default function ClientesPage() {
     const rows = todos.map((c) => ({
       '#': c.id, 'Razón social': c.razonSocial, RUC: c.ruc,
       Dirección: c.direccion, Ubigeo: c.ubigeo ?? '', Teléfono: c.telefono ?? '', Email: c.email ?? '',
-      'Cond. pago': CONDICION_PAGO_LABEL[c.condicionPago], Estado: c.activo ? 'Activo' : 'Inactivo',
+      'Cond. pago': condicionPagoLabel(c.condicionPago), Estado: c.activo ? 'Activo' : 'Inactivo',
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Clientes');
@@ -306,7 +320,7 @@ export default function ClientesPage() {
                 </Td>
                 <Td><span className="font-mono text-xs">{c.ruc}</span></Td>
                 <Td><span className="text-sm">{c.telefono ?? '—'}</span></Td>
-                <Td><span className="text-xs text-muted-foreground">{CONDICION_PAGO_LABEL[c.condicionPago]}</span></Td>
+                <Td><span className="text-xs text-muted-foreground">{condicionPagoLabel(c.condicionPago)}</span></Td>
                 <Td><Badge value={c.activo ? 'ABIERTA' : 'CERRADA'} label={c.activo ? 'Activo' : 'Inactivo'} /></Td>
                 <Td>
                   <div className="flex items-center justify-end gap-1">
@@ -342,7 +356,7 @@ export default function ClientesPage() {
           <div className="flex flex-col gap-5">
             <div className="flex items-center justify-between">
               <Badge value={viewing.activo ? 'ABIERTA' : 'CERRADA'} label={viewing.activo ? 'Activo' : 'Inactivo'} />
-              <span className="text-sm text-muted-foreground">{CONDICION_PAGO_LABEL[viewing.condicionPago]}</span>
+              <span className="text-sm text-muted-foreground">{condicionPagoLabel(viewing.condicionPago)}</span>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -423,8 +437,9 @@ export default function ClientesPage() {
             </FormField>
             <FormField label="Condición de pago" error={errors.condicionPago?.message}>
               <Select {...register('condicionPago')}>
-                {Object.entries(CONDICION_PAGO_LABEL).map(([v, l]) => (
-                  <option key={v} value={v}>{l}</option>
+                <option value="CONTADO">Contado</option>
+                {tiposCredito.map((t) => (
+                  <option key={t.codigo} value={t.codigo}>{t.nombre}</option>
                 ))}
               </Select>
             </FormField>

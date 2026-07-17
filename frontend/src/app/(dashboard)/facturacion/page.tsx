@@ -59,33 +59,16 @@ function calcularDesdeTotal(
   return { subtotal, igv, total, detraccion };
 }
 
-// ─── MAPEO TIPO CRÉDITO → DÍAS (espejo del backend) ──────────────────────────
-const DIAS_POR_TIPO_CREDITO: Record<string, number> = {
-  '':    0,
-  '0':   0,
-  '7':   7,
-  '15':  15,
-  '30':  30,
-  '45':  45,
-  '60':  60,
-};
-
-// El cliente guarda su condición de pago como enum (no como número de días);
-// se traduce a la opción de "Tipo crédito" del formulario de factura para
-// autocompletar el campo al seleccionar el cliente.
-const CONDICION_PAGO_A_TIPO_CREDITO: Record<string, string> = {
-  CONTADO:    '',
-  CREDITO_15: '15',
-  CREDITO_30: '30',
-  CREDITO_60: '60',
-};
-
+// ─── TIPO CRÉDITO → DÍAS (espejo del backend) ────────────────────────────────
+// El código de un tipo de crédito ES la cantidad de días (p. ej. '7', '45'),
+// así que se parsea directo en vez de un mapa fijo con las opciones default.
 function calcularFechaVencimiento(fechaEmision: string, tipoCredito: string, diasCustom?: number): string {
   if (!fechaEmision) return '';
+  const parsed = parseInt(tipoCredito, 10);
   const dias =
     diasCustom !== undefined && diasCustom > 0
       ? diasCustom
-      : (DIAS_POR_TIPO_CREDITO[tipoCredito] ?? 0);
+      : (!isNaN(parsed) && parsed > 0 ? parsed : 0);
   const d = new Date(fechaEmision + 'T12:00:00'); // evita desfase TZ
   d.setDate(d.getDate() + dias);
   return d.toISOString().split('T')[0];
@@ -550,7 +533,9 @@ export default function FacturacionPage() {
     if (clienteIdVal) {
       const cliente = (clientes as any[]).find((c: any) => String(c.id) === clienteIdVal);
       if (cliente?.condicionPago != null) {
-        const tipo = CONDICION_PAGO_A_TIPO_CREDITO[cliente.condicionPago] ?? '';
+        // Cliente.condicionPago ya guarda 'CONTADO' o el código de días de
+        // crédito (p. ej. '7'), el mismo formato que usa "Tipo crédito" aquí.
+        const tipo = cliente.condicionPago === 'CONTADO' ? '' : cliente.condicionPago;
         setValue('tipoCredito', tipo, { shouldValidate: false });
         setValue('diasCredito', '', { shouldValidate: false });
       }

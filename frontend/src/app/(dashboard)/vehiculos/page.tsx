@@ -20,9 +20,9 @@ import * as XLSX from 'xlsx';
 const schema = z.object({
   placa: z.string().min(2, 'Placa requerida').toUpperCase(),
   tipo: z.enum(['TRACTO', 'CARRETA']),
-  marca: z.string().min(1, 'Marca requerida'),
-  modelo: z.string().min(1, 'Modelo requerido'),
-  anio: z.string().min(4, 'Año requerido'),
+  marca: z.string().optional(),
+  modelo: z.string().optional(),
+  anio: z.string().optional(),
   soat: z.string().optional(),
   vencimientoSoat: z.string().optional(),
   revisionTecnica: z.string().optional(),
@@ -92,13 +92,13 @@ export default function VehiculosPage() {
   const invalidate = () => qc.invalidateQueries({ queryKey: ['vehiculos'] });
 
   const createMutation = useMutation({
-    mutationFn: (d: FormData) => vehiculosApi.crear({ ...d, anio: parseInt(d.anio), activo: true }),
+    mutationFn: (d: FormData) => vehiculosApi.crear({ ...d, anio: d.anio ? parseInt(d.anio) : null, activo: true }),
     onSuccess: () => { toast.success('Vehículo creado'); setShowForm(false); reset(); invalidate(); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 
   const updateMutation = useMutation({
-    mutationFn: (d: FormData) => vehiculosApi.actualizar(editing!.id, { ...d, anio: parseInt(d.anio) }),
+    mutationFn: (d: FormData) => vehiculosApi.actualizar(editing!.id, { ...d, anio: d.anio ? parseInt(d.anio) : null }),
     onSuccess: () => { toast.success('Vehículo actualizado'); setEditing(null); reset(); invalidate(); },
     onError: (e) => toast.error(getErrorMessage(e)),
   });
@@ -112,8 +112,8 @@ export default function VehiculosPage() {
   const openEdit = (v: Vehiculo) => {
     setEditing(v);
     const fix = (s?: string) => s?.split('T')[0] ?? '';
-    setValue('placa', v.placa); setValue('tipo', v.tipo); setValue('marca', v.marca);
-    setValue('modelo', v.modelo); setValue('anio', String(v.anio)); setValue('estado', v.estado);
+    setValue('placa', v.placa); setValue('tipo', v.tipo); setValue('marca', v.marca ?? '');
+    setValue('modelo', v.modelo ?? ''); setValue('anio', v.anio != null ? String(v.anio) : ''); setValue('estado', v.estado);
     setValue('soat', v.soat ?? ''); setValue('vencimientoSoat', fix(v.vencimientoSoat));
     setValue('revisionTecnica', v.revisionTecnica ?? ''); setValue('vencimientoRevision', fix(v.vencimientoRevision));
     setValue('ultimoMantenimiento', fix(v.ultimoMantenimiento)); setValue('proximoMantenimiento', fix(v.proximoMantenimiento));
@@ -170,11 +170,11 @@ export default function VehiculosPage() {
                 <Td><Badge value={v.tipo} label={v.tipo === 'TRACTO' ? 'Tracto' : 'Carreta'} /></Td>
                 <Td>
                   <div>
-                    <p className="text-sm font-medium">{v.marca}</p>
+                    <p className="text-sm font-medium">{v.marca || '—'}</p>
                     <p className="text-xs text-muted-foreground">{v.modelo}</p>
                   </div>
                 </Td>
-                <Td><span className="text-sm">{v.anio}</span></Td>
+                <Td><span className="text-sm">{v.anio ?? '—'}</span></Td>
                 <Td><AlertaFecha fecha={v.vencimientoSoat} label="SOAT" /></Td>
                 <Td><AlertaFecha fecha={v.vencimientoRevision} label="Revisión" /></Td>
                 <Td><Badge value={v.activo ? 'ACTIVO' : 'INACTIVO'} label={v.estado || (v.activo ? 'Operativo' : 'Inactivo')} /></Td>
@@ -215,13 +215,13 @@ export default function VehiculosPage() {
                 <option value="INACTIVO">Inactivo</option>
               </Select>
             </FormField>
-            <FormField label="Marca" required error={errors.marca?.message}>
+            <FormField label="Marca" error={errors.marca?.message}>
               <Input placeholder="Volvo" {...register('marca')} />
             </FormField>
-            <FormField label="Modelo" required error={errors.modelo?.message}>
+            <FormField label="Modelo" error={errors.modelo?.message}>
               <Input placeholder="FH 460" {...register('modelo')} />
             </FormField>
-            <FormField label="Año" required error={errors.anio?.message}>
+            <FormField label="Año" error={errors.anio?.message}>
               <Input type="number" placeholder="2020" min={1990} max={2030} {...register('anio')} />
             </FormField>
           </div>

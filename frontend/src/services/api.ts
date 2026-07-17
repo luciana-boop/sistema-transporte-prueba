@@ -647,6 +647,8 @@ export const configuracionApi = {
     api.get<ApiResponse<TablaMaestra[]>>('/api/configuracion/facturacion/unidades-medida'),
   getCodigosFactura: () =>
     api.get<ApiResponse<TablaMaestra[]>>('/api/configuracion/facturacion/codigos-factura'),
+  getTiposCredito: () =>
+    api.get<ApiResponse<TablaMaestra[]>>('/api/configuracion/creditos/tipos'),
 };
 
 // ─── CUENTAS V2 ───────────────────────────────────────────────────────────────

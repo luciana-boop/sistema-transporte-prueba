@@ -46,13 +46,6 @@ enum TipoMovimientoCaja {
   EGRESO
 }
 
-enum CondicionPago {
-  CONTADO
-  CREDITO_15
-  CREDITO_30
-  CREDITO_60
-}
-
 // ─── MODELOS ─────────────────────────────────────────────────────────────────
 
 model Usuario {
@@ -156,7 +149,10 @@ model Cliente {
   ubigeo           String?
   telefono         String?
   email            String?
-  condicionPago    CondicionPago @default(CONTADO) @map("condicion_pago")
+  // Antes era un enum fijo (CONTADO/CREDITO_15/30/60). Ahora guarda 'CONTADO'
+  // o el código de un registro activo de TablaMaestra tipo='tipo_credito',
+  // para que Configuración → Tablas Maestras controle las opciones reales.
+  condicionPago    String        @default("CONTADO") @map("condicion_pago")
   activo           Boolean       @default(true)
   creadoEn         DateTime      @default(now()) @map("creado_en")
   actualizadoEn    DateTime      @updatedAt @map("actualizado_en")
@@ -419,9 +415,9 @@ model Vehiculo {
   id                   Int          @id @default(autoincrement())
   placa                String       @unique
   tipo                 TipoVehiculo
-  marca                String
-  modelo               String
-  anio                 Int
+  marca                String?
+  modelo               String?
+  anio                 Int?
   soat                 String?
   vencimientoSoat      DateTime?    @map("vencimiento_soat")
   revisionTecnica      String?      @map("revision_tecnica")

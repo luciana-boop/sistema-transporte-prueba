@@ -26,11 +26,12 @@ export class VehiculosController {
 
   async crear(req: Request, res: Response): Promise<void> {
     try {
-      const { placa, tipo, marca, modelo, anio } = req.body;
-      if (!placa || !tipo || !marca || !modelo || !anio) {
-        R.badRequest(res, 'placa, tipo, marca, modelo y anio son requeridos'); return;
+      const { placa, tipo } = req.body;
+      if (!placa || !tipo) {
+        R.badRequest(res, 'placa y tipo son requeridos'); return;
       }
-      R.created(res, await vehiculosService.create({ ...req.body, anio: parseInt(anio) }, req.usuario!.id), 'Vehículo creado');
+      const dto = { ...req.body, anio: req.body.anio ? parseInt(req.body.anio) : null };
+      R.created(res, await vehiculosService.create(dto, req.usuario!.id), 'Vehículo creado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('ya está registrada')) R.badRequest(res, msg);
@@ -42,7 +43,8 @@ export class VehiculosController {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) { R.badRequest(res, 'ID inválido'); return; }
-      const dto = req.body.anio ? { ...req.body, anio: parseInt(req.body.anio) } : req.body;
+      const dto = { ...req.body };
+      if ('anio' in dto) dto.anio = dto.anio ? parseInt(dto.anio) : null;
       R.ok(res, await vehiculosService.update(id, dto, req.usuario!.id), 'Vehículo actualizado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';

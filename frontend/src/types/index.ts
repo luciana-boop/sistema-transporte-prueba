@@ -40,7 +40,8 @@ export type EstadoPedido = 'ACTIVO' | 'ANULADO' | 'FACTURADO';
 export type EstadoFactura = 'EMITIDA' | 'PAGADA' | 'PENDIENTE' | 'PARCIAL' | 'ANULADA';
 export type EstadoCaja   = 'ABIERTA' | 'CERRADA';
 export type TipoMov      = 'INGRESO' | 'EGRESO';
-export type CondicionPago = 'CONTADO' | 'CREDITO_15' | 'CREDITO_30' | 'CREDITO_60';
+// 'CONTADO' o el código de un TablaMaestra tipo='tipo_credito' activo (ver Configuración)
+export type CondicionPago = string;
 
 export interface Cliente {
   id: number;
@@ -319,9 +320,9 @@ export interface Vehiculo {
   id: number;
   placa: string;
   tipo: TipoVehiculo;
-  marca: string;
-  modelo: string;
-  anio: number;
+  marca?: string | null;
+  modelo?: string | null;
+  anio?: number | null;
   soat?: string;
   vencimientoSoat?: string;
   revisionTecnica?: string;

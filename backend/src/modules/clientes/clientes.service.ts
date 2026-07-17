@@ -1,7 +1,7 @@
 // FILE: src/modules/clientes/clientes.service.ts
 
 import prisma from '../../prisma/client';
-import { CondicionPago } from '../../utils/enums';
+import { CONDICION_PAGO_CONTADO } from '../../utils/enums';
 import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 export interface CreateClienteDto {
@@ -11,7 +11,7 @@ export interface CreateClienteDto {
   ubigeo?: string;
   telefono?: string;
   email?: string;
-  condicionPago?: CondicionPago;
+  condicionPago?: string;
 }
 
 export interface UpdateClienteDto extends Partial<CreateClienteDto> {
@@ -25,6 +25,16 @@ export interface ClienteContactoDto {
 }
 
 export class ClientesService {
+  private async validarCondicionPago(condicionPago?: string) {
+    if (condicionPago === undefined || condicionPago === CONDICION_PAGO_CONTADO) return;
+    const existe = await prisma.tablaMaestra.findUnique({
+      where: { tipo_codigo: { tipo: 'tipo_credito', codigo: condicionPago } },
+    });
+    if (!existe || !existe.activo) {
+      throw new Error(`Condición de pago "${condicionPago}" inválida o inactiva`);
+    }
+  }
+
   async findAll(query: { activo?: string; search?: string } & PaginacionQuery) {
     const where: any = {};
 
@@ -79,6 +89,7 @@ export class ClientesService {
   async create(dto: CreateClienteDto, usuarioId?: number) {
     const existente = await prisma.cliente.findUnique({ where: { ruc: dto.ruc } });
     if (existente) throw new Error(`Ya existe un cliente con RUC ${dto.ruc}`);
+    await this.validarCondicionPago(dto.condicionPago);
 
     return prisma.cliente.create({ data: { ...dto, creadoPorId: usuarioId } });
   }
@@ -92,6 +103,7 @@ export class ClientesService {
       });
       if (existente) throw new Error(`El RUC ${dto.ruc} ya está registrado`);
     }
+    await this.validarCondicionPago(dto.condicionPago);
 
     return prisma.cliente.update({ where: { id }, data: { ...dto, actualizadoPorId: usuarioId } });
   }

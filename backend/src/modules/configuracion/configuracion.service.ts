@@ -316,6 +316,17 @@ export class ConfiguracionService {
     });
   }
 
+  // ── Tipos de crédito (endpoint compartido: Clientes y Facturación) ──────────
+  // Devuelve solo los activos, ordenados. 'codigo' es la cantidad de días
+  // (como string) que consume Cliente.condicionPago y Factura.tipoCredito.
+  async getTiposCredito() {
+    return prisma.tablaMaestra.findMany({
+      where: { tipo: 'tipo_credito', activo: true },
+      orderBy: [{ orden: 'asc' }, { nombre: 'asc' }],
+      select: { id: true, codigo: true, nombre: true, descripcion: true, activo: true },
+    });
+  }
+
   // ── Tipos vehículo ──────────────────────────────────────────────────────────
   async getTiposVehiculo() {
     return prisma.tipoVehiculoConfig.findMany({ orderBy: { nombre: 'asc' } });

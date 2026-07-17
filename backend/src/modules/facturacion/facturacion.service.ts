@@ -69,22 +69,18 @@ export interface UpdateFacturaDto {
   lineas?: LineaFacturaDto[];
 }
 
-// ─── MAPEO TIPO CRÉDITO → DÍAS ────────────────────────────────────────────────
-const DIAS_POR_TIPO_CREDITO: Record<string, number> = {
-  '0':    0,
-  '7':    7,
-  '15':  15,
-  '30':  30,
-  '45':  45,
-  '60':  60,
-};
-
+// ─── TIPO CRÉDITO → DÍAS ───────────────────────────────────────────────────────
+// El código de un tipo de crédito (Configuración → Tablas Maestras) ES la
+// cantidad de días (p. ej. '7', '15', '45'); se parsea directo en vez de un
+// mapa fijo, para que cualquier tipo de crédito que se agregue en Configuración
+// calcule bien la fecha de vencimiento sin tener que tocar código.
 function calcularFechaVencimiento(fechaEmision: Date, tipoCredito?: string, diasCredito?: number): Date {
   let dias = 0;
   if (diasCredito !== undefined && diasCredito > 0) {
     dias = diasCredito;
-  } else if (tipoCredito && DIAS_POR_TIPO_CREDITO[tipoCredito] !== undefined) {
-    dias = DIAS_POR_TIPO_CREDITO[tipoCredito];
+  } else if (tipoCredito) {
+    const parsed = parseInt(tipoCredito, 10);
+    if (!isNaN(parsed) && parsed > 0) dias = parsed;
   }
   const fecha = new Date(fechaEmision);
   fecha.setDate(fecha.getDate() + dias);

@@ -6,9 +6,9 @@ import { paginar, PaginacionQuery } from '../../utils/pagination';
 export interface CreateVehiculoDto {
   placa: string;
   tipo: 'TRACTO' | 'CARRETA';
-  marca: string;
-  modelo: string;
-  anio: number;
+  marca?: string | null;
+  modelo?: string | null;
+  anio?: number | null;
   soat?: string;
   vencimientoSoat?: string;
   revisionTecnica?: string;

@@ -91,9 +91,7 @@ export const CLASIFICACION_MES_LABEL: Record<string, string> = {
   SIN_DATOS:   'Sin datos',
 };
 
-export const CONDICION_PAGO_LABEL: Record<string, string> = {
-  CONTADO: 'Contado',
-  CREDITO_15: 'Crédito 15 días',
-  CREDITO_30: 'Crédito 30 días',
-  CREDITO_60: 'Crédito 60 días',
-};
+// La condición de pago de un cliente ya no es un enum fijo: es 'CONTADO' o el
+// código de un tipo de crédito activo (Configuración → Tablas Maestras). Por
+// eso la etiqueta se resuelve dinámicamente — ver condicionPagoLabel() en
+// clientes/page.tsx — en vez de un mapa estático como este.

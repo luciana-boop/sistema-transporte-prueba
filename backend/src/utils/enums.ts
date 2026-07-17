@@ -30,13 +30,9 @@ export const TipoMovimientoCaja = {
 } as const;
 export type TipoMovimientoCaja = typeof TipoMovimientoCaja[keyof typeof TipoMovimientoCaja];
 
-export const CondicionPago = {
-  CONTADO:    'CONTADO',
-  CREDITO_15: 'CREDITO_15',
-  CREDITO_30: 'CREDITO_30',
-  CREDITO_60: 'CREDITO_60',
-} as const;
-export type CondicionPago = typeof CondicionPago[keyof typeof CondicionPago];
+// Condición de pago de un cliente: 'CONTADO' (sentinel fijo) o el código de un
+// registro activo de TablaMaestra tipo='tipo_credito' (ver Configuración).
+export const CONDICION_PAGO_CONTADO = 'CONTADO';
 
 export const Rol = {
   ADMIN:      'ADMIN',
