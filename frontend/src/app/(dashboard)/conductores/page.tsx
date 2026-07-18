@@ -21,7 +21,7 @@ const schema = z.object({
   nombre: z.string().min(2, 'Nombre requerido'),
   dni: z.string().length(8, 'DNI debe tener 8 dígitos'),
   licencia: z.string().min(2, 'Licencia requerida'),
-  vencimientoLicencia: z.string().min(1, 'Fecha de vencimiento requerida'),
+  vencimientoLicencia: z.string().optional(),
   telefono: z.string().optional(),
   direccion: z.string().optional(),
   observaciones: z.string().optional(),
@@ -207,7 +207,7 @@ export default function ConductoresPage() {
             <FormField label="N° Licencia" required error={errors.licencia?.message}>
               <Input placeholder="Q12345678" {...register('licencia')} />
             </FormField>
-            <FormField label="Vencimiento licencia" required error={errors.vencimientoLicencia?.message}>
+            <FormField label="Vencimiento licencia" error={errors.vencimientoLicencia?.message}>
               <Input type="date" {...register('vencimientoLicencia')} />
             </FormField>
             <div className="col-span-2">

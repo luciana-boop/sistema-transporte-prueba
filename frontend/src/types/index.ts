@@ -300,7 +300,7 @@ export interface Conductor {
   nombre: string;
   dni: string;
   licencia: string;
-  vencimientoLicencia: string;
+  vencimientoLicencia?: string | null;
   telefono?: string;
   direccion?: string;
   activo: boolean;

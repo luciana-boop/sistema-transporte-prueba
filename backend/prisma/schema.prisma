@@ -382,7 +382,7 @@ model Conductor {
   nombre              String
   dni                 String   @unique
   licencia            String
-  vencimientoLicencia DateTime @map("vencimiento_licencia")
+  vencimientoLicencia DateTime? @map("vencimiento_licencia")
   telefono            String?
   direccion           String?
   activo              Boolean  @default(true)

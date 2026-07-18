@@ -103,7 +103,7 @@ export class BackupService {
             },
             create: {
               nombre: c.nombre, dni: c.dni, licencia: c.licencia,
-              vencimientoLicencia: new Date(c.vencimientoLicencia),
+              vencimientoLicencia: c.vencimientoLicencia ? new Date(c.vencimientoLicencia) : null,
               telefono: c.telefono, direccion: c.direccion, observaciones: c.observaciones,
               tractoPreferencia: c.tractoPreferencia, carretaPreferencia: c.carretaPreferencia,
               activo: c.activo ?? true,

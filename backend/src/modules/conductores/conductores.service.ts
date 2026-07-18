@@ -7,7 +7,7 @@ export interface CreateConductorDto {
   nombre: string;
   dni: string;
   licencia: string;
-  vencimientoLicencia: string;
+  vencimientoLicencia?: string;
   telefono?: string;
   direccion?: string;
   observaciones?: string;
@@ -56,7 +56,11 @@ export class ConductoresService {
     const existe = await prisma.conductor.findUnique({ where: { dni: dto.dni } });
     if (existe) throw new Error(`Ya existe un conductor con DNI ${dto.dni}`);
     return prisma.conductor.create({
-      data: { ...dto, vencimientoLicencia: new Date(dto.vencimientoLicencia), creadoPorId: usuarioId },
+      data: {
+        ...dto,
+        vencimientoLicencia: dto.vencimientoLicencia ? new Date(dto.vencimientoLicencia) : null,
+        creadoPorId: usuarioId,
+      },
     });
   }
 
@@ -72,8 +76,8 @@ export class ConductoresService {
       where: { id },
       data: {
         ...dto,
-        vencimientoLicencia: dto.vencimientoLicencia
-          ? new Date(dto.vencimientoLicencia)
+        vencimientoLicencia: dto.vencimientoLicencia !== undefined
+          ? (dto.vencimientoLicencia ? new Date(dto.vencimientoLicencia) : null)
           : undefined,
         actualizadoPorId: usuarioId,
       },

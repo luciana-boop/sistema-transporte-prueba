@@ -27,8 +27,8 @@ export class ConductoresController {
   async crear(req: Request, res: Response): Promise<void> {
     try {
       const { nombre, dni, licencia, vencimientoLicencia, telefono, direccion, observaciones } = req.body;
-      if (!nombre || !dni || !licencia || !vencimientoLicencia) {
-        R.badRequest(res, 'nombre, dni, licencia y vencimientoLicencia son requeridos'); return;
+      if (!nombre || !dni || !licencia) {
+        R.badRequest(res, 'nombre, dni y licencia son requeridos'); return;
       }
       R.created(res, await conductoresService.create({ nombre, dni, licencia, vencimientoLicencia, telefono, direccion, observaciones }, req.usuario!.id), 'Conductor creado');
     } catch (e) {

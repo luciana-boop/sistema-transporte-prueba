@@ -391,7 +391,7 @@ export default function PedidosPage() {
             <FormField label="Vehículo" error={errors.vehiculoId?.message} hint="Placa asignada al viaje (opcional)">
               <Select {...register('vehiculoId')}>
                 <option value="">Sin vehículo asignado</option>
-                {vehiculos.map((v) => (
+                {vehiculos.filter((v: any) => v.tipo === 'TRACTO').map((v) => (
                   <option key={v.id} value={v.id}>{v.placa} — {v.marca} {v.modelo}</option>
                 ))}
               </Select>
