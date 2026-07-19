@@ -237,9 +237,6 @@ export default function VehiculosPage() {
             <FormField label="Vencimiento SOAT" error={errors.vencimientoSoat?.message}>
               <Input type="date" {...register('vencimientoSoat')} />
             </FormField>
-            <FormField label="N° TUCE / Habilitación Vehicular" hint="Tarjeta Única de Circulación (MTC) — va en la guía SUNAT" error={errors.tuce?.message}>
-              <Input placeholder="15M24012314E" {...register('tuce')} />
-            </FormField>
             <FormField label="N° Rev. Técnica" error={errors.revisionTecnica?.message}>
               <Input placeholder="Número de certificado" {...register('revisionTecnica')} />
             </FormField>
@@ -252,6 +249,11 @@ export default function VehiculosPage() {
             <FormField label="Próximo mantenimiento" error={errors.proximoMantenimiento?.message}>
               <Input type="date" {...register('proximoMantenimiento')} />
             </FormField>
+            <div className="col-span-2">
+              <FormField label="N° TUCE / Habilitación Vehicular" error={errors.tuce?.message}>
+                <Input placeholder="15M24012314E" {...register('tuce')} />
+              </FormField>
+            </div>
           </div>
 
           <FormField label="Observaciones" error={errors.observaciones?.message}>

@@ -200,7 +200,7 @@ export default function ConductoresPage() {
       <Modal open={modalOpen} onClose={() => { setShowForm(false); setEditing(null); reset(); }} title={editing ? 'Editar conductor' : 'Nuevo conductor'}>
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-3">
-            <FormField label="Apellidos" required hint="Como figuran en el DNI (la guía SUNAT los pide separados)" error={errors.apellidos?.message}>
+            <FormField label="Apellidos" required error={errors.apellidos?.message}>
               <Input placeholder="Pérez García" {...register('apellidos')} />
             </FormField>
             <FormField label="Nombres" required error={errors.nombres?.message}>

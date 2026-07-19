@@ -517,7 +517,7 @@ export default function GuiasPage() {
                   <option value="TRANSPORTISTA">31 - Guía de Remisión Transportista</option>
                 </Select>
               </FormField>
-              <FormField label="Serie" hint={`SUNAT exige prefijo "${prefijoSerie}" para este tipo`}>
+              <FormField label="Serie">
                 <Select {...register('serie')}>
                   {seriesDelTipo.length === 0 && <option value={`${prefijoSerie}001`}>{prefijoSerie}001 (default)</option>}
                   {seriesDelTipo.map(s => (
@@ -716,11 +716,11 @@ export default function GuiasPage() {
                 <FormField label="Razón social transportista *" error={errors.razonSocialTransportista?.message}>
                   <Input placeholder="EMPRESA DE TRANSPORTES S.A.C." {...register('razonSocialTransportista')} />
                 </FormField>
-                <FormField label="N° registro MTC">
-                  <Input placeholder="MTC-001234" {...register('numRegistroMTC')} />
-                </FormField>
                 <FormField label="Placa del vehículo">
                   <Input placeholder="ABC-123" {...register('placaTransportista')} />
+                </FormField>
+                <FormField label="N° registro MTC">
+                  <Input placeholder="MTC-001234" {...register('numRegistroMTC')} />
                 </FormField>
                 <div className="col-span-2 border-t pt-3 space-y-2">
                   <div className="flex items-center justify-between">
@@ -770,7 +770,7 @@ export default function GuiasPage() {
             )}
             {esTransportista && (
               <div className="grid grid-cols-4 gap-4 mt-4">
-                <FormField label="Doc. relacionado *" hint="GRE Remitente del remitente, o Factura/Boleta si no la emite" error={errors.docRelTipo?.message}>
+                <FormField label="Doc. relacionado *" error={errors.docRelTipo?.message}>
                   <Select {...register('docRelTipo')}>
                     <option value="">Seleccione</option>
                     {DOCUMENTOS_RELACIONADOS.map((d) => <option key={d.code} value={d.code}>{d.label}</option>)}
@@ -782,7 +782,7 @@ export default function GuiasPage() {
                 <FormField label="Número *" error={errors.docRelNumero?.message}>
                   <Input placeholder="Número" {...register('docRelNumero')} />
                 </FormField>
-                <FormField label="RUC emisor *" hint="RUC de quien emitió el documento relacionado" error={errors.docRelRucEmisor?.message}>
+                <FormField label="RUC emisor *" error={errors.docRelRucEmisor?.message}>
                   <Input placeholder="RUC" maxLength={11} {...register('docRelRucEmisor')} />
                 </FormField>
               </div>
