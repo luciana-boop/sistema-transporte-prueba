@@ -18,6 +18,19 @@
       "env": {
         "PORT": "3999"
       }
+    },
+    {
+      "name": "backend-docker-test",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "backend"],
+      "port": 3999,
+      "env": {
+        "PORT": "3999",
+        "DATABASE_URL": "postgresql://postgres:localtest123@localhost:55432/transporte_test",
+        "DIRECT_URL": "postgresql://postgres:localtest123@localhost:55432/transporte_test",
+        "CUTYFACT_API_URL": "http://127.0.0.1:1/deshabilitado-en-pruebas-locales",
+        "CUTYFACT_API_KEY": "TEST-DISABLED"
+      }
     }
   ]
 }

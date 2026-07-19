@@ -9,6 +9,9 @@ export interface CreateVehiculoDto {
   marca?: string | null;
   modelo?: string | null;
   anio?: number | null;
+  // Tarjeta Única de Circulación / Cert. Habilitación Vehicular (MTC) — se
+  // declara por vehículo en la GRE.
+  tuce?: string | null;
   soat?: string;
   vencimientoSoat?: string;
   revisionTecnica?: string;

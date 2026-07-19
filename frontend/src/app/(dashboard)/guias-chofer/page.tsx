@@ -36,9 +36,9 @@ const schema = z.object({
   clienteNombre: z.string().optional(),
   clienteNumDoc: z.string().optional(),
   fechaInicioTraslado: z.string().min(1, 'Requerido'),
-  ubigeoOrigen: z.string().optional(),
+  ubigeoOrigen: z.string().min(1, 'Requerido').max(6, 'Ubigeo inválido'),
   direccionPartida: z.string().min(1, 'Requerido'),
-  ubigeoDestino: z.string().optional(),
+  ubigeoDestino: z.string().min(1, 'Requerido').max(6, 'Ubigeo inválido'),
   direccionEntrega: z.string().min(1, 'Requerido'),
   vehiculoId: z.string().min(1, 'Seleccioná el tracto'),
   vehiculoCarretaId: z.string().optional(),
@@ -253,10 +253,14 @@ export default function GuiasChoferPage() {
             ))}
           </div>
         )}
-        {ubigeoOrigenResuelto && (
+        {ubigeoOrigenResuelto ? (
           <p className="text-xs text-muted-foreground -mt-2">
             Ubigeo detectado: {ubigeoOrigenResuelto.distrito}, {ubigeoOrigenResuelto.provincia}
           </p>
+        ) : (
+          <FormField label="Ubigeo de partida (código INEI)" required hint="Si no se detectó solo, escribilo a mano" error={errors.ubigeoOrigen?.message}>
+            <Input placeholder="150101" maxLength={6} {...register('ubigeoOrigen')} />
+          </FormField>
         )}
 
         {/* Destinatario */}
@@ -314,10 +318,14 @@ export default function GuiasChoferPage() {
             ))}
           </div>
         )}
-        {ubigeoDestinoResuelto && (
+        {ubigeoDestinoResuelto ? (
           <p className="text-xs text-muted-foreground -mt-2">
             Ubigeo detectado: {ubigeoDestinoResuelto.distrito}, {ubigeoDestinoResuelto.provincia}
           </p>
+        ) : (
+          <FormField label="Ubigeo de destino (código INEI)" required hint="Si no se detectó solo, escribilo a mano" error={errors.ubigeoDestino?.message}>
+            <Input placeholder="150201" maxLength={6} {...register('ubigeoDestino')} />
+          </FormField>
         )}
 
         <div className="grid grid-cols-2 gap-3">

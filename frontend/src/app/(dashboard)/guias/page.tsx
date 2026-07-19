@@ -50,12 +50,12 @@ const guiaSchema = z.object({
   motivoTraslado: z.string().default('01'),
   modalidadTransporte: z.string().default('02'),
   fechaInicioTraslado: z.string().optional(),
-  // Partida
-  ubigeoOrigen: z.string().optional(),
-  direccionPartida: z.string().optional(),
-  // Llegada
-  ubigeoDestino: z.string().optional(),
-  direccionEntrega: z.string().optional(),
+  // Partida — obligatorio en toda GRE (SUNAT no puede validar el traslado sin punto de partida).
+  ubigeoOrigen: z.string().min(1, 'Requerido').max(6, 'Ubigeo inválido'),
+  direccionPartida: z.string().min(1, 'Requerido'),
+  // Llegada — ídem.
+  ubigeoDestino: z.string().min(1, 'Requerido').max(6, 'Ubigeo inválido'),
+  direccionEntrega: z.string().min(1, 'Requerido'),
   // Transporte público
   rucTransportista: z.string().optional(),
   razonSocialTransportista: z.string().optional(),
@@ -72,8 +72,8 @@ const guiaSchema = z.object({
   docRelSerie: z.string().optional(),
   docRelNumero: z.string().optional(),
   docRelRucEmisor: z.string().optional(),
-  // Carga
-  pesoTotal: z.string().optional(),
+  // Carga — peso bruto total obligatorio (Art. 19 Reglamento de Comprobantes de Pago).
+  pesoTotal: z.string().min(1, 'Requerido'),
   observaciones: z.string().optional(),
   detalles: z.array(detalleSchema).min(1),
 }).superRefine((data, ctx) => {
@@ -84,6 +84,17 @@ const guiaSchema = z.object({
     if (!data.docRelTipo) ctx.addIssue({ code: 'custom', path: ['docRelTipo'], message: 'Requerido en guía Transportista' });
     if (!data.docRelNumero) ctx.addIssue({ code: 'custom', path: ['docRelNumero'], message: 'Requerido en guía Transportista' });
     if (!data.docRelRucEmisor) ctx.addIssue({ code: 'custom', path: ['docRelRucEmisor'], message: 'Requerido en guía Transportista' });
+  } else if (data.modalidadTransporte === '01') {
+    // Remitente, modalidad pública: transportista tercero obligatorio.
+    if (!data.rucTransportista) ctx.addIssue({ code: 'custom', path: ['rucTransportista'], message: 'Requerido en modalidad pública' });
+    if (!data.razonSocialTransportista) ctx.addIssue({ code: 'custom', path: ['razonSocialTransportista'], message: 'Requerido en modalidad pública' });
+  } else {
+    // Remitente, modalidad privada: conductor y vehículo propios obligatorios.
+    if (!data.conductorId) ctx.addIssue({ code: 'custom', path: ['conductorId'], message: 'Requerido en modalidad privada' });
+    if (!data.vehiculoId) ctx.addIssue({ code: 'custom', path: ['vehiculoId'], message: 'Requerido en modalidad privada' });
+  }
+  if (!data.pesoTotal || Number(data.pesoTotal) <= 0) {
+    ctx.addIssue({ code: 'custom', path: ['pesoTotal'], message: 'El peso bruto total debe ser mayor a 0' });
   }
   const tieneCliente = !!data.clienteId;
   const tieneDni = !!(data.clienteNombre && data.clienteNumDoc);
@@ -140,7 +151,7 @@ export default function GuiasPage() {
     queryFn: () => guiasApi.pendientesSunat().then(r => r.data.data ?? []),
   });
 
-  const { register, control, handleSubmit, reset, watch, setValue, formState: { isSubmitting, errors } } = useForm<GuiaForm>({
+  const { register, control, handleSubmit, reset, watch, setValue, getValues, formState: { isSubmitting, errors } } = useForm<GuiaForm>({
     resolver: zodResolver(guiaSchema),
     defaultValues: {
       tipoGuia: 'REMITENTE',
@@ -197,22 +208,33 @@ export default function GuiasPage() {
   const ubigeoOrigenResuelto = buscarPorCodigo(ubigeoOrigenVal);
   const ubigeoDestinoResuelto = buscarPorCodigo(ubigeoDestinoVal);
 
-  // Series con tipoDocumento = 'GUIA' — selector + precarga de la primera.
+  // Series con tipoDocumento = 'GUIA'. SUNAT exige que la serie por API
+  // empiece con T (Remitente 09) o V (Transportista 31) — se filtra el
+  // selector según el tipo elegido y se precarga la primera que aplique.
   const { data: seriesGuia = [] } = useQuery({
     queryKey: ['configuracion', 'series'],
     queryFn: () => configuracionApi.getSeries().then(r => (r.data.data ?? []).filter(s => s.tipoDocumento === 'GUIA' && s.activo)),
   });
+  const prefijoSerie = esTransportista ? 'V' : 'T';
+  const seriesDelTipo = seriesGuia.filter(s => s.serie.toUpperCase().startsWith(prefijoSerie));
+
+  const ubigeoEmpresaVal = config.get('empresa_ubigeo');
 
   useEffect(() => {
     if (!showForm) return;
-    if (!serieVal && seriesGuia.length > 0) {
-      setValue('serie', seriesGuia[0].serie);
+    // Precargar (o corregir al cambiar el tipo) la serie que corresponde al
+    // prefijo del tipo elegido.
+    const serieActualValida = !!serieVal && serieVal.toUpperCase().startsWith(prefijoSerie);
+    if (!serieActualValida) {
+      setValue('serie', seriesDelTipo[0]?.serie ?? `${prefijoSerie}001`);
     }
-    // Dirección de la empresa (Configuración) — autocompleta direccionPartida.
-    if (!direccionPartidaVal && config.direccion) {
-      setValue('direccionPartida', config.direccion);
-    }
-  }, [showForm, seriesGuia, config.direccion, serieVal, direccionPartidaVal, setValue]);
+    // OJO: el punto de partida NO se autocompleta más con la dirección de la
+    // empresa acá — no siempre el traslado empieza en el local propio (puede
+    // ser el almacén del remitente, el origen del pedido, etc.). Se completa
+    // desde el pedido o el remitente elegido (ver handlePedidoChange /
+    // handleRemitenteChange), o el usuario lo tipea. El botón "Usar dirección
+    // de mi empresa" más abajo sigue disponible para cuando sí corresponde.
+  }, [showForm, seriesGuia, serieVal, prefijoSerie, seriesDelTipo, setValue]);
 
   const { data: pedidosPendientes = [], isFetching: loadingPedidos } = useQuery({
     queryKey: ['pedidos', 'disponibles', clienteIdNum],
@@ -248,6 +270,11 @@ export default function GuiasPage() {
       cantidad: '1',
       unidadMedida: 'NIU',
     }]);
+    // El pedido es la fuente más específica de dónde arranca/termina ESTE
+    // traslado — mejor que la dirección genérica de la empresa. Solo si el
+    // campo sigue vacío, para no pisar algo que el usuario ya haya tocado.
+    if (!getValues('direccionPartida') && pedido.origen) setValue('direccionPartida', pedido.origen);
+    if (!getValues('direccionEntrega') && pedido.destino) setValue('direccionEntrega', pedido.destino);
   };
 
   // Al elegir cliente, autocompleta dirección de destino desde el cliente
@@ -262,6 +289,22 @@ export default function GuiasPage() {
       const cliente = r.data.data;
       if (cliente?.direccion) setValue('direccionEntrega', cliente.direccion);
       if (cliente?.ubigeo) setValue('ubigeoDestino', cliente.ubigeo);
+    } catch { /* autocompletado best-effort */ }
+  };
+
+  // Guía Transportista: el remitente es quien origina el traslado, así que
+  // su dirección registrada es el punto de partida más probable (igual
+  // criterio que ya usa el formulario reducido de chofer) — solo si el
+  // usuario todavía no completó el campo a mano.
+  const handleRemitenteChange = async (opt: { id: number | string; label: string } | null) => {
+    setRemitenteOpt(opt);
+    setValue('remitenteId', opt ? String(opt.id) : '');
+    if (!opt) return;
+    try {
+      const r = await clientesApi.obtener(Number(opt.id));
+      const cliente = r.data.data;
+      if (cliente?.direccion && !getValues('direccionPartida')) setValue('direccionPartida', cliente.direccion);
+      if (cliente?.ubigeo && !getValues('ubigeoOrigen')) setValue('ubigeoOrigen', cliente.ubigeo);
     } catch { /* autocompletado best-effort */ }
   };
 
@@ -474,10 +517,10 @@ export default function GuiasPage() {
                   <option value="TRANSPORTISTA">31 - Guía de Remisión Transportista</option>
                 </Select>
               </FormField>
-              <FormField label="Serie">
+              <FormField label="Serie" hint={`SUNAT exige prefijo "${prefijoSerie}" para este tipo`}>
                 <Select {...register('serie')}>
-                  {seriesGuia.length === 0 && <option value="">GUI1 (default)</option>}
-                  {seriesGuia.map(s => (
+                  {seriesDelTipo.length === 0 && <option value={`${prefijoSerie}001`}>{prefijoSerie}001 (default)</option>}
+                  {seriesDelTipo.map(s => (
                     <option key={s.id} value={s.serie}>{s.serie}</option>
                   ))}
                 </Select>
@@ -490,7 +533,7 @@ export default function GuiasPage() {
                       return (r.data.data?.items ?? []).map((c: any) => ({ id: c.id, label: c.razonSocial }));
                     }}
                     value={remitenteOpt}
-                    onChange={(opt) => { setRemitenteOpt(opt); setValue('remitenteId', opt ? String(opt.id) : ''); }}
+                    onChange={handleRemitenteChange}
                     placeholder="Buscar remitente…"
                   />
                 </FormField>
@@ -582,8 +625,22 @@ export default function GuiasPage() {
             <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Partida / Llegada</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-3">
-                <p className="text-xs font-medium text-muted-foreground">Punto de partida</p>
-                <FormField label="Ubigeo origen (6 dígitos)" hint="Se detecta desde la dirección o se puede escribir a mano">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-muted-foreground">Punto de partida</p>
+                  {(config.direccion || ubigeoEmpresaVal) && (
+                    <button
+                      type="button"
+                      className="text-xs text-primary hover:underline"
+                      onClick={() => {
+                        if (config.direccion) setValue('direccionPartida', config.direccion);
+                        if (ubigeoEmpresaVal) setValue('ubigeoOrigen', ubigeoEmpresaVal);
+                      }}
+                    >
+                      Usar dirección de mi empresa
+                    </button>
+                  )}
+                </div>
+                <FormField label="Ubigeo origen (6 dígitos) *" hint="Se detecta desde la dirección o se puede escribir a mano" error={errors.ubigeoOrigen?.message}>
                   <Input placeholder="150101" maxLength={6} {...register('ubigeoOrigen')} />
                   {ubigeoOrigenVal?.length === 6 && (
                     <p className={`text-xs ${ubigeoOrigenResuelto ? 'text-emerald-600' : 'text-amber-600'}`}>
@@ -608,13 +665,13 @@ export default function GuiasPage() {
                     </div>
                   )}
                 </FormField>
-                <FormField label="Dirección partida">
+                <FormField label="Dirección partida *" error={errors.direccionPartida?.message}>
                   <Input placeholder="Av. Ejemplo 123, Lima" {...register('direccionPartida')} />
                 </FormField>
               </div>
               <div className="space-y-3">
                 <p className="text-xs font-medium text-muted-foreground">Punto de llegada</p>
-                <FormField label="Ubigeo destino (6 dígitos)" hint="Se detecta desde la dirección o se puede escribir a mano">
+                <FormField label="Ubigeo destino (6 dígitos) *" hint="Se detecta desde la dirección o se puede escribir a mano" error={errors.ubigeoDestino?.message}>
                   <Input placeholder="150201" maxLength={6} {...register('ubigeoDestino')} />
                   {ubigeoDestinoVal?.length === 6 && (
                     <p className={`text-xs ${ubigeoDestinoResuelto ? 'text-emerald-600' : 'text-amber-600'}`}>
@@ -639,7 +696,7 @@ export default function GuiasPage() {
                     </div>
                   )}
                 </FormField>
-                <FormField label="Dirección entrega">
+                <FormField label="Dirección entrega *" error={errors.direccionEntrega?.message}>
                   <Input placeholder="Calle Destino 456" {...register('direccionEntrega')} />
                 </FormField>
               </div>
@@ -653,10 +710,10 @@ export default function GuiasPage() {
             </h3>
             {esPublico ? (
               <div className="grid grid-cols-2 gap-4">
-                <FormField label="RUC transportista">
+                <FormField label="RUC transportista *" error={errors.rucTransportista?.message}>
                   <Input placeholder="20123456789" {...register('rucTransportista')} />
                 </FormField>
-                <FormField label="Razón social transportista">
+                <FormField label="Razón social transportista *" error={errors.razonSocialTransportista?.message}>
                   <Input placeholder="EMPRESA DE TRANSPORTES S.A.C." {...register('razonSocialTransportista')} />
                 </FormField>
                 <FormField label="N° registro MTC">
@@ -779,7 +836,7 @@ export default function GuiasPage() {
 
           {/* Peso y observaciones */}
           <div className="grid grid-cols-2 gap-4">
-            <FormField label="Peso total (kg)">
+            <FormField label="Peso total (kg) *" error={errors.pesoTotal?.message}>
               <Input type="number" step="0.01" min="0" placeholder="0.00" {...register('pesoTotal')} />
             </FormField>
             <FormField label="Observaciones">

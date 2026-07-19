@@ -9,6 +9,7 @@
 import fs from 'fs';
 import path from 'path';
 import PDFDocument from 'pdfkit';
+import QRCode from 'qrcode';
 import {
   fmtFecha, NEUTRO,
   obtenerDatosEmisor, obtenerParametrosPdf,
@@ -18,10 +19,36 @@ import {
 
 const BASE_DIR = path.join('storage', 'documentos', 'guia');
 
+// Catálogo SUNAT 20 completo (Anexo N.°8) — para que cualquier motivo válido
+// se muestre con su descripción aunque no esté en el desplegable del formulario.
 const MOTIVOS: Record<string, string> = {
-  '01': 'VENTA', '02': 'COMPRA', '04': 'TRASLADO ENTRE ESTABLECIMIENTOS', '08': 'IMPORTACIÓN',
-  '09': 'EXPORTACIÓN', '13': 'OTROS', '14': 'VENTA SUJETA A CONFIRMACIÓN', '18': 'TRASLADO EMISOR ITINERANTE',
+  '01': 'VENTA', '02': 'COMPRA', '03': 'VENTA CON ENTREGA A TERCEROS',
+  '04': 'TRASLADO ENTRE ESTABLECIMIENTOS', '05': 'CONSIGNACIÓN', '06': 'DEVOLUCIÓN',
+  '07': 'RECOJO DE BIENES TRANSFORMADOS', '08': 'IMPORTACIÓN', '09': 'EXPORTACIÓN',
+  '13': 'OTROS', '14': 'VENTA SUJETA A CONFIRMACIÓN', '17': 'TRASLADO PARA TRANSFORMACIÓN',
+  '18': 'TRASLADO EMISOR ITINERANTE', '19': 'TRASLADO DE MERCANCÍA EXTRANJERA',
 };
+
+// Contenido del QR de la GRE emitida por el contribuyente. SUNAT no publicó
+// el formato exacto para este caso (el QR de SEE-SOL es una URL con un hash
+// cifrado por SUNAT, imposible de reproducir); la RS 123-2022 solo dice que
+// se genera "a partir de la información proporcionada por la SUNAT en el
+// CDR" — que es el DocumentHash (Guia.hashXml, persistido por el polling).
+// Se usa la misma estructura pipe del QR oficial de facturas (Anexo 9,
+// RS 097-2012) con los campos de montos vacíos, que es la aplicación más
+// defendible de la norma existente: identificación unívoca + hash del CDR.
+function contenidoQrGuia(guia: any, rucEmisor: string): string | null {
+  if (!guia.hashXml) return null; // sin CDR aceptado no hay QR que valga
+  const tipo = guia.tipoGuia === 'TRANSPORTISTA' ? '31' : '09';
+  const serie = guia.serie ?? '';
+  const correlativo = serie && guia.numero?.startsWith(`${serie}-`)
+    ? guia.numero.slice(serie.length + 1)
+    : (guia.numero ?? '');
+  const fecha = guia.fechaEmision ? new Date(guia.fechaEmision).toISOString().slice(0, 10) : '';
+  const numDocDest = guia.cliente?.ruc ?? guia.clienteNumDoc ?? '';
+  const tipoDocDest = /^\d{11}$/.test(numDocDest) ? '6' : '1';
+  return [rucEmisor, tipo, serie, correlativo, '', '', fecha, tipoDocDest, numDocDest, guia.hashXml].join('|');
+}
 
 export async function generarPdfGuia(guia: any): Promise<string> {
   const [datosEmisor, parametros] = await Promise.all([
@@ -29,6 +56,17 @@ export async function generarPdfGuia(guia: any): Promise<string> {
     obtenerParametrosPdf(),
   ]);
   const color = parametros.color;
+
+  // QR real solo cuando SUNAT ya aceptó la guía (hashXml presente); si no,
+  // dibujarPie mantiene el placeholder — coherente con la norma: sin CDR
+  // aceptado la GRE del contribuyente aún no sustenta el traslado.
+  let qrBuffer: Buffer | null = null;
+  const contenidoQr = contenidoQrGuia(guia, datosEmisor.ruc);
+  if (contenidoQr) {
+    try {
+      qrBuffer = await QRCode.toBuffer(contenidoQr, { errorCorrectionLevel: 'M', margin: 1, width: 256 });
+    } catch { /* QR fallido no debe impedir generar el PDF */ }
+  }
 
   const esTransportista = guia.tipoGuia === 'TRANSPORTISTA';
   const titulo = `GUÍA DE REMISIÓN ${esTransportista ? 'TRANSPORTISTA' : 'REMITENTE'} ELECTRÓNICA`;
@@ -199,6 +237,7 @@ export async function generarPdfGuia(guia: any): Promise<string> {
       textoLegal: parametros.textoLegal,
       pieDePagina: 'Representación impresa de la Guía de Remisión Electrónica.',
       espacioQR: true,
+      qrBuffer,
       mostrarTextoSunat: true,
       color,
     });

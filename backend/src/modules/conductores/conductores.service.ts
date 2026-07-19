@@ -4,7 +4,12 @@ import prisma from '../../prisma/client';
 import { paginar, PaginacionQuery } from '../../utils/pagination';
 
 export interface CreateConductorDto {
-  nombre: string;
+  nombre?: string;
+  // Apellidos y nombres por separado — la GRE los declara en tags distintos
+  // (FamilyName/FirstName, Anexo 14 RS 123-2022). Si llegan, `nombre` se
+  // compone automáticamente a partir de ellos.
+  apellidos?: string;
+  nombres?: string;
   dni: string;
   licencia: string;
   vencimientoLicencia?: string;
@@ -13,6 +18,14 @@ export interface CreateConductorDto {
   observaciones?: string;
   tractoPreferencia?: string;
   carretaPreferencia?: string;
+}
+
+// Nombre completo para mostrar, en orden natural "nombres apellidos" (el
+// mismo que ya usan los datos existentes). El orden SUNAT "apellidos
+// nombres" lo arma quien lo necesite desde los campos separados.
+function componerNombre(dto: { nombre?: string; apellidos?: string; nombres?: string }): string | undefined {
+  if (dto.nombres && dto.apellidos) return `${dto.nombres} ${dto.apellidos}`;
+  return dto.nombre;
 }
 
 export class ConductoresService {
@@ -55,9 +68,12 @@ export class ConductoresService {
   async create(dto: CreateConductorDto, usuarioId?: number) {
     const existe = await prisma.conductor.findUnique({ where: { dni: dto.dni } });
     if (existe) throw new Error(`Ya existe un conductor con DNI ${dto.dni}`);
+    const nombre = componerNombre(dto);
+    if (!nombre) throw new Error('Indique apellidos y nombres del conductor');
     return prisma.conductor.create({
       data: {
         ...dto,
+        nombre,
         vencimientoLicencia: dto.vencimientoLicencia ? new Date(dto.vencimientoLicencia) : null,
         creadoPorId: usuarioId,
       },
@@ -76,6 +92,9 @@ export class ConductoresService {
       where: { id },
       data: {
         ...dto,
+        // Si llegan apellidos/nombres, recomponer el nombre completo para
+        // que la vista nunca quede desincronizada de los campos separados.
+        nombre: componerNombre(dto),
         vencimientoLicencia: dto.vencimientoLicencia !== undefined
           ? (dto.vencimientoLicencia ? new Date(dto.vencimientoLicencia) : null)
           : undefined,

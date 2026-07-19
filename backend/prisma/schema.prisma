@@ -380,6 +380,12 @@ model LogActividad {
 model Conductor {
   id                  Int      @id @default(autoincrement())
   nombre              String
+  // Apellidos y nombres por separado: la GRE (Anexo 14 RS 123-2022) los
+  // declara en tags distintos (FamilyName/FirstName). `nombre` se mantiene
+  // como nombre completo para mostrar; registros antiguos pueden tenerlos
+  // en null hasta que se editen.
+  apellidos           String?
+  nombres             String?
   dni                 String   @unique
   licencia            String
   vencimientoLicencia DateTime? @map("vencimiento_licencia")
@@ -418,6 +424,9 @@ model Vehiculo {
   marca                String?
   modelo               String?
   anio                 Int?
+  // Tarjeta Única de Circulación / Certificado de Habilitación Vehicular
+  // (MTC) — se declara por vehículo en la GRE (Anexo 14 RS 123-2022).
+  tuce                 String?
   soat                 String?
   vencimientoSoat      DateTime?    @map("vencimiento_soat")
   revisionTecnica      String?      @map("revision_tecnica")

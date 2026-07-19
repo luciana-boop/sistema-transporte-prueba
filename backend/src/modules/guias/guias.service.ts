@@ -233,6 +233,34 @@ export const guiasService = {
       ? await prisma.cliente.findUnique({ where: { id: dto.clienteId } })
       : null;
 
+    // Peso bruto total: dato obligatorio del traslado en toda GRE (Art. 19 del
+    // Reglamento de Comprobantes de Pago exige detallar bienes, cantidad y
+    // peso), tanto en Remitente como en Transportista.
+    if (!dto.pesoTotal || dto.pesoTotal <= 0) {
+      throw new Error('El peso bruto total es obligatorio y debe ser mayor a 0');
+    }
+
+    // Datos del transporte: obligatorios en toda GRE independientemente del
+    // tipo. En Transportista la empresa emisora ES quien transporta, así que
+    // conductor+vehículo son siempre obligatorios sin distinción de modalidad
+    // (ver bloque TRANSPORTISTA más abajo). En Remitente depende de la
+    // modalidad: pública (01) exige los datos del transportista tercero;
+    // privada (02) exige conductor+vehículo propios.
+    if (tipoGuia === 'REMITENTE') {
+      const modalidad = dto.modalidadTransporte ?? '02';
+      if (modalidad === '01') {
+        if (!dto.rucTransportista || !dto.razonSocialTransportista) {
+          throw new Error('El RUC y la razón social del transportista son obligatorios en modalidad de transporte público');
+        }
+      } else {
+        const tieneConductor = !!dto.conductorId || !!(dto.conductorNombre && dto.conductorDni && dto.conductorLicencia);
+        const tieneVehiculo = !!dto.vehiculoId || !!dto.placaTransportista;
+        if (!tieneConductor || !tieneVehiculo) {
+          throw new Error('Los datos de conductor y vehículo son obligatorios en modalidad de transporte privado');
+        }
+      }
+    }
+
     // Guía Transportista (catálogo SUNAT 31): la empresa emisora es la
     // transportista, no el remitente ni el destinatario — ambas partes son
     // obligatorias, y al ser ella quien transporta, los datos de conductor y
@@ -283,15 +311,43 @@ export const guiasService = {
       if (carreta.tipo !== 'CARRETA') throw new Error('El vehículo seleccionado como carreta no es de tipo CARRETA');
     }
 
-    // Autocompletar origen/destino — siguen siendo editables desde el DTO,
-    // esto es solo el valor por defecto cuando no llegan.
-    const direccionEmpresa = await configuracionService.getParametro('empresa_direccion');
-    const direccionPartida = dto.direccionPartida ?? direccionEmpresa ?? undefined;
+    // Punto de partida: SIN valor por defecto de la dirección de la empresa —
+    // el traslado no siempre arranca en el local propio (puede ser el
+    // almacén del remitente, el origen del pedido, etc.), así que asumir la
+    // dirección de la empresa daría un dato incorrecto en la GRE. Tiene que
+    // llegar explícito desde el DTO (el frontend lo completa desde el pedido,
+    // el remitente, o un botón explícito "usar dirección de mi empresa" para
+    // cuando sí corresponde).
+    const direccionPartida = dto.direccionPartida ?? undefined;
     const ubigeoOrigen = dto.ubigeoOrigen ?? undefined;
+    // Punto de llegada: sí tiene sentido usar la dirección registrada del
+    // cliente destinatario como valor por defecto, porque el destinatario
+    // ES el cliente — es la mejor aproximación disponible sin que el usuario
+    // la escriba de nuevo.
     const direccionEntrega = dto.direccionEntrega ?? cliente?.direccion ?? undefined;
     const ubigeoDestino = dto.ubigeoDestino ?? cliente?.ubigeo ?? undefined;
 
-    const serie = (dto.serie || 'GUI1').toUpperCase();
+    // Punto de partida y de llegada (ubigeo + dirección): obligatorios en
+    // toda GRE — sin ellos SUNAT no puede validar el traslado declarado.
+    if (!direccionPartida || !ubigeoOrigen) {
+      throw new Error('El punto de partida (ubigeo y dirección) es obligatorio');
+    }
+    if (!direccionEntrega || !ubigeoDestino) {
+      throw new Error('El punto de llegada (ubigeo y dirección) es obligatorio');
+    }
+
+    // Serie: la emisión por API exige T### para Remitente (09) y V### para
+    // Transportista (31) — Anexo 13 de la RS 123-2022 (las series EG## son
+    // exclusivas del portal SOL). Con otra serie SUNAT rechaza el envío, así
+    // que se valida acá con un mensaje claro. Sin serie indicada se usa el
+    // default correcto por tipo.
+    const prefijoSerie = tipoGuia === 'TRANSPORTISTA' ? 'V' : 'T';
+    const serie = (dto.serie || `${prefijoSerie}001`).toUpperCase();
+    if (!new RegExp(`^${prefijoSerie}[A-Z0-9]{3}$`).test(serie)) {
+      throw new Error(
+        `Serie inválida "${serie}": una guía ${tipoGuia === 'TRANSPORTISTA' ? 'Transportista' : 'Remitente'} emitida por API debe usar una serie de 4 caracteres que empiece con "${prefijoSerie}" (ej. ${prefijoSerie}001). Configure la serie en Configuración > Series.`
+      );
+    }
     // Solo se aceptan transportistas adicionales en modalidad pública (01).
     const transportistasAdicionales = dto.modalidadTransporte === '01' ? (dto.transportistasAdicionales ?? []) : [];
 
@@ -460,6 +516,7 @@ export const guiasService = {
           detalles: true,
           conductor: true,
           vehiculo: true,
+          vehiculoCarreta: true,
           transportistasAdicionales: true,
         },
       }),
@@ -506,9 +563,39 @@ export const guiasService = {
         fecha_inicio_traslado: fechaISO(guia.fechaInicioTraslado),
         transportista_ruc: guia.modalidadTransporte === '01' ? (guia.rucTransportista ?? undefined) : undefined,
         transportista_razon_social: guia.modalidadTransporte === '01' ? (guia.razonSocialTransportista ?? undefined) : undefined,
+        // Tarjeta Única de Circulación / registro MTC del transportista
+        // principal — obligatorio en modalidad pública, se capturaba y
+        // guardaba pero nunca se transmitía.
+        transportista_num_registro_mtc: guia.modalidadTransporte === '01' ? (guia.numRegistroMTC ?? undefined) : undefined,
+        // Placas/MTC de transportistas adicionales (modalidad pública, más de
+        // un transportista en el mismo tramo) — idem: se guardaban en
+        // GuiaTransportistaAdicional pero se perdían antes de llegar a SUNAT.
+        transportistas_adicionales: guia.modalidadTransporte === '01' && guia.transportistasAdicionales?.length
+          ? guia.transportistasAdicionales.map((t: any) => ({ placa: t.placa, num_registro_mtc: t.numRegistroMTC }))
+          : undefined,
         conductor_numero_doc: guia.conductor?.dni ?? guia.conductorDni ?? undefined,
-        conductor_tipo_doc: '1',
+        // Catálogo SUNAT 06: el DNI peruano es siempre 8 dígitos numéricos;
+        // cualquier otro formato (p.ej. carné de extranjería de un conductor
+        // no peruano) se declara como tal en vez de mandarlo siempre como '1'.
+        conductor_tipo_doc: /^\d{8}$/.test(guia.conductor?.dni ?? guia.conductorDni ?? '') ? '1' : '4',
+        // Nombre y licencia del conductor: la GRE los declara en tags
+        // separados (FirstName = nombres, FamilyName = apellidos — Anexo 14).
+        // Si el conductor tiene los campos separados (registros nuevos), van
+        // separados; si no, el nombre completo va entero como
+        // conductor_nombre y cutyfact lo manda en FirstName sin partirlo.
+        conductor_nombres: guia.conductor?.nombres ?? undefined,
+        conductor_apellidos: guia.conductor?.apellidos ?? undefined,
+        conductor_nombre: guia.conductor?.nombre ?? guia.conductorNombre ?? undefined,
+        conductor_licencia: guia.conductor?.licencia ?? guia.conductorLicencia ?? undefined,
         vehiculo_placa: guia.vehiculo?.placa ?? guia.placaTransportista ?? undefined,
+        // TUCE (Tarjeta Única de Circulación / Cert. Habilitación Vehicular)
+        // del vehículo principal — se declara por vehículo en la GRE.
+        vehiculo_tuce: guia.vehiculo?.tuce ?? undefined,
+        // Placa de la carreta/semirremolque — SUNAT exige declarar ambas
+        // placas cuando el traslado usa una combinación tracto+carreta; se
+        // guardaba en Guia.vehiculoCarretaId pero nunca se incluía aquí.
+        vehiculo_placa_carreta: guia.vehiculoCarreta?.placa ?? undefined,
+        vehiculo_carreta_tuce: guia.vehiculoCarreta?.tuce ?? undefined,
         ubigeo_destino: guia.ubigeoDestino ?? undefined,
         direccion_destino: guia.direccionEntrega ?? undefined,
         ubigeo_origen: guia.ubigeoOrigen ?? undefined,
@@ -601,6 +688,9 @@ export const guiasService = {
             estadoSunat: resultado.estadoSunat,
             motivoRechazoSunat: resultado.respuesta_sunat_descripcion ?? resultado.error ?? undefined,
             cdrPath,
+            // DocumentHash del CDR aceptado — insumo del QR de la
+            // representación impresa (RS 123-2022, Art. 34).
+            hashXml: resultado.documento_hash ?? undefined,
             ...(rechazada ? { anulado: true, estado: 'ANULADA' } : {}),
           },
         });

@@ -41,6 +41,10 @@ export interface SunatGuiaEstadoResultado {
   respuesta_sunat_descripcion?: string | null;
   error?: string | null;
   cdr_base64?: string | null; // CDR ZIP en base64 cuando procesado=true
+  // DocumentHash del CDR aceptado — el dato que la RS 123-2022 (Art. 34)
+  // entrega "para generar el código QR" de la guía. Puede venir null (no
+  // todos los CDR lo traen).
+  documento_hash?: string | null;
 }
 
 function cutyfactUrl(): string {
@@ -111,6 +115,7 @@ export async function consultarEstadoGuiaSunat(payload: Record<string, unknown>)
     respuesta_sunat_codigo?: string | null;
     respuesta_sunat_descripcion?: string | null;
     cdr_base64?: string | null;
+    documento_hash?: string | null;
     error?: string | null;
   }>('/guia/estado', {
     ruc_empresa: p.credenciales?.ruc ?? '',
@@ -124,5 +129,6 @@ export async function consultarEstadoGuiaSunat(payload: Record<string, unknown>)
     respuesta_sunat_descripcion: raw.respuesta_sunat_descripcion,
     error: raw.error,
     cdr_base64: raw.cdr_base64,
+    documento_hash: raw.documento_hash,
   };
 }

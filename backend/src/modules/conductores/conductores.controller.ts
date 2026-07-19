@@ -26,11 +26,20 @@ export class ConductoresController {
 
   async crear(req: Request, res: Response): Promise<void> {
     try {
-      const { nombre, dni, licencia, vencimientoLicencia, telefono, direccion, observaciones } = req.body;
-      if (!nombre || !dni || !licencia) {
-        R.badRequest(res, 'nombre, dni y licencia son requeridos'); return;
+      const {
+        nombre, apellidos, nombres, dni, licencia, vencimientoLicencia,
+        telefono, direccion, observaciones, tractoPreferencia, carretaPreferencia,
+      } = req.body;
+      // Nombre: o el completo (legacy) o apellidos+nombres separados (la GRE
+      // los declara en campos distintos). El service compone `nombre` cuando
+      // llegan separados.
+      if ((!nombre && !(apellidos && nombres)) || !dni || !licencia) {
+        R.badRequest(res, 'apellidos y nombres (o nombre completo), dni y licencia son requeridos'); return;
       }
-      R.created(res, await conductoresService.create({ nombre, dni, licencia, vencimientoLicencia, telefono, direccion, observaciones }, req.usuario!.id), 'Conductor creado');
+      R.created(res, await conductoresService.create({
+        nombre, apellidos, nombres, dni, licencia, vencimientoLicencia,
+        telefono, direccion, observaciones, tractoPreferencia, carretaPreferencia,
+      }, req.usuario!.id), 'Conductor creado');
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('Ya existe')) R.badRequest(res, msg);

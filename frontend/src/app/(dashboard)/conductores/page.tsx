@@ -18,7 +18,10 @@ import type { Conductor } from '@/types';
 import * as XLSX from 'xlsx';
 
 const schema = z.object({
-  nombre: z.string().min(2, 'Nombre requerido'),
+  // Separados porque la guía de remisión electrónica los declara en campos
+  // distintos (apellidos y nombres) — el backend compone el nombre completo.
+  apellidos: z.string().min(2, 'Apellidos requeridos'),
+  nombres: z.string().min(2, 'Nombres requeridos'),
   dni: z.string().length(8, 'DNI debe tener 8 dígitos'),
   licencia: z.string().min(2, 'Licencia requerida'),
   vencimientoLicencia: z.string().optional(),
@@ -99,7 +102,11 @@ export default function ConductoresPage() {
 
   const openEdit = (c: Conductor) => {
     setEditing(c);
-    setValue('nombre', c.nombre);
+    // Registros anteriores a la separación apellidos/nombres solo tienen el
+    // nombre completo: se precarga en "nombres" para no perderlo y el
+    // usuario mueve los apellidos a su campo al guardar (corrección única).
+    setValue('apellidos', (c as any).apellidos ?? '');
+    setValue('nombres', (c as any).nombres ?? c.nombre ?? '');
     setValue('dni', c.dni);
     setValue('licencia', c.licencia);
     setValue('vencimientoLicencia', c.vencimientoLicencia?.split('T')[0] ?? '');
@@ -193,11 +200,12 @@ export default function ConductoresPage() {
       <Modal open={modalOpen} onClose={() => { setShowForm(false); setEditing(null); reset(); }} title={editing ? 'Editar conductor' : 'Nuevo conductor'}>
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
-              <FormField label="Nombre completo" required error={errors.nombre?.message}>
-                <Input placeholder="Juan Pérez García" {...register('nombre')} />
-              </FormField>
-            </div>
+            <FormField label="Apellidos" required hint="Como figuran en el DNI (la guía SUNAT los pide separados)" error={errors.apellidos?.message}>
+              <Input placeholder="Pérez García" {...register('apellidos')} />
+            </FormField>
+            <FormField label="Nombres" required error={errors.nombres?.message}>
+              <Input placeholder="Juan Carlos" {...register('nombres')} />
+            </FormField>
             <FormField label="DNI" required error={errors.dni?.message}>
               <Input placeholder="12345678" maxLength={8} {...register('dni')} />
             </FormField>

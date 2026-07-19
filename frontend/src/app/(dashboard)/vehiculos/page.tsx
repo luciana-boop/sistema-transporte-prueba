@@ -23,6 +23,8 @@ const schema = z.object({
   marca: z.string().optional(),
   modelo: z.string().optional(),
   anio: z.string().optional(),
+  // TUCE / Cert. Habilitación Vehicular (MTC) — se declara en la guía SUNAT.
+  tuce: z.string().optional(),
   soat: z.string().optional(),
   vencimientoSoat: z.string().optional(),
   revisionTecnica: z.string().optional(),
@@ -114,6 +116,7 @@ export default function VehiculosPage() {
     const fix = (s?: string) => s?.split('T')[0] ?? '';
     setValue('placa', v.placa); setValue('tipo', v.tipo); setValue('marca', v.marca ?? '');
     setValue('modelo', v.modelo ?? ''); setValue('anio', v.anio != null ? String(v.anio) : ''); setValue('estado', v.estado);
+    setValue('tuce', (v as any).tuce ?? '');
     setValue('soat', v.soat ?? ''); setValue('vencimientoSoat', fix(v.vencimientoSoat));
     setValue('revisionTecnica', v.revisionTecnica ?? ''); setValue('vencimientoRevision', fix(v.vencimientoRevision));
     setValue('ultimoMantenimiento', fix(v.ultimoMantenimiento)); setValue('proximoMantenimiento', fix(v.proximoMantenimiento));
@@ -233,6 +236,9 @@ export default function VehiculosPage() {
             </FormField>
             <FormField label="Vencimiento SOAT" error={errors.vencimientoSoat?.message}>
               <Input type="date" {...register('vencimientoSoat')} />
+            </FormField>
+            <FormField label="N° TUCE / Habilitación Vehicular" hint="Tarjeta Única de Circulación (MTC) — va en la guía SUNAT" error={errors.tuce?.message}>
+              <Input placeholder="15M24012314E" {...register('tuce')} />
             </FormField>
             <FormField label="N° Rev. Técnica" error={errors.revisionTecnica?.message}>
               <Input placeholder="Número de certificado" {...register('revisionTecnica')} />

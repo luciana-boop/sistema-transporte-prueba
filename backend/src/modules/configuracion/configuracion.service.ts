@@ -21,6 +21,7 @@ const DEFAULTS_CONFIGURACION: Record<string, { valor: string; tipo: string; cate
   empresa_razon_social:     { valor: 'Mi Empresa SAC',     tipo: 'texto',    categoria: 'empresa',      etiqueta: 'Razón social' },
   empresa_ruc:              { valor: '20000000001',        tipo: 'texto',    categoria: 'empresa',      etiqueta: 'RUC' },
   empresa_direccion:        { valor: 'Av. Principal 123',  tipo: 'texto',    categoria: 'empresa',      etiqueta: 'Dirección' },
+  empresa_ubigeo:           { valor: '',                   tipo: 'texto',    categoria: 'empresa',      etiqueta: 'Ubigeo (código INEI 6 dígitos)', descripcion: 'Usado por el botón "Usar dirección de mi empresa" al emitir guías de remisión que sí parten del local propio — no se aplica automáticamente' },
   empresa_telefono:         { valor: '01-0000000',         tipo: 'texto',    categoria: 'empresa',      etiqueta: 'Teléfono' },
   empresa_email:            { valor: 'contacto@empresa.com', tipo: 'texto',  categoria: 'empresa',      etiqueta: 'Correo empresa' },
   pdf_pie_pagina:           { valor: 'Gracias por su preferencia', tipo: 'texto', categoria: 'pdf',    etiqueta: 'Pie de página PDF' },
@@ -116,6 +117,10 @@ const DEFAULTS_SERIES = [
   { serie: 'F001', tipoDocumento: 'FACTURA',  descripcion: 'Facturas principales' },
   { serie: 'F002', tipoDocumento: 'FACTURA',  descripcion: 'Facturas secundarias' },
   { serie: 'B001', tipoDocumento: 'BOLETA',   descripcion: 'Boletas de venta' },
+  // GRE por API: SUNAT exige serie T### para Remitente (09) y V### para
+  // Transportista (31) — Anexo 13 RS 123-2022. EG## es solo del portal SOL.
+  { serie: 'T001', tipoDocumento: 'GUIA',     descripcion: 'Guías de remisión Remitente (09)' },
+  { serie: 'V001', tipoDocumento: 'GUIA',     descripcion: 'Guías de remisión Transportista (31)' },
 ];
 
 export class ConfiguracionService {

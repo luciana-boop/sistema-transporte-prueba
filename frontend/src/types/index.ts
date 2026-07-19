@@ -297,7 +297,11 @@ export interface PaginatedResponse<T> {
 // â”€â”€â”€ CONDUCTORES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export interface Conductor {
   id: number;
-  nombre: string;
+  // Nombre completo para mostrar; el backend lo compone desde
+  // apellidos+nombres cuando esos campos llegan por separado.
+  nombre?: string;
+  apellidos?: string | null;
+  nombres?: string | null;
   dni: string;
   licencia: string;
   vencimientoLicencia?: string | null;
@@ -323,6 +327,8 @@ export interface Vehiculo {
   marca?: string | null;
   modelo?: string | null;
   anio?: number | null;
+  // TUCE / Cert. Habilitación Vehicular (MTC) — va en la guía SUNAT.
+  tuce?: string | null;
   soat?: string;
   vencimientoSoat?: string;
   revisionTecnica?: string;
