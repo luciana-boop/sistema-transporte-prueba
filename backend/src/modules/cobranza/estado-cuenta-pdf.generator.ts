@@ -14,6 +14,7 @@ interface FacturaEstadoCuenta {
   id: number;
   numeroFactura: string;
   saldoPendiente: number;
+  fechaEmision: Date | string;
   fechaVencimiento: Date | string;
 }
 
@@ -27,9 +28,10 @@ interface EstadoCuenta {
 }
 
 const COLS: ColumnaTabla[] = [
-  { titulo: 'N° Factura', ancho: 180, align: 'left' },
-  { titulo: 'Vencimiento', ancho: 140, align: 'left' },
-  { titulo: 'Saldo pendiente', ancho: 140, align: 'right' },
+  { titulo: 'N° Factura', ancho: 150, align: 'left' },
+  { titulo: 'Emisión', ancho: 95, align: 'left' },
+  { titulo: 'Vencimiento', ancho: 95, align: 'left' },
+  { titulo: 'Saldo pendiente', ancho: 145, align: 'right' },
 ];
 
 function dibujarTablaFacturas(doc: PDFKit.PDFDocument, x: number, y: number, anchoTotal: number, titulo: string, facturas: FacturaEstadoCuenta[], total: number, color: string): number {
@@ -50,9 +52,11 @@ function dibujarTablaFacturas(doc: PDFKit.PDFDocument, x: number, y: number, anc
     let cx = x;
     doc.text(f.numeroFactura, cx + 8, cy + 6, { width: COLS[0].ancho - 16 });
     cx += COLS[0].ancho;
-    doc.text(fmtFecha(f.fechaVencimiento), cx + 8, cy + 6, { width: COLS[1].ancho - 16 });
+    doc.text(fmtFecha(f.fechaEmision), cx + 8, cy + 6, { width: COLS[1].ancho - 16 });
     cx += COLS[1].ancho;
-    doc.text(fmtMoneda(f.saldoPendiente), cx + 8, cy + 6, { width: COLS[2].ancho - 16, align: 'right' });
+    doc.text(fmtFecha(f.fechaVencimiento), cx + 8, cy + 6, { width: COLS[2].ancho - 16 });
+    cx += COLS[2].ancho;
+    doc.text(fmtMoneda(f.saldoPendiente), cx + 8, cy + 6, { width: COLS[3].ancho - 16, align: 'right' });
     cy += filaAlto;
   });
 

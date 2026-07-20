@@ -82,6 +82,7 @@ export class CobranzaService {
         pagado,
         saldoPendiente: saldo,
         estado: f.estado,
+        fechaEmision: f.fechaEmision,
         fechaVencimiento: f.fechaVencimiento,
         vencida: f.fechaVencimiento < new Date(),
       };
