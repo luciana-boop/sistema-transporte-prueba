@@ -1,6 +1,7 @@
 // FILE: src/modules/reportes/reportes.service.ts
 
 import prisma from '../../prisma/client';
+import { cobranzaService } from '../cobranza/cobranza.service';
 
 export interface FiltroReporte {
   desde?: string;
@@ -248,7 +249,16 @@ export class ReportesService {
   }
 
   async reporteFacturacion(filtros: FiltroReporte) {
-    const where = this.parseFiltros(filtros);
+    // Se filtra por fecha de EMISIÓN de la factura, no por cuándo se creó el
+    // registro en el sistema — si no, una importación masiva hecha hoy con
+    // facturas de meses anteriores aparecería toda dentro del mes actual.
+    const where: any = {};
+    if (filtros.clienteId) where.clienteId = parseInt(filtros.clienteId);
+    if (filtros.desde || filtros.hasta) {
+      where.fechaEmision = {};
+      if (filtros.desde) where.fechaEmision.gte = new Date(filtros.desde);
+      if (filtros.hasta) where.fechaEmision.lte = new Date(filtros.hasta + 'T23:59:59');
+    }
 
     const [facturas, resumenEstados] = await Promise.all([
       prisma.factura.findMany({
@@ -357,55 +367,79 @@ export class ReportesService {
 
     const totalCobrado = pagos.reduce((s: number, p: any) => s + Number(p.monto), 0);
 
-    // Resumen por cliente: total facturado (de facturas activas del período) vs cobrado
-    const clientesIds = [...new Set(pagos.map((p: any) => p.clienteId).filter(Boolean))];
+    // "Facturado en el período" (por fecha de EMISIÓN, no de creación del
+    // registro — mismo criterio que reporteFacturacion) y "cobrado en el
+    // período" son métricas de flujo del mes. El "saldo pendiente" en cambio
+    // NO se limita al período: una factura que quedó por cobrar de un mes
+    // anterior debe seguir sumando hasta que se cobre, así que se reutiliza
+    // cobranzaService (mismo cálculo que el módulo Cobranza, neto de detracción).
+    const clienteIdFiltro = filtros.clienteId ? parseInt(filtros.clienteId) : undefined;
 
-    const facturasPorCliente = clientesIds.length > 0
-      ? await prisma.factura.findMany({
-          where: {
-            clienteId: { in: clientesIds },
-            ...(filtros.desde || filtros.hasta
-              ? { creadoEn: {
-                  ...(filtros.desde ? { gte: new Date(filtros.desde) } : {}),
-                  ...(filtros.hasta ? { lte: new Date(filtros.hasta + 'T23:59:59') } : {}),
-                }}
-              : {}),
-            estado: { not: 'ANULADA' },
-          },
-          select: { clienteId: true, total: true, totalPagado: true, cliente: { select: { razonSocial: true } } },
-        })
-      : [];
-
-    const resumenCobranzaCliente = new Map<number, {
-      clienteId: number;
-      razonSocial: string;
-      totalFacturado: number;
-      totalCobrado: number;
-    }>();
-
-    for (const f of facturasPorCliente as any[]) {
-      if (!f.clienteId) continue;
-      const entry = resumenCobranzaCliente.get(f.clienteId) ?? {
-        clienteId: f.clienteId,
-        razonSocial: f.cliente?.razonSocial ?? '',
-        totalFacturado: 0,
-        totalCobrado: 0,
-      };
-      entry.totalFacturado += Number(f.total);
-      entry.totalCobrado += Number(f.totalPagado || 0);
-      resumenCobranzaCliente.set(f.clienteId, entry);
+    const whereFacturasPeriodo: any = { estado: { not: 'ANULADA' } };
+    if (clienteIdFiltro) whereFacturasPeriodo.clienteId = clienteIdFiltro;
+    if (filtros.desde || filtros.hasta) {
+      whereFacturasPeriodo.fechaEmision = {};
+      if (filtros.desde) whereFacturasPeriodo.fechaEmision.gte = new Date(filtros.desde);
+      if (filtros.hasta) whereFacturasPeriodo.fechaEmision.lte = new Date(filtros.hasta + 'T23:59:59');
     }
 
-    const resumenPorCliente = Array.from(resumenCobranzaCliente.values()).map((c) => ({
-      clienteId: c.clienteId,
-      razonSocial: c.razonSocial,
-      totalFacturado: Math.round(c.totalFacturado * 100) / 100,
-      totalCobrado: Math.round(c.totalCobrado * 100) / 100,
-      saldoPendiente: Math.round((c.totalFacturado - c.totalCobrado) * 100) / 100,
-      porcentajeCobrado: c.totalFacturado > 0
-        ? Math.round((c.totalCobrado / c.totalFacturado) * 10000) / 100
-        : 0,
-    })).sort((a, b) => b.totalFacturado - a.totalFacturado);
+    const [facturasPeriodo, pendientes] = await Promise.all([
+      prisma.factura.findMany({
+        where: whereFacturasPeriodo,
+        select: { clienteId: true, total: true },
+      }),
+      cobranzaService.facturasPendientes(clienteIdFiltro ? { clienteId: clienteIdFiltro } : {}),
+    ]);
+
+    const facturadoPorCliente = new Map<number, number>();
+    for (const f of facturasPeriodo) {
+      if (!f.clienteId) continue;
+      facturadoPorCliente.set(f.clienteId, (facturadoPorCliente.get(f.clienteId) ?? 0) + Number(f.total));
+    }
+
+    const cobradoPorCliente = new Map<number, number>();
+    for (const p of pagos as any[]) {
+      if (!p.clienteId) continue;
+      cobradoPorCliente.set(p.clienteId, (cobradoPorCliente.get(p.clienteId) ?? 0) + Number(p.monto));
+    }
+
+    const saldoPorCliente = new Map<number, number>();
+    for (const f of pendientes) {
+      saldoPorCliente.set(f.cliente.id, (saldoPorCliente.get(f.cliente.id) ?? 0) + f.saldoPendiente);
+    }
+
+    // Unión: un cliente aparece en el resumen si facturó, cobró, o tiene
+    // saldo pendiente actual — así una deuda vieja sigue visible aunque no
+    // haya tenido movimiento este mes.
+    const clienteIds = new Set<number>([
+      ...facturadoPorCliente.keys(),
+      ...cobradoPorCliente.keys(),
+      ...saldoPorCliente.keys(),
+    ]);
+
+    const clientesInfo = clienteIds.size > 0
+      ? await prisma.cliente.findMany({
+          where: { id: { in: [...clienteIds] } },
+          select: { id: true, razonSocial: true },
+        })
+      : [];
+    const razonSocialPorId = new Map(clientesInfo.map((c) => [c.id, c.razonSocial]));
+
+    const resumenPorCliente = [...clienteIds].map((clienteId) => {
+      const totalFacturado = Math.round((facturadoPorCliente.get(clienteId) ?? 0) * 100) / 100;
+      const totalCobradoCliente = Math.round((cobradoPorCliente.get(clienteId) ?? 0) * 100) / 100;
+      const saldoPendiente = Math.round((saldoPorCliente.get(clienteId) ?? 0) * 100) / 100;
+      return {
+        clienteId,
+        razonSocial: razonSocialPorId.get(clienteId) ?? '',
+        totalFacturado,
+        totalCobrado: totalCobradoCliente,
+        saldoPendiente,
+        porcentajeCobrado: totalFacturado > 0
+          ? Math.round((totalCobradoCliente / totalFacturado) * 10000) / 100
+          : 0,
+      };
+    }).sort((a, b) => b.saldoPendiente - a.saldoPendiente || b.totalFacturado - a.totalFacturado);
 
     return {
       pagos,
@@ -763,8 +797,11 @@ export class ReportesService {
     ] = await Promise.all([
       prisma.cliente.count({ where: { activo: true } }),
       prisma.pedido.count({ where: { creadoEn: { gte: desde, lte: hasta } } }),
+      // Por fecha de EMISIÓN, no de creación del registro — una importación
+      // masiva hecha hoy con facturas de meses anteriores no debe contarse
+      // como facturado del mes actual.
       prisma.factura.aggregate({
-        where: { creadoEn: { gte: desde, lte: hasta }, estado: { not: 'ANULADA' } },
+        where: { fechaEmision: { gte: desde, lte: hasta }, estado: { not: 'ANULADA' } },
         _sum: { total: true },
       }),
       prisma.pagoV2.aggregate({
@@ -791,6 +828,12 @@ export class ReportesService {
     const cobrado = Number(cobranzaPeriodo._sum.monto || 0);
     const gastos = Number(gastosCuentaPeriodo._sum.monto || 0) + Number(gastosCajaPeriodo._sum.monto || 0);
 
+    // "Por cobrar" es el saldo pendiente ACTUAL (no limitado al período): una
+    // factura que quedó por cobrar de un mes anterior sigue sumando hasta que
+    // se cobre. Mismo cálculo que el módulo Cobranza (neto de detracción).
+    const pendientes = await cobranzaService.facturasPendientes();
+    const porCobrar = Math.round(pendientes.reduce((s, f) => s + f.saldoPendiente, 0) * 100) / 100;
+
     return {
       periodo: { desde, hasta },
       clientes: { total: totalClientes },
@@ -801,7 +844,7 @@ export class ReportesService {
       financiero: {
         facturado,
         cobrado,
-        porCobrar: facturado - cobrado,
+        porCobrar,
         gastos,
         utilidadBruta: facturado - gastos,
       },
