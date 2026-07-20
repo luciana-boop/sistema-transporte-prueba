@@ -71,7 +71,9 @@ export class CobranzaService {
 
     return facturas.map((f) => {
       const pagado = Number(f.totalPagado || 0);
-      const saldo = Number(f.total) - pagado;
+      // La detracción no se cobra al cliente (se deposita aparte, según ley);
+      // el saldo pendiente de Cobranza es el total menos la detracción.
+      const saldo = Number(f.total) - Number(f.montoDetraccion || 0) - pagado;
       return {
         id: f.id,
         numeroFactura: f.numeroFactura,
@@ -119,7 +121,9 @@ export class CobranzaService {
       select: { monto: true },
     });
     const totalPagado = aplicaciones.reduce((s: number, a: any) => s + Number(a.monto), 0);
-    const total = Number(factura.total);
+    // La detracción no se cobra: se considera "pagada" cuando lo aplicado cubre
+    // el total menos la detracción, no el total bruto de la factura.
+    const total = Number(factura.total) - Number(factura.montoDetraccion || 0);
     let estado: string;
     if (totalPagado <= 0) estado = EstadoFactura.EMITIDA;
     else if (Math.abs(totalPagado - total) < 0.01 || totalPagado >= total) estado = EstadoFactura.PAGADA;
@@ -162,7 +166,7 @@ export class CobranzaService {
       if (f.clienteId !== pago.clienteId) throw new Error(`La factura ${f.numeroFactura} no pertenece al cliente de este pago`);
       if (f.estado === EstadoFactura.ANULADA) throw new Error(`La factura ${f.numeroFactura} está anulada`);
       const aplicacion = dto.aplicaciones.find((a) => a.facturaId === f.id)!;
-      const saldoPendienteFactura = Number(f.total) - Number(f.totalPagado || 0);
+      const saldoPendienteFactura = Number(f.total) - Number(f.montoDetraccion || 0) - Number(f.totalPagado || 0);
       if (aplicacion.monto > saldoPendienteFactura + 0.01) {
         throw new Error(`El monto (S/${aplicacion.monto.toFixed(2)}) excede el saldo pendiente de la factura ${f.numeroFactura} (S/${saldoPendienteFactura.toFixed(2)})`);
       }

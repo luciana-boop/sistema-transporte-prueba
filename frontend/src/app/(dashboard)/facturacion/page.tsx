@@ -1664,8 +1664,8 @@ export default function FacturacionPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Saldo</p>
-                <p className={`font-semibold ${Number(viewing.total) - Number(viewing.totalPagado ?? 0) > 0.01 ? 'text-amber-500' : 'text-emerald-500'}`}>
-                  {formatCurrency(Math.max(0, Number(viewing.total) - Number(viewing.totalPagado ?? 0)))}
+                <p className={`font-semibold ${Number(viewing.total) - Number(viewing.montoDetraccion ?? 0) - Number(viewing.totalPagado ?? 0) > 0.01 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                  {formatCurrency(Math.max(0, Number(viewing.total) - Number(viewing.montoDetraccion ?? 0) - Number(viewing.totalPagado ?? 0)))}
                 </p>
               </div>
               {Number(viewing.detraccion ?? 0) > 0 && (

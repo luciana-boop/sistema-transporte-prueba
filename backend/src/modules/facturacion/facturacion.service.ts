@@ -171,7 +171,10 @@ export class FacturacionService {
     });
     if (!factura) throw new Error('Factura no encontrada');
     const totalPagado = Number(factura.totalPagado);
-    return { ...factura, totalPagado, saldoPendiente: Number(factura.total) - totalPagado };
+    // La detracción no se cobra al cliente: el saldo pendiente es el total
+    // menos la detracción (ver cobranza.service.ts, misma regla).
+    const saldoPendiente = Number(factura.total) - Number(factura.montoDetraccion || 0) - totalPagado;
+    return { ...factura, totalPagado, saldoPendiente };
   }
 
   // ── P1: devuelve el pdfPath guardado en BD; si no existe, lo genera localmente ──
