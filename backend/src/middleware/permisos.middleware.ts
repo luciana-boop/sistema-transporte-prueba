@@ -11,14 +11,15 @@ import { ModuloKey, AccionKey, MODULOS_META, ACCIONES_META } from '../config/per
 export const verificarModulo = (moduloKey: ModuloKey) => {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const usuarioId = req.usuario?.id;
+    const rol = req.usuario?.rol;
 
-    if (!usuarioId) {
+    if (!usuarioId || !rol) {
       res.status(401).json({ success: false, error: 'No autenticado' });
       return;
     }
 
     try {
-      const tiene = await permisosService.tienePermisoModulo(usuarioId, moduloKey);
+      const tiene = await permisosService.tienePermisoModulo(usuarioId, moduloKey, rol);
 
       if (!tiene) {
         const label = MODULOS_META[moduloKey]?.label ?? moduloKey;
@@ -43,14 +44,15 @@ export const verificarModulo = (moduloKey: ModuloKey) => {
 export const verificarAccion = (accionKey: AccionKey) => {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const usuarioId = req.usuario?.id;
+    const rol = req.usuario?.rol;
 
-    if (!usuarioId) {
+    if (!usuarioId || !rol) {
       res.status(401).json({ success: false, error: 'No autenticado' });
       return;
     }
 
     try {
-      const tiene = await permisosService.tienePermisoAccion(usuarioId, accionKey);
+      const tiene = await permisosService.tienePermisoAccion(usuarioId, accionKey, rol);
 
       if (!tiene) {
         const label = ACCIONES_META[accionKey]?.label ?? accionKey;

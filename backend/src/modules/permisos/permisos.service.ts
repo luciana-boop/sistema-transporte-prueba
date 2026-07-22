@@ -197,14 +197,11 @@ export class PermisosService {
   }
 
   // ─── Verificar permiso de módulo (para middleware) ──────────────────────────
-  async tienePermisoModulo(usuarioId: number, moduloKey: string): Promise<boolean> {
-    const usuario = await prisma.usuario.findUnique({
-      where: { id: usuarioId },
-      select: { rol: true },
-    });
-
-    if (!usuario) return false;
-    if (usuario.rol === 'ADMIN') return true;
+  // `rol` viene del JWT ya verificado (req.usuario.rol) — evita una consulta
+  // redundante a `usuario` que antes se hacía en cada request solo para
+  // volver a leer un dato que el token ya trae firmado.
+  async tienePermisoModulo(usuarioId: number, moduloKey: string, rol: string): Promise<boolean> {
+    if (rol === 'ADMIN') return true;
 
     const permiso = await prisma.permisoModulo.findUnique({
       where: { usuarioId_moduloKey: { usuarioId, moduloKey } },
@@ -216,14 +213,8 @@ export class PermisosService {
   }
 
   // ─── Verificar permiso de acción (para middleware) ──────────────────────────
-  async tienePermisoAccion(usuarioId: number, accionKey: string): Promise<boolean> {
-    const usuario = await prisma.usuario.findUnique({
-      where: { id: usuarioId },
-      select: { rol: true },
-    });
-
-    if (!usuario) return false;
-    if (usuario.rol === 'ADMIN') return true;
+  async tienePermisoAccion(usuarioId: number, accionKey: string, rol: string): Promise<boolean> {
+    if (rol === 'ADMIN') return true;
 
     const permiso = await prisma.permisoAccion.findUnique({
       where: { usuarioId_accionKey: { usuarioId, accionKey } },

@@ -214,6 +214,11 @@ model Pedido {
   creadoPor      Usuario?            @relation("PedidoCreadoPor", fields: [creadoPorId], references: [id])
   actualizadoPor Usuario?            @relation("PedidoActualizadoPor", fields: [actualizadoPorId], references: [id])
 
+  @@index([clienteId])
+  @@index([vehiculoId])
+  @@index([estado])
+  @@index([fechaPedido])
+  @@index([creadoEn])
   @@map("pedidos")
 }
 
@@ -262,6 +267,11 @@ model Factura {
   creadoPor        Usuario?                  @relation("FacturaCreadoPor", fields: [creadoPorId], references: [id])
   actualizadoPor   Usuario?                  @relation("FacturaActualizadoPor", fields: [actualizadoPorId], references: [id])
 
+  @@index([clienteId])
+  @@index([pedidoId])
+  @@index([estado])
+  @@index([fechaEmision])
+  @@index([fechaVencimiento])
   @@map("facturas")
 }
 
@@ -324,6 +334,9 @@ model Caja {
   creadoPor        Usuario?            @relation("CajaCreadoPor", fields: [creadoPorId], references: [id])
   actualizadoPor   Usuario?            @relation("CajaActualizadoPor", fields: [actualizadoPorId], references: [id])
 
+  @@index([usuarioId])
+  @@index([estado])
+  @@index([fecha])
   @@map("cajas")
 }
 
@@ -358,6 +371,9 @@ model MovimientoCaja {
   movimientoCuenta MovimientoCuentaV2? @relation("MovCajaCuenta", fields: [movimientoCuentaId], references: [id])
   creadoPor        Usuario?            @relation("MovimientoCajaCreadoPor", fields: [creadoPorId], references: [id])
 
+  @@index([cajaId])
+  @@index([vehiculoId])
+  @@index([tipo, anulado, fecha])
   @@map("movimientos_caja")
 }
 
@@ -495,6 +511,9 @@ model Liquidacion {
   creadoPor         Usuario?             @relation("LiquidacionCreadoPor", fields: [creadoPorId], references: [id])
   actualizadoPor    Usuario?             @relation("LiquidacionActualizadoPor", fields: [actualizadoPorId], references: [id])
 
+  @@index([conductorId])
+  @@index([fecha])
+  @@index([estado])
   @@map("liquidaciones")
 }
 
@@ -532,6 +551,7 @@ model LiquidacionPedido {
   pedido      Pedido      @relation(fields: [pedidoId], references: [id])
 
   @@unique([liquidacionId, pedidoId]) // no duplicar mismo pedido en la misma liquidación
+  @@index([pedidoId])
   @@map("liquidacion_pedidos")
 }
 
@@ -565,6 +585,10 @@ model Combustible {
   creadoPor        Usuario?            @relation("CombustibleCreadoPor", fields: [creadoPorId], references: [id])
   actualizadoPor   Usuario?            @relation("CombustibleActualizadoPor", fields: [actualizadoPorId], references: [id])
 
+  @@index([vehiculoId])
+  @@index([conductorId])
+  @@index([liquidacionId])
+  @@index([fecha])
   @@map("combustible")
 }
 
@@ -832,6 +856,12 @@ model MovimientoCuentaV2 {
   creadoPor       Usuario?              @relation("MovimientoCuentaV2CreadoPor", fields: [creadoPorId], references: [id])
   actualizadoPor  Usuario?              @relation("MovimientoCuentaV2ActualizadoPor", fields: [actualizadoPorId], references: [id])
 
+  @@index([cuentaId])
+  @@index([liquidacionId])
+  @@index([monedaId])
+  @@index([categoriaEgreso])
+  @@index([categoriaIngreso])
+  @@index([tipo, anulado, fecha])
   @@map("movimientos_cuenta_v2")
 }
 
@@ -924,6 +954,11 @@ model Guia {
   detalles                  GuiaDetalle[]
   transportistasAdicionales GuiaTransportistaAdicional[]
 
+  @@index([clienteId])
+  @@index([pedidoId])
+  @@index([estado])
+  @@index([anulado])
+  @@index([estadoSunat, anulado])
   @@map("guias")
 }
 
@@ -988,6 +1023,10 @@ model PagoV2 {
   creadoPor        Usuario?                  @relation("PagoV2CreadoPor", fields: [creadoPorId], references: [id])
   actualizadoPor   Usuario?                  @relation("PagoV2ActualizadoPor", fields: [actualizadoPorId], references: [id])
 
+  @@index([facturaId])
+  @@index([clienteId])
+  @@index([fechaPago])
+  @@index([monedaId])
   @@map("pagos_v2")
 }
 
@@ -1005,6 +1044,7 @@ model PagoV2AplicacionFactura {
   creadoPor Usuario? @relation("AplicacionFacturaCreadoPor", fields: [creadoPorId], references: [id])
 
   @@unique([pagoId, facturaId])
+  @@index([facturaId])
   @@map("pago_v2_aplicaciones_factura")
 }
 
@@ -1030,5 +1070,7 @@ model MantenimientoDetalle {
   creadoPor        Usuario?           @relation("MantenimientoCreadoPor", fields: [creadoPorId], references: [id])
   actualizadoPor   Usuario?           @relation("MantenimientoActualizadoPor", fields: [actualizadoPorId], references: [id])
 
+  @@index([vehiculoId])
+  @@index([conductorId])
   @@map("mantenimiento_detalles")
 }

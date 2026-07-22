@@ -37,11 +37,12 @@ router.get(
 // Facturación (tipo crédito), así que se acepta cualquiera de los dos módulos.
 const verificarModuloClientesOFacturacion = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   const usuarioId = req.usuario?.id;
-  if (!usuarioId) { res.status(401).json({ success: false, error: 'No autenticado' }); return; }
+  const rol = req.usuario?.rol;
+  if (!usuarioId || !rol) { res.status(401).json({ success: false, error: 'No autenticado' }); return; }
   try {
     const [tieneClientes, tieneFacturacion] = await Promise.all([
-      permisosService.tienePermisoModulo(usuarioId, 'clientes'),
-      permisosService.tienePermisoModulo(usuarioId, 'facturacion'),
+      permisosService.tienePermisoModulo(usuarioId, 'clientes', rol),
+      permisosService.tienePermisoModulo(usuarioId, 'facturacion', rol),
     ]);
     if (!tieneClientes && !tieneFacturacion) {
       res.status(403).json({ success: false, error: 'No tenés permiso para acceder a este recurso' });
