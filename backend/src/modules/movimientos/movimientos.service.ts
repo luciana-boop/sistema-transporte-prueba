@@ -173,6 +173,10 @@ export class MovimientosService {
     return cuentasService.anularMovimiento(id, usuarioId);
   }
 
+  // Agrupado por moneda: sumar ingresos/egresos de cuentas en soles y dólares
+  // en un solo total no tiene sentido (mezclaría dos monedas distintas). Si se
+  // filtra por una cuenta específica, el resultado trae una sola moneda de
+  // todas formas.
   async resumen(query: { desde?: string; hasta?: string; cuentaId?: string }) {
     const where: any = {};
     if (query.cuentaId) where.cuentaId = parseInt(query.cuentaId);
@@ -182,20 +186,33 @@ export class MovimientosService {
       if (query.hasta) where.fecha.lte = new Date(query.hasta + 'T23:59:59');
     }
 
-    const [ingresos, egresos] = await Promise.all([
-      prisma.movimientoCuentaV2.aggregate({ where: { ...where, tipo: 'INGRESO', anulado: false }, _sum: { monto: true }, _count: true }),
-      prisma.movimientoCuentaV2.aggregate({ where: { ...where, tipo: 'EGRESO', anulado: false }, _sum: { monto: true }, _count: true }),
+    const [ingresos, egresos, monedas] = await Promise.all([
+      prisma.movimientoCuentaV2.groupBy({ by: ['monedaId'], where: { ...where, tipo: 'INGRESO', anulado: false }, _sum: { monto: true }, _count: true }),
+      prisma.movimientoCuentaV2.groupBy({ by: ['monedaId'], where: { ...where, tipo: 'EGRESO', anulado: false }, _sum: { monto: true }, _count: true }),
+      prisma.moneda.findMany({ select: { id: true, codigo: true, simbolo: true } }),
     ]);
 
-    const totalIngresos = Number(ingresos._sum.monto || 0);
-    const totalEgresos = Number(egresos._sum.monto || 0);
+    const nombreMoneda = new Map(monedas.map((m) => [m.id, m]));
+    const porMoneda = new Map<number, {
+      monedaId: number; codigo: string; simbolo: string;
+      totalIngresos: number; cantidadIngresos: number; totalEgresos: number; cantidadEgresos: number;
+    }>();
+    const entry = (monedaId: number) => {
+      let e = porMoneda.get(monedaId);
+      if (!e) {
+        const m = nombreMoneda.get(monedaId);
+        e = { monedaId, codigo: m?.codigo ?? '?', simbolo: m?.simbolo ?? '', totalIngresos: 0, cantidadIngresos: 0, totalEgresos: 0, cantidadEgresos: 0 };
+        porMoneda.set(monedaId, e);
+      }
+      return e;
+    };
+    for (const i of ingresos) { const e = entry(i.monedaId); e.totalIngresos = Number(i._sum.monto || 0); e.cantidadIngresos = i._count; }
+    for (const g of egresos) { const e = entry(g.monedaId); e.totalEgresos = Number(g._sum.monto || 0); e.cantidadEgresos = g._count; }
 
     return {
-      totalIngresos,
-      cantidadIngresos: ingresos._count,
-      totalEgresos,
-      cantidadEgresos: egresos._count,
-      saldoNeto: totalIngresos - totalEgresos,
+      porMoneda: Array.from(porMoneda.values())
+        .map((e) => ({ ...e, saldoNeto: Math.round((e.totalIngresos - e.totalEgresos) * 100) / 100 }))
+        .sort((a, b) => a.codigo.localeCompare(b.codigo)),
     };
   }
 

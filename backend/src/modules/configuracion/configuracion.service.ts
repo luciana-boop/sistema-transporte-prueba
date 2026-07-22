@@ -97,11 +97,18 @@ const DEFAULTS_TABLAS: Array<{ tipo: string; codigo: string; nombre: string; des
   { tipo: 'categoria_ingreso', codigo: 'CAJA_CHICA',   nombre: 'Caja chica',      orden: 2 },
   { tipo: 'categoria_ingreso', codigo: 'LIQUIDACION',  nombre: 'Liquidación',     orden: 3 },
   { tipo: 'categoria_ingreso', codigo: 'OTRO',         nombre: 'Otro',            orden: 4 },
+  // TRANSFERENCIA_CUENTAS: movimiento de dinero entre cuentas propias (ej.
+  // compra de dólares con soles del mismo banco) — no es un ingreso/gasto
+  // real del negocio, así que reportes.service.ts lo excluye de "Gastos"
+  // (ver categoriaEgreso notIn) y nunca genera PagoV2, por lo que tampoco
+  // entra a "Cobrado".
+  { tipo: 'categoria_ingreso', codigo: 'TRANSFERENCIA_CUENTAS', nombre: 'Movimiento entre cuentas', orden: 5 },
   { tipo: 'categoria_egreso', codigo: 'COMBUSTIBLE',   nombre: 'Combustible',    orden: 1 },
   { tipo: 'categoria_egreso', codigo: 'MANTENIMIENTO', nombre: 'Mantenimiento',  orden: 2 },
   { tipo: 'categoria_egreso', codigo: 'CAJA_CHICA',    nombre: 'Caja chica',     orden: 3 },
   { tipo: 'categoria_egreso', codigo: 'PLANILLA',      nombre: 'Planilla',       orden: 4 },
   { tipo: 'categoria_egreso', codigo: 'OTROS',         nombre: 'Otros',          orden: 5 },
+  { tipo: 'categoria_egreso', codigo: 'TRANSFERENCIA_CUENTAS', nombre: 'Movimiento entre cuentas', orden: 6 },
 ];
 
 // Códigos "de sistema": el backend liga lógica de negocio a estos valores

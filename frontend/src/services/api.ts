@@ -254,7 +254,12 @@ export const movimientosApi = {
     api.put<ApiResponse<MovimientoCuenta>>(`/api/movimientos/${id}`, data),
   anular: (id: number) => api.patch<ApiResponse<MovimientoCuenta>>(`/api/movimientos/${id}/anular`),
   resumen: (params?: { desde?: string; hasta?: string; cuentaId?: number }) =>
-    api.get<ApiResponse<{ totalIngresos: number; cantidadIngresos: number; totalEgresos: number; cantidadEgresos: number; saldoNeto: number }>>('/api/movimientos/resumen', { params }),
+    api.get<ApiResponse<{
+      porMoneda: Array<{
+        monedaId: number; codigo: string; simbolo: string;
+        totalIngresos: number; cantidadIngresos: number; totalEgresos: number; cantidadEgresos: number; saldoNeto: number;
+      }>;
+    }>>('/api/movimientos/resumen', { params }),
   importarExcel: (data: {
     cuentaId: number; monedaId: number;
     filas: Array<{ fecha: string; descripcion: string; monto: number; tipo: 'INGRESO' | 'EGRESO'; referencia?: string }>;
@@ -356,8 +361,17 @@ export const cajaApi = {
 };
 
 // ─── REPORTES ─────────────────────────────────────────────────────────────────
+// Moneda a la que quedó filtrado el reporte (siempre presente en los reportes
+// que tocan cuentas/movimientos/pagos — facturación/pedidos no la usan).
+export interface MonedaResumen {
+  id: number;
+  codigo: string;
+  simbolo: string;
+  esDefault: boolean;
+}
+
 export const reportesApi = {
-  dashboard: (params?: { desde?: string; hasta?: string }) =>
+  dashboard: (params?: { desde?: string; hasta?: string; monedaId?: number }) =>
     api.get<ApiResponse<import('@/types').DashboardData>>('/api/reportes/dashboard', { params }),
   pedidos: (params?: { desde?: string; hasta?: string; clienteId?: number }) =>
     api.get<ApiResponse<{
@@ -365,10 +379,11 @@ export const reportesApi = {
       resumenEstados: Array<{ estado: string; cantidad: number; totalTarifas: number }>;
       totales: { cantidad: number; tarifaTotal: number };
     }>>('/api/reportes/pedidos', { params }),
-  anual: (params?: { anio?: number }) =>
+  anual: (params?: { anio?: number; monedaId?: number }) =>
     api.get<ApiResponse<{
       anio: number;
-      promedioUtilidadMensual: number;
+      moneda: MonedaResumen;
+      promedioUtilidadMensual: number | null;
       meses: Array<{
         mes: number;
         nombreMes: string;
@@ -376,10 +391,10 @@ export const reportesApi = {
         facturado: number;
         cobrado: number;
         gastos: number;
-        utilidad: number;
-        clasificacion: 'BUEN_MES' | 'MES_REGULAR' | 'MAL_MES' | 'SIN_DATOS';
+        utilidad: number | null;
+        clasificacion: 'BUEN_MES' | 'MES_REGULAR' | 'MAL_MES' | 'SIN_DATOS' | 'NO_APLICA';
       }>;
-      totales: { pedidos: number; facturado: number; cobrado: number; gastos: number; utilidad: number };
+      totales: { pedidos: number; facturado: number; cobrado: number; gastos: number; utilidad: number | null };
     }>>('/api/reportes/anual', { params }),
   conductorDelMes: () => {
     type ConductorRanking = {
@@ -427,8 +442,9 @@ export const reportesApi = {
       }>;
       totales: { cantidad: number; subtotal: number; igv: number; total: number };
     }>>('/api/reportes/facturacion', { params }),
-  cobranza: (params?: { desde?: string; hasta?: string; clienteId?: number }) =>
+  cobranza: (params?: { desde?: string; hasta?: string; clienteId?: number; monedaId?: number }) =>
     api.get<ApiResponse<{
+      moneda: MonedaResumen;
       pagos: MovimientoCobranza[];
       resumenPorMetodo: Array<{ metodoPago: string; cantidad: number; total: number }>;
       resumenPorCliente: Array<{
@@ -437,14 +453,15 @@ export const reportesApi = {
         totalFacturado: number;
         totalCobrado: number;
         saldoPendiente: number;
-        porcentajeCobrado: number;
+        porcentajeCobrado: number | null;
       }>;
       totales: { cantidad: number; totalCobrado: number };
     }>>('/api/reportes/cobranza', { params }),
-  caja: (params?: { desde?: string; hasta?: string }) =>
-    api.get<ApiResponse<{ cajas: Caja[]; totalesGlobales: { ingresos: number; egresos: number } }>>('/api/reportes/caja', { params }),
-  egresos: (params?: { desde?: string; hasta?: string }) =>
+  caja: (params?: { desde?: string; hasta?: string; monedaId?: number }) =>
+    api.get<ApiResponse<{ moneda: MonedaResumen; cajas: Caja[]; totalesGlobales: { ingresos: number; egresos: number } }>>('/api/reportes/caja', { params }),
+  egresos: (params?: { desde?: string; hasta?: string; monedaId?: number }) =>
     api.get<ApiResponse<{
+      moneda: MonedaResumen;
       egresos: MovimientoCuenta[];
       totales: { cantidad: number; totalEgresos: number };
     }>>('/api/reportes/egresos', { params }),
@@ -477,8 +494,9 @@ export const reportesApi = {
       }>;
       totales: { totalFacturado: number; totalCostos: number; totalUtilidad: number };
     }>>(`/api/reportes/rentabilidad-cliente/${clienteId}/detalle`, { params }),
-  mantenimiento: (params?: { desde?: string; hasta?: string; vehiculoId?: number }) =>
+  mantenimiento: (params?: { desde?: string; hasta?: string; vehiculoId?: number; monedaId?: number }) =>
     api.get<ApiResponse<{
+      moneda: MonedaResumen;
       gastos: Array<{
         id: number; monto: number; fecha: string; concepto: string;
         cuenta: { id: number; nombre: string };

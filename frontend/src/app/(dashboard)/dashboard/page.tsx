@@ -1,13 +1,13 @@
 // FILE: src/app/(dashboard)/dashboard/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportesApi, cuentasApi } from '@/services/api';
 import { useConfig } from '@/hooks/useConfig';
 import { usePermisosStore } from '@/store/permisos.store';
-import { formatCurrency, formatDate, rangoMes } from '@/lib/utils';
-import { MonedaBadge, TipoCuentaBadge } from '@/components/shared/FinancialSelectors';
+import { formatCurrency, formatCurrencyMoneda, formatDate, rangoMes } from '@/lib/utils';
+import { MonedaBadge, MonedaSelector, TipoCuentaBadge } from '@/components/shared/FinancialSelectors';
 import {
   StatCard, StatCardSkeleton, TableSkeleton, EmptyState,
   Table, Th, Td, Tr, PageHeader, Input, Modal, Badge, MonthSelector,
@@ -45,9 +45,26 @@ export default function DashboardPage() {
   const [month, setMonth] = useState(hoy.getMonth() + 1);
   const { desde, hasta } = rangoMes(year, month);
 
+  // Filtro general de moneda — afecta Cobrado/Gastos/Utilidad bruta.
+  // Facturado y Por cobrar siempre están en soles (la facturación no tiene
+  // moneda propia).
+  const { data: monedas = [] } = useQuery({
+    queryKey: ['monedas', 'activas'],
+    queryFn: () => cuentasApi.getMonedasActivas().then((r) => r.data.data).catch(() => []),
+    staleTime: 10 * 60 * 1000,
+  });
+  const [monedaId, setMonedaId] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (monedaId === undefined && monedas.length > 0) {
+      const def = (monedas as any[]).find((m) => m.esPorDefecto) ?? monedas[0];
+      setMonedaId(def.id);
+    }
+  }, [monedas, monedaId]);
+
   const { data: dash, isLoading } = useQuery({
-    queryKey: ['reportes', 'dashboard', desde, hasta],
-    queryFn: () => reportesApi.dashboard({ desde, hasta }).then((r) => r.data.data),
+    queryKey: ['reportes', 'dashboard', desde, hasta, monedaId],
+    queryFn: () => reportesApi.dashboard({ desde, hasta, monedaId }).then((r) => r.data.data),
+    enabled: monedaId !== undefined,
   });
 
   const { data: resumenCuentas } = useQuery({
@@ -93,15 +110,19 @@ export default function DashboardPage() {
         { name: 'Cobrado', valor: dash.financiero.cobrado },
         { name: 'Por cobrar', valor: dash.financiero.porCobrar },
         { name: 'Gastos', valor: dash.financiero.gastos },
-        { name: 'Utilidad', valor: dash.financiero.utilidadBruta },
+        ...(dash.financiero.utilidadBruta != null ? [{ name: 'Utilidad', valor: dash.financiero.utilidadBruta }] : []),
       ]
     : [];
+  // Facturado/Por cobrar/Utilidad están siempre en soles; Cobrado/Gastos
+  // respetan la moneda filtrada — solo coinciden cuando esa moneda es soles.
+  const formatFinanciero = (v: number, name: string) =>
+    (name === 'Cobrado' || name === 'Gastos') ? formatCurrencyMoneda(v, dash?.moneda.codigo) : formatCurrency(v);
 
   return (
     <div className="page-container">
       <PageHeader title="Dashboard" description={config.nombreEmpresa ? `${config.nombreEmpresa} — Resumen del período seleccionado` : "Resumen del período seleccionado"} />
 
-      {/* Filtro por mes */}
+      {/* Filtro por mes y moneda */}
       <div className="flex flex-wrap gap-3 items-center">
         <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
         {(year !== hoy.getFullYear() || month !== hoy.getMonth() + 1) && (
@@ -112,7 +133,20 @@ export default function DashboardPage() {
             ↺ Mes actual
           </button>
         )}
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground">Moneda</label>
+          <MonedaSelector
+            className="w-48"
+            value={monedaId ?? ''}
+            onChange={(e) => setMonedaId(e.target.value ? parseInt(e.target.value) : undefined)}
+          />
+        </div>
       </div>
+      {dash && !dash.moneda.esDefault && (
+        <p className="text-xs text-muted-foreground">
+          &quot;Facturado&quot; y &quot;Por cobrar&quot; son siempre en soles (S/) — la facturación no tiene moneda propia. &quot;Cobrado&quot; y &quot;Gastos&quot; reflejan solo movimientos en {dash.moneda.codigo}, por eso la utilidad bruta no se muestra para esta moneda.
+        </p>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -120,9 +154,9 @@ export default function DashboardPage() {
           Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />)
         ) : (
           <>
-            <StatCard label="Facturado" value={formatCurrency(dash?.financiero.facturado ?? 0)} sub="Período seleccionado" icon={DollarSign} color="blue" />
-            <StatCard label="Cobrado" value={formatCurrency(dash?.financiero.cobrado ?? 0)} sub="Ingresos reales" icon={TrendingUp} color="green" />
-            <StatCard label="Por cobrar" value={formatCurrency(dash?.financiero.porCobrar ?? 0)} sub="Saldo pendiente" icon={AlertCircle} color="yellow" />
+            <StatCard label="Facturado (S/)" value={formatCurrency(dash?.financiero.facturado ?? 0)} sub="Período seleccionado" icon={DollarSign} color="blue" />
+            <StatCard label={`Cobrado (${dash?.moneda.simbolo ?? 'S/'})`} value={formatCurrencyMoneda(dash?.financiero.cobrado ?? 0, dash?.moneda.codigo)} sub="Ingresos reales" icon={TrendingUp} color="green" />
+            <StatCard label="Por cobrar (S/)" value={formatCurrency(dash?.financiero.porCobrar ?? 0)} sub="Saldo pendiente" icon={AlertCircle} color="yellow" />
             <StatCard label="Clientes activos" value={dash?.clientes.total ?? 0} sub="Total registrados" icon={Users} color="default" />
           </>
         )}
@@ -135,7 +169,13 @@ export default function DashboardPage() {
         ) : (
           <>
             <StatCard label="Pedidos del período" value={dash?.pedidos.totalMes ?? 0} sub="Nuevos registros" icon={Package} color="default" />
-            <StatCard label="Utilidad bruta" value={formatCurrency(dash?.financiero.utilidadBruta ?? 0)} sub="Facturado − Gastos" icon={ArrowUpRight} color={(dash?.financiero.utilidadBruta ?? 0) >= 0 ? 'green' : 'red'} />
+            <StatCard
+              label="Utilidad bruta"
+              value={dash?.financiero.utilidadBruta == null ? '—' : formatCurrency(dash.financiero.utilidadBruta)}
+              sub="Facturado − Gastos (solo en soles)"
+              icon={ArrowUpRight}
+              color={dash?.financiero.utilidadBruta == null ? 'default' : dash.financiero.utilidadBruta >= 0 ? 'green' : 'red'}
+            />
           </>
         )}
       </div>
@@ -174,11 +214,11 @@ export default function DashboardPage() {
               <BarChart data={financieroData} barSize={40}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                 <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v) => `S/${(v/1000).toFixed(0)}k`} />
+                <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
                 <Tooltip
                   cursor={{ fill: 'hsl(var(--muted)/0.4)' }}
                   contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12 }}
-                  formatter={(v: number) => [formatCurrency(v), 'Monto']}
+                  formatter={(v: number, _name: string, props: any) => [formatFinanciero(v, props?.payload?.name ?? ''), 'Monto']}
                 />
                 <Bar dataKey="valor" radius={[10, 10, 0, 0]}>
                   {financieroData.map((d) => (

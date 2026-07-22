@@ -7,18 +7,18 @@ import * as R from '../../utils/response';
 export class ReportesController {
   async dashboard(req: Request, res: Response): Promise<void> {
     try {
-      const { desde, hasta } = req.query as Record<string, string>;
-      const data = await reportesService.dashboardGeneral({ desde, hasta });
+      const { desde, hasta, monedaId } = req.query as Record<string, string>;
+      const data = await reportesService.dashboardGeneral({ desde, hasta, monedaId });
       R.ok(res, data);
     } catch (e) { R.serverError(res, e); }
   }
 
   async anual(req: Request, res: Response): Promise<void> {
     try {
-      const { anio } = req.query as Record<string, string>;
+      const { anio, monedaId } = req.query as Record<string, string>;
       const anioParseado = anio ? parseInt(anio) : new Date().getFullYear();
       if (isNaN(anioParseado)) { R.badRequest(res, 'anio inválido'); return; }
-      const data = await reportesService.reporteAnual(anioParseado);
+      const data = await reportesService.reporteAnual(anioParseado, monedaId);
       R.ok(res, data);
     } catch (e) { R.serverError(res, e); }
   }
@@ -56,32 +56,32 @@ export class ReportesController {
 
   async cobranza(req: Request, res: Response): Promise<void> {
     try {
-      const { desde, hasta, clienteId } = req.query as Record<string, string>;
-      const data = await reportesService.reporteCobranza({ desde, hasta, clienteId });
+      const { desde, hasta, clienteId, monedaId } = req.query as Record<string, string>;
+      const data = await reportesService.reporteCobranza({ desde, hasta, clienteId, monedaId });
       R.ok(res, data);
     } catch (e) { R.serverError(res, e); }
   }
 
   async caja(req: Request, res: Response): Promise<void> {
     try {
-      const { desde, hasta } = req.query as Record<string, string>;
-      const data = await reportesService.reporteCaja({ desde, hasta });
+      const { desde, hasta, monedaId } = req.query as Record<string, string>;
+      const data = await reportesService.reporteCaja({ desde, hasta, monedaId });
       R.ok(res, data);
     } catch (e) { R.serverError(res, e); }
   }
 
   async egresos(req: Request, res: Response): Promise<void> {
     try {
-      const { desde, hasta } = req.query as Record<string, string>;
-      const data = await reportesService.reporteEgresos({ desde, hasta });
+      const { desde, hasta, monedaId } = req.query as Record<string, string>;
+      const data = await reportesService.reporteEgresos({ desde, hasta, monedaId });
       R.ok(res, data);
     } catch (e) { R.serverError(res, e); }
   }
 
   async mantenimiento(req: Request, res: Response): Promise<void> {
     try {
-      const { desde, hasta, vehiculoId } = req.query as Record<string, string>;
-      const data = await reportesService.reporteMantenimiento({ desde, hasta, vehiculoId });
+      const { desde, hasta, vehiculoId, monedaId } = req.query as Record<string, string>;
+      const data = await reportesService.reporteMantenimiento({ desde, hasta, vehiculoId, monedaId });
       R.ok(res, data);
     } catch (e) { R.serverError(res, e); }
   }

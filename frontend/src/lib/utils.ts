@@ -21,6 +21,16 @@ export function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+// Igual que formatCurrency pero con el código ISO de la moneda filtrada
+// (PEN/USD/EUR) en vez de soles fijo — para reportes con filtro de moneda.
+export function formatCurrencyMoneda(amount: number, codigo = 'PEN'): string {
+  return new Intl.NumberFormat('es-PE', {
+    style: 'currency',
+    currency: codigo,
+    minimumFractionDigits: 2,
+  }).format(amount);
+}
+
 export function formatDate(dateStr: string, fmt = 'dd/MM/yyyy'): string {
   try {
     return format(parseISO(dateStr), fmt, { locale: es });
@@ -89,6 +99,7 @@ export const CLASIFICACION_MES_LABEL: Record<string, string> = {
   MES_REGULAR: 'Mes regular',
   MAL_MES:     'Mal mes',
   SIN_DATOS:   'Sin datos',
+  NO_APLICA:   'No aplica',
 };
 
 // La condición de pago de un cliente ya no es un enum fijo: es 'CONTADO' o el

@@ -14,7 +14,7 @@ import {
   Modal, FormField, Input, Select, Textarea, StatCard,
   TableSkeleton, EmptyState, AuditInfo, Pagination,
 } from '@/components/shared';
-import { formatCurrency, formatDate, getErrorMessage, PAGE_SIZE } from '@/lib/utils';
+import { formatCurrency, formatCurrencyMoneda, formatDate, getErrorMessage, PAGE_SIZE } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
 import { parseExcelMovimientos, type FilaMovimientoImportado } from '@/lib/parseExcelMovimientos';
 import type { MovimientoCuenta } from '@/types';
@@ -187,7 +187,7 @@ export default function MovimientosPage() {
   const cerrarImportar = () => { setShowImportar(false); setFilas([]); setImportCuentaId(''); };
 
   const formatoAdvertencia = (a: { motivo: string; existente?: { fecha: string; monto: number; concepto: string } }) =>
-    `• ${a.motivo}${a.existente ? ` (movimiento existente: ${formatDate(a.existente.fecha)} — ${formatCurrency(a.existente.monto)} — ${a.existente.concepto})` : ''}`;
+    `• ${a.motivo}${a.existente ? ` (movimiento existente: ${formatDate(a.existente.fecha)} — ${formatCurrencyMoneda(a.existente.monto, cuentaImport?.moneda.codigo)} — ${a.existente.concepto})` : ''}`;
 
   const importarMutation = useMutation({
     mutationFn: (vars: { filas: typeof filasValidas; confirmarDuplicados?: boolean }) => {
@@ -267,14 +267,14 @@ export default function MovimientosPage() {
         ))}
       </div>
 
-      {/* Stat cards */}
-      {resumen && (
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-          <StatCard label="Total ingresos" value={formatCurrency(resumen.totalIngresos)} color="green" />
-          <StatCard label="Total egresos" value={formatCurrency(resumen.totalEgresos)} color="red" />
-          <StatCard label="Saldo neto" value={formatCurrency(resumen.saldoNeto)} color={resumen.saldoNeto >= 0 ? 'green' : 'red'} />
+      {/* Stat cards — un bloque por moneda, nunca se suman soles y dólares juntos */}
+      {resumen && resumen.porMoneda.map((r) => (
+        <div key={r.monedaId} className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          <StatCard label={`Total ingresos (${r.simbolo})`} value={formatCurrencyMoneda(r.totalIngresos, r.codigo)} color="green" />
+          <StatCard label={`Total egresos (${r.simbolo})`} value={formatCurrencyMoneda(r.totalEgresos, r.codigo)} color="red" />
+          <StatCard label={`Saldo neto (${r.simbolo})`} value={formatCurrencyMoneda(r.saldoNeto, r.codigo)} color={r.saldoNeto >= 0 ? 'green' : 'red'} />
         </div>
-      )}
+      ))}
 
       {/* Filtros */}
       <div className="flex flex-wrap gap-3 items-end">
@@ -319,7 +319,7 @@ export default function MovimientosPage() {
                 <Td><span className="text-xs text-muted-foreground">{m.cuenta?.nombre}</span></Td>
                 <Td className="text-right">
                   <span className={`font-semibold ${tab === 'INGRESO' ? 'text-emerald-500' : 'text-destructive'}`}>
-                    {formatCurrency(Number(m.monto))}
+                    {formatCurrencyMoneda(Number(m.monto), m.moneda?.codigo)}
                   </span>
                 </Td>
                 {tab === 'INGRESO' && (
@@ -494,7 +494,7 @@ export default function MovimientosPage() {
                         <Td><span className="text-xs">{f.fecha || '—'}</span></Td>
                         <Td><span className="text-xs">{f.descripcion || '—'}{f.error && <span className="block text-destructive">{f.error}</span>}</span></Td>
                         <Td><span className="text-xs">{f.tipo}</span></Td>
-                        <Td className="text-right"><span className="text-xs">{f.monto ? formatCurrency(f.monto) : '—'}</span></Td>
+                        <Td className="text-right"><span className="text-xs">{f.monto ? formatCurrencyMoneda(f.monto, cuentaImport?.moneda.codigo) : '—'}</span></Td>
                       </Tr>
                     ))}
                   </tbody>
@@ -583,7 +583,7 @@ export default function MovimientosPage() {
             <Detalle label="Concepto" value={viewing.concepto} />
             <Detalle label="Cuenta" value={viewing.cuenta?.nombre} />
             <Detalle label="Moneda" value={viewing.moneda?.simbolo} />
-            <Detalle label="Monto" value={formatCurrency(Number(viewing.monto))} />
+            <Detalle label="Monto" value={formatCurrencyMoneda(Number(viewing.monto), viewing.moneda?.codigo)} />
             <Detalle label="Método de pago" value={viewing.tipoPago?.nombre ?? '—'} />
             <Detalle label="N° Operación" value={viewing.referencia ?? '—'} />
             {viewing.tipo === 'EGRESO' && <Detalle label="Categoría" value={categoriaLabel(viewing.categoriaEgreso)} />}

@@ -1,15 +1,16 @@
 // FILE: src/app/(dashboard)/reportes/page.tsx
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { differenceInCalendarDays } from 'date-fns';
-import { reportesApi, vehiculosApi, configuracionApi } from '@/services/api';
-import { formatCurrency, formatDate, rangoMes, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL, CLASIFICACION_MES_LABEL } from '@/lib/utils';
+import { reportesApi, vehiculosApi, configuracionApi, cuentasApi } from '@/services/api';
+import { formatCurrency, formatCurrencyMoneda, formatDate, rangoMes, ESTADO_PEDIDO_LABEL, ESTADO_FACTURA_LABEL, CLASIFICACION_MES_LABEL } from '@/lib/utils';
 import {
   PageHeader, Table, Th, Td, Tr, Badge, TableSkeleton,
   EmptyState, StatCard, Select, Modal, MonthSelector,
 } from '@/components/shared';
+import { MonedaSelector } from '@/components/shared/FinancialSelectors';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, Legend,
@@ -52,11 +53,28 @@ export default function ReportesPage() {
   const { desde, hasta } = rangoMes(year, month);
   const [anioReporte, setAnioReporte] = useState(() => new Date().getFullYear());
 
+  // Filtro general de moneda — aplica a los reportes que tocan cuentas,
+  // pagos y caja (cobranza, caja, egresos, mantenimiento, anual). Pedidos,
+  // facturación y rentabilidad no tienen moneda propia (siempre soles).
+  const { data: monedas = [] } = useQuery({
+    queryKey: ['monedas', 'activas'],
+    queryFn: () => cuentasApi.getMonedasActivas().then((r) => r.data.data).catch(() => []),
+    staleTime: 10 * 60 * 1000,
+  });
+  const [monedaId, setMonedaId] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (monedaId === undefined && monedas.length > 0) {
+      const def = (monedas as any[]).find((m) => m.esPorDefecto) ?? monedas[0];
+      setMonedaId(def.id);
+    }
+  }, [monedas, monedaId]);
+
   // Estado para modales de detalle
   const [detalleRentCliente, setDetalleRentCliente] = useState<{ id: number; nombre: string } | null>(null);
   const [detalleFacCliente, setDetalleFacCliente] = useState<{ id: number; nombre: string } | null>(null);
 
   const params = { desde: desde || undefined, hasta: hasta || undefined };
+  const paramsConMoneda = { ...params, monedaId };
 
   const { data: pedidosData, isLoading: lPedidos } = useQuery({
     queryKey: ['reporte', 'pedidos', desde, hasta],
@@ -83,21 +101,21 @@ export default function ReportesPage() {
   });
 
   const { data: cobData, isLoading: lCob } = useQuery({
-    queryKey: ['reporte', 'cobranza', desde, hasta],
-    queryFn: () => reportesApi.cobranza(params).then((r) => r.data.data),
-    enabled: tab === 'cobranza',
+    queryKey: ['reporte', 'cobranza', desde, hasta, monedaId],
+    queryFn: () => reportesApi.cobranza(paramsConMoneda).then((r) => r.data.data),
+    enabled: tab === 'cobranza' && monedaId !== undefined,
   });
 
   const { data: cajaData, isLoading: lCaja } = useQuery({
-    queryKey: ['reporte', 'caja', desde, hasta],
-    queryFn: () => reportesApi.caja(params).then((r) => r.data.data),
-    enabled: tab === 'caja',
+    queryKey: ['reporte', 'caja', desde, hasta, monedaId],
+    queryFn: () => reportesApi.caja(paramsConMoneda).then((r) => r.data.data),
+    enabled: tab === 'caja' && monedaId !== undefined,
   });
 
   const { data: egresosData, isLoading: lEgresos } = useQuery({
-    queryKey: ['reporte', 'egresos', desde, hasta],
-    queryFn: () => reportesApi.egresos(params).then((r) => r.data.data),
-    enabled: tab === 'egresos',
+    queryKey: ['reporte', 'egresos', desde, hasta, monedaId],
+    queryFn: () => reportesApi.egresos(paramsConMoneda).then((r) => r.data.data),
+    enabled: tab === 'egresos' && monedaId !== undefined,
   });
 
   const [vehiculoIdFiltro, setVehiculoIdFiltro] = useState('');
@@ -119,9 +137,9 @@ export default function ReportesPage() {
   const motivoLabel = (codigo?: string | null) => motivosMantenimiento.find((m: any) => m.codigo === codigo)?.nombre ?? codigo ?? '—';
 
   const { data: mantenimientoData, isLoading: lMantenimiento } = useQuery({
-    queryKey: ['reporte', 'mantenimiento', desde, hasta, vehiculoIdFiltro],
-    queryFn: () => reportesApi.mantenimiento({ ...params, vehiculoId: vehiculoIdFiltro ? parseInt(vehiculoIdFiltro) : undefined }).then((r) => r.data.data),
-    enabled: tab === 'mantenimiento',
+    queryKey: ['reporte', 'mantenimiento', desde, hasta, vehiculoIdFiltro, monedaId],
+    queryFn: () => reportesApi.mantenimiento({ ...paramsConMoneda, vehiculoId: vehiculoIdFiltro ? parseInt(vehiculoIdFiltro) : undefined }).then((r) => r.data.data),
+    enabled: tab === 'mantenimiento' && monedaId !== undefined,
   });
 
   const gastosMantenimientoFiltrados = useMemo(() => {
@@ -131,9 +149,9 @@ export default function ReportesPage() {
   }, [mantenimientoData, filtroMotivo]);
 
   const { data: anualData, isLoading: lAnual } = useQuery({
-    queryKey: ['reporte', 'anual', anioReporte],
-    queryFn: () => reportesApi.anual({ anio: anioReporte }).then((r) => r.data.data),
-    enabled: tab === 'anual',
+    queryKey: ['reporte', 'anual', anioReporte, monedaId],
+    queryFn: () => reportesApi.anual({ anio: anioReporte, monedaId }).then((r) => r.data.data),
+    enabled: tab === 'anual' && monedaId !== undefined,
   });
 
   const pedidosPorCliente = useMemo(() => {
@@ -174,15 +192,30 @@ export default function ReportesPage() {
       <PageHeader title="Reportes" description="Análisis por módulo y período" />
 
       {/* Filters */}
-      {tab === 'anual' ? (
+      <div className="flex flex-wrap items-center gap-3">
+        {tab === 'anual' ? (
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground">Año</label>
+            <Select className="w-28" value={anioReporte} onChange={(e) => setAnioReporte(parseInt(e.target.value))}>
+              {aniosDisponibles.map((a) => <option key={a} value={a}>{a}</option>)}
+            </Select>
+          </div>
+        ) : (
+          <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
+        )}
         <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground">Año</label>
-          <Select className="w-28" value={anioReporte} onChange={(e) => setAnioReporte(parseInt(e.target.value))}>
-            {aniosDisponibles.map((a) => <option key={a} value={a}>{a}</option>)}
-          </Select>
+          <label className="text-xs text-muted-foreground">Moneda</label>
+          <MonedaSelector
+            className="w-48"
+            value={monedaId ?? ''}
+            onChange={(e) => setMonedaId(e.target.value ? parseInt(e.target.value) : undefined)}
+          />
         </div>
-      ) : (
-        <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
+      </div>
+      {(tab === 'pedidos' || tab === 'facturacion') && (
+        <p className="text-xs text-muted-foreground">
+          Pedidos y facturación se manejan siempre en soles (S/) — el filtro de moneda no aplica en esta pestaña.
+        </p>
       )}
 
       {/* Tabs */}
@@ -347,9 +380,14 @@ export default function ReportesPage() {
         <div className="flex flex-col gap-4">
           {cobData && (
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-              <StatCard label="Total cobrado" value={formatCurrency(cobData.totales.totalCobrado)} color="green" />
+              <StatCard label="Total cobrado" value={formatCurrencyMoneda(cobData.totales.totalCobrado, cobData.moneda.codigo)} color="green" />
               <StatCard label="Pagos registrados" value={cobData.totales.cantidad} color="default" />
             </div>
+          )}
+          {cobData && !cobData.moneda.esDefault && (
+            <p className="text-xs text-muted-foreground">
+              &quot;Total facturado&quot;, &quot;Saldo pendiente&quot; y &quot;% cobrado&quot; son siempre en soles (S/) — la facturación no tiene moneda propia. &quot;Total cobrado&quot; refleja solo los pagos en {cobData.moneda.codigo}.
+            </p>
           )}
 
           {/* Tabla resumen por cliente */}
@@ -358,9 +396,9 @@ export default function ReportesPage() {
               <thead>
                 <tr>
                   <Th>Cliente</Th>
-                  <Th>Total facturado</Th>
-                  <Th>Total cobrado</Th>
-                  <Th>Saldo pendiente</Th>
+                  <Th>Total facturado (S/)</Th>
+                  <Th>Total cobrado ({cobData?.moneda.simbolo ?? 'S/'})</Th>
+                  <Th>Saldo pendiente (S/)</Th>
                   <Th>% cobrado</Th>
                 </tr>
               </thead>
@@ -369,22 +407,26 @@ export default function ReportesPage() {
                   <Tr key={c.clienteId}>
                     <Td><span className="text-sm font-medium">{c.razonSocial}</span></Td>
                     <Td><span className="font-medium">{formatCurrency(c.totalFacturado)}</span></Td>
-                    <Td><span className="font-medium text-emerald-500">{formatCurrency(c.totalCobrado)}</span></Td>
+                    <Td><span className="font-medium text-emerald-500">{formatCurrencyMoneda(c.totalCobrado, cobData.moneda.codigo)}</span></Td>
                     <Td>
                       <span className={`font-medium ${c.saldoPendiente > 0 ? 'text-yellow-500' : 'text-muted-foreground'}`}>
                         {formatCurrency(c.saldoPendiente)}
                       </span>
                     </Td>
                     <Td>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 bg-muted rounded-full h-1.5 max-w-16">
-                          <div
-                            className="bg-emerald-500 h-1.5 rounded-full"
-                            style={{ width: `${Math.min(c.porcentajeCobrado, 100)}%` }}
-                          />
+                      {c.porcentajeCobrado == null ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-muted rounded-full h-1.5 max-w-16">
+                            <div
+                              className="bg-emerald-500 h-1.5 rounded-full"
+                              style={{ width: `${Math.min(c.porcentajeCobrado, 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-xs font-medium">{c.porcentajeCobrado.toFixed(0)}%</span>
                         </div>
-                        <span className="text-xs font-medium">{c.porcentajeCobrado.toFixed(0)}%</span>
-                      </div>
+                      )}
                     </Td>
                   </Tr>
                 )) : <tr><td colSpan={5}><EmptyState message="Sin cobranza en el período" /></td></tr>}
@@ -399,8 +441,8 @@ export default function ReportesPage() {
         <div className="flex flex-col gap-4">
           {cajaData && (
             <div className="grid grid-cols-2 gap-4">
-              <StatCard label="Total ingresos" value={formatCurrency(cajaData.totalesGlobales.ingresos)} color="green" />
-              <StatCard label="Total egresos" value={formatCurrency(cajaData.totalesGlobales.egresos)} color="red" />
+              <StatCard label="Total ingresos" value={formatCurrencyMoneda(cajaData.totalesGlobales.ingresos, cajaData.moneda.codigo)} color="green" />
+              <StatCard label="Total egresos" value={formatCurrencyMoneda(cajaData.totalesGlobales.egresos, cajaData.moneda.codigo)} color="red" />
             </div>
           )}
           {lCaja ? <TableSkeleton rows={5} cols={5} /> : (
@@ -411,9 +453,9 @@ export default function ReportesPage() {
                   <Tr key={c.id}>
                     <Td><span className="text-sm">{formatDate(c.fecha)}</span></Td>
                     <Td><span className="text-sm">{c.usuario?.nombre}</span></Td>
-                    <Td><span className="text-emerald-500 font-medium">{formatCurrency(c.ingresos)}</span></Td>
-                    <Td><span className="text-red-500 font-medium">{formatCurrency(c.egresos)}</span></Td>
-                    <Td><span className="font-semibold">{formatCurrency(c.saldoCalculado)}</span></Td>
+                    <Td><span className="text-emerald-500 font-medium">{formatCurrencyMoneda(c.ingresos, cajaData?.moneda.codigo)}</span></Td>
+                    <Td><span className="text-red-500 font-medium">{formatCurrencyMoneda(c.egresos, cajaData?.moneda.codigo)}</span></Td>
+                    <Td><span className="font-semibold">{formatCurrencyMoneda(c.saldoCalculado, cajaData?.moneda.codigo)}</span></Td>
                     <Td><Badge value={c.estado} label={c.estado === 'ABIERTA' ? 'Abierta' : 'Cerrada'} /></Td>
                   </Tr>
                 )) : <tr><td colSpan={6}><EmptyState /></td></tr>}
@@ -427,7 +469,7 @@ export default function ReportesPage() {
       {tab === 'egresos' && (
         <div className="flex flex-col gap-4">
           {egresosData && (
-            <StatCard label="Total egresos" value={formatCurrency(egresosData.totales.totalEgresos)} color="red" />
+            <StatCard label="Total egresos" value={formatCurrencyMoneda(egresosData.totales.totalEgresos, egresosData.moneda.codigo)} color="red" />
           )}
 
           {/* Gráfico egresos por categoría */}
@@ -442,7 +484,7 @@ export default function ReportesPage() {
                         {egresosPorCategoria.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                       </Pie>
                       <Tooltip
-                        formatter={(value: number) => formatCurrency(value)}
+                        formatter={(value: number) => formatCurrencyMoneda(value, egresosData?.moneda.codigo)}
                         contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12 }}
                       />
                     </PieChart>
@@ -455,7 +497,7 @@ export default function ReportesPage() {
                         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
                         <span className="truncate text-muted-foreground">{c.name}</span>
                       </div>
-                      <span className="font-semibold shrink-0">{formatCurrency(c.value)}</span>
+                      <span className="font-semibold shrink-0">{formatCurrencyMoneda(c.value, egresosData?.moneda.codigo)}</span>
                     </div>
                   ))}
                 </div>
@@ -474,7 +516,7 @@ export default function ReportesPage() {
                     <Td><span className="text-sm">{formatDate(e.fecha)}</span></Td>
                     <Td><span className="text-sm font-medium">{e.concepto}</span></Td>
                     <Td><span className="text-xs text-muted-foreground">{e.cuenta?.nombre ?? 'Caja chica'}</span></Td>
-                    <Td className="text-right"><span className="font-semibold text-destructive">{formatCurrency(Number(e.monto))}</span></Td>
+                    <Td className="text-right"><span className="font-semibold text-destructive">{formatCurrencyMoneda(Number(e.monto), egresosData.moneda.codigo)}</span></Td>
                   </Tr>
                 )) : <tr><td colSpan={4}><EmptyState message="Sin egresos en el período" /></td></tr>}
               </tbody>
@@ -515,7 +557,7 @@ export default function ReportesPage() {
 
           {mantenimientoData && (
             <div className="grid grid-cols-2 gap-4">
-              <StatCard label="Total gastado en mantenimiento" value={formatCurrency(mantenimientoData.totalGastado)} color="red" />
+              <StatCard label="Total gastado en mantenimiento" value={formatCurrencyMoneda(mantenimientoData.totalGastado, mantenimientoData.moneda.codigo)} color="red" />
               <StatCard label="Cantidad de gastos" value={mantenimientoData.cantidad} color="default" />
             </div>
           )}
@@ -528,9 +570,9 @@ export default function ReportesPage() {
                 <BarChart data={mantenimientoData!.porVehiculo}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                   <XAxis dataKey="placa" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v) => `S/${(v/1000).toFixed(0)}k`} />
+                  <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${mantenimientoData?.moneda.simbolo ?? 'S/'}${(v/1000).toFixed(0)}k`} />
                   <Tooltip
-                    formatter={(value: number) => formatCurrency(value)}
+                    formatter={(value: number) => formatCurrencyMoneda(value, mantenimientoData?.moneda.codigo)}
                     contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
                   />
                   <Bar dataKey="total" name="Total gastado" radius={[6, 6, 0, 0]}>
@@ -561,7 +603,7 @@ export default function ReportesPage() {
                     <Td><span className="text-sm font-medium">{g.mantenimiento?.vehiculo.placa}</span></Td>
                     <Td><span className="text-xs text-muted-foreground">{motivoLabel(g.mantenimiento?.motivoCodigo)}</span></Td>
                     <Td><span className="text-xs text-muted-foreground">{g.mantenimiento?.descripcion || '—'}</span></Td>
-                    <Td className="text-right"><span className="font-semibold text-destructive">{formatCurrency(Number(g.monto))}</span></Td>
+                    <Td className="text-right"><span className="font-semibold text-destructive">{formatCurrencyMoneda(Number(g.monto), mantenimientoData?.moneda.codigo)}</span></Td>
                     <Td><span className="text-xs text-muted-foreground">{tiempoDesde(g.fecha)}</span></Td>
                   </Tr>
                 )) : <tr><td colSpan={6}><EmptyState message="Sin gastos de mantenimiento en el período" /></td></tr>}
@@ -576,31 +618,51 @@ export default function ReportesPage() {
         <div className="flex flex-col gap-4">
           {lAnual ? <TableSkeleton rows={12} cols={7} /> : anualData && (
             <>
+              {!anualData.moneda.esDefault && (
+                <p className="text-xs text-muted-foreground">
+                  &quot;Facturado&quot; es siempre en soles (S/) — la facturación no tiene moneda propia. &quot;Cobrado&quot; y &quot;Gastos&quot; reflejan solo movimientos en {anualData.moneda.codigo}, por eso la utilidad no se calcula para esta moneda.
+                </p>
+              )}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard label="Pedidos del año" value={anualData.totales.pedidos} color="default" />
-                <StatCard label="Facturado" value={formatCurrency(anualData.totales.facturado)} color="blue" />
-                <StatCard label="Cobrado" value={formatCurrency(anualData.totales.cobrado)} color="green" />
-                <StatCard label="Gastos" value={formatCurrency(anualData.totales.gastos)} color="red" />
+                <StatCard label="Facturado (S/)" value={formatCurrency(anualData.totales.facturado)} color="blue" />
+                <StatCard label={`Cobrado (${anualData.moneda.simbolo})`} value={formatCurrencyMoneda(anualData.totales.cobrado, anualData.moneda.codigo)} color="green" />
+                <StatCard label={`Gastos (${anualData.moneda.simbolo})`} value={formatCurrencyMoneda(anualData.totales.gastos, anualData.moneda.codigo)} color="red" />
               </div>
 
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard label="Utilidad anual" value={formatCurrency(anualData.totales.utilidad)} color={anualData.totales.utilidad >= 0 ? 'green' : 'red'} />
-                <StatCard label="Promedio mensual de utilidad" value={formatCurrency(anualData.promedioUtilidadMensual)} color="default" />
+                <StatCard
+                  label="Utilidad anual"
+                  value={anualData.totales.utilidad == null ? '—' : formatCurrency(anualData.totales.utilidad)}
+                  color={anualData.totales.utilidad == null ? 'default' : anualData.totales.utilidad >= 0 ? 'green' : 'red'}
+                />
+                <StatCard
+                  label="Promedio mensual de utilidad"
+                  value={anualData.promedioUtilidadMensual == null ? '—' : formatCurrency(anualData.promedioUtilidadMensual)}
+                  color="default"
+                />
               </div>
 
               <div className="bg-card border border-border rounded-2xl p-5 shadow-sm">
                 <p className="text-sm font-semibold mb-1">Resumen mensual {anualData.anio}</p>
-                <p className="text-xs text-muted-foreground mb-4">Facturado, gastos y utilidad por mes (utilidad = facturado − gastos)</p>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Facturado (S/), gastos ({anualData.moneda.simbolo}) y utilidad (S/, solo si la moneda filtrada es soles) por mes
+                </p>
                 <ResponsiveContainer width="100%" height={260}>
                   <LineChart data={anualData.meses.map((m) => ({ name: m.nombreMes.slice(0, 3), facturado: m.facturado, gastos: m.gastos, utilidad: m.utilidad }))}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                     <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v) => `S/${(v/1000).toFixed(0)}k`} />
-                    <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} formatter={(v: number, name: string) => [formatCurrency(v), name]} />
+                    <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                    <Tooltip
+                      contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
+                      formatter={(v: number, name: string) => [name === 'Gastos' ? formatCurrencyMoneda(v, anualData.moneda.codigo) : formatCurrency(v), name]}
+                    />
                     <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
                     <Line type="monotone" dataKey="facturado" name="Facturado" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
                     <Line type="monotone" dataKey="gastos" name="Gastos" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
-                    <Line type="monotone" dataKey="utilidad" name="Utilidad" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                    {anualData.moneda.esDefault && (
+                      <Line type="monotone" dataKey="utilidad" name="Utilidad" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                    )}
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -608,16 +670,22 @@ export default function ReportesPage() {
               <div>
                 <p className="text-sm font-semibold mb-1">Tabla anual {anualData.anio}</p>
                 <p className="text-xs text-muted-foreground mb-3">
-                  Utilidad = Facturado − Gastos. Clasificación vs. promedio anual de {formatCurrency(anualData.promedioUtilidadMensual)}:
-                  {' '}<span className="font-medium text-emerald-500">Buen mes</span> (10% o más por encima),
-                  {' '}<span className="font-medium text-yellow-500">Mes regular</span> (cercano al promedio),
-                  {' '}<span className="font-medium text-destructive">Mal mes</span> (10% o más por debajo).
+                  {anualData.moneda.esDefault ? (
+                    <>
+                      Utilidad = Facturado − Gastos. Clasificación vs. promedio anual de {anualData.promedioUtilidadMensual == null ? '—' : formatCurrency(anualData.promedioUtilidadMensual)}:
+                      {' '}<span className="font-medium text-emerald-500">Buen mes</span> (10% o más por encima),
+                      {' '}<span className="font-medium text-yellow-500">Mes regular</span> (cercano al promedio),
+                      {' '}<span className="font-medium text-destructive">Mal mes</span> (10% o más por debajo).
+                    </>
+                  ) : (
+                    <>La utilidad y su clasificación solo se calculan cuando el filtro de moneda está en soles (S/).</>
+                  )}
                 </p>
                 <Table>
                   <thead>
                     <tr>
-                      <Th>Mes</Th><Th>Pedidos</Th><Th>Facturado</Th><Th>Cobrado</Th>
-                      <Th>Gastos</Th><Th>Utilidad</Th><Th>Clasificación</Th>
+                      <Th>Mes</Th><Th>Pedidos</Th><Th>Facturado (S/)</Th><Th>Cobrado ({anualData.moneda.simbolo})</Th>
+                      <Th>Gastos ({anualData.moneda.simbolo})</Th><Th>Utilidad</Th><Th>Clasificación</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -626,9 +694,15 @@ export default function ReportesPage() {
                         <Td><span className="text-sm font-medium">{m.nombreMes}</span></Td>
                         <Td><span className="text-sm">{m.pedidos}</span></Td>
                         <Td><span className="text-sm text-blue-500">{formatCurrency(m.facturado)}</span></Td>
-                        <Td><span className="text-sm text-emerald-500">{formatCurrency(m.cobrado)}</span></Td>
-                        <Td><span className="text-sm text-red-500">{formatCurrency(m.gastos)}</span></Td>
-                        <Td><span className={`text-sm font-semibold ${m.utilidad >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>{formatCurrency(m.utilidad)}</span></Td>
+                        <Td><span className="text-sm text-emerald-500">{formatCurrencyMoneda(m.cobrado, anualData.moneda.codigo)}</span></Td>
+                        <Td><span className="text-sm text-red-500">{formatCurrencyMoneda(m.gastos, anualData.moneda.codigo)}</span></Td>
+                        <Td>
+                          {m.utilidad == null ? (
+                            <span className="text-sm text-muted-foreground">—</span>
+                          ) : (
+                            <span className={`text-sm font-semibold ${m.utilidad >= 0 ? 'text-emerald-500' : 'text-destructive'}`}>{formatCurrency(m.utilidad)}</span>
+                          )}
+                        </Td>
                         <Td><Badge value={m.clasificacion} label={CLASIFICACION_MES_LABEL[m.clasificacion]} /></Td>
                       </Tr>
                     ))}

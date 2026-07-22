@@ -2,12 +2,20 @@
 
 import prisma from '../../prisma/client';
 import { cobranzaService } from '../cobranza/cobranza.service';
+import { cuentasService } from '../configuracion/cuentas.service';
 
 export interface FiltroReporte {
   desde?: string;
   hasta?: string;
   clienteId?: string;
 }
+
+// Categorías de egreso que NO son un gasto real del negocio: CAJA_CHICA es
+// una transferencia interna (el gasto real se cuenta cuando se usa desde la
+// caja), TRANSFERENCIA_CUENTAS es un movimiento entre cuentas propias (ej.
+// compra de dólares con soles del mismo banco). Ambas se excluyen de "Gastos"
+// en todos los reportes.
+const CATEGORIAS_EGRESO_NO_GASTO = ['CAJA_CHICA', 'TRANSFERENCIA_CUENTAS'];
 
 export class ReportesService {
   private parseFiltros(filtros: FiltroReporte) {
@@ -19,6 +27,37 @@ export class ReportesService {
       if (filtros.hasta) where.creadoEn.lte = new Date(filtros.hasta + 'T23:59:59');
     }
     return where;
+  }
+
+  // ── Filtro de moneda (reportes que tocan cuentas/movimientos/pagos) ─────────
+  // Facturación, pedidos y liquidaciones no tienen moneda propia (siempre
+  // soles) y no usan este filtro. Si no se especifica monedaId, se resuelve a
+  // la moneda por defecto — así el reporte nunca mezcla soles y dólares en un
+  // mismo total, ni con el filtro explícito ni sin él.
+  private async resolveMoneda(monedaId?: string) {
+    if (monedaId) {
+      const m = await prisma.moneda.findUnique({ where: { id: parseInt(monedaId) } });
+      if (m) return { id: m.id, codigo: m.codigo, simbolo: m.simbolo, esDefault: m.esPorDefecto };
+    }
+    const def = await cuentasService.getMonedaDefault();
+    if (!def) throw new Error('No hay monedas configuradas');
+    return { id: def.id, codigo: def.codigo, simbolo: def.simbolo, esDefault: true };
+  }
+
+  // Una Caja (y sus MovimientoCaja) no tiene moneda propia: hereda la de la
+  // cuenta de dinero desde la que se abrió. Las cajas históricas sin
+  // cuentaOrigenId se asumen en la moneda por defecto (el sistema solo tenía
+  // soles cuando se crearon).
+  private filtroCajaPorMoneda(monedaId: number, esDefault: boolean) {
+    return esDefault
+      ? { OR: [{ cuentaOrigenId: null }, { cuentaOrigen: { monedaId } }] }
+      : { cuentaOrigen: { monedaId } };
+  }
+
+  // Mismo filtro, pero anidado bajo `caja` — para queries sobre MovimientoCaja
+  // (que no tiene cuentaOrigenId propio, solo a través de su Caja).
+  private filtroMovimientoCajaPorMoneda(monedaId: number, esDefault: boolean) {
+    return { caja: this.filtroCajaPorMoneda(monedaId, esDefault) };
   }
 
   async reportePedidos(filtros: FiltroReporte) {
@@ -334,8 +373,9 @@ export class ReportesService {
     };
   }
 
-  async reporteCobranza(filtros: FiltroReporte) {
-    const where: any = {};
+  async reporteCobranza(filtros: FiltroReporte & { monedaId?: string }) {
+    const moneda = await this.resolveMoneda(filtros.monedaId);
+    const where: any = { monedaId: moneda.id };
     if (filtros.clienteId) where.clienteId = parseInt(filtros.clienteId);
     if (filtros.desde || filtros.hasta) {
       where.fechaPago = {};
@@ -425,6 +465,10 @@ export class ReportesService {
       : [];
     const razonSocialPorId = new Map(clientesInfo.map((c) => [c.id, c.razonSocial]));
 
+    // totalFacturado/saldoPendiente vienen de Factura, que siempre está en
+    // soles (sin moneda propia); totalCobrado sí respeta la moneda filtrada.
+    // Cuando la moneda seleccionada no es la default, dividir cobrado/facturado
+    // mezclaría dos monedas distintas, así que el % se omite.
     const resumenPorCliente = [...clienteIds].map((clienteId) => {
       const totalFacturado = Math.round((facturadoPorCliente.get(clienteId) ?? 0) * 100) / 100;
       const totalCobradoCliente = Math.round((cobradoPorCliente.get(clienteId) ?? 0) * 100) / 100;
@@ -435,13 +479,16 @@ export class ReportesService {
         totalFacturado,
         totalCobrado: totalCobradoCliente,
         saldoPendiente,
-        porcentajeCobrado: totalFacturado > 0
+        porcentajeCobrado: !moneda.esDefault
+          ? null
+          : totalFacturado > 0
           ? Math.round((totalCobradoCliente / totalFacturado) * 10000) / 100
           : 0,
       };
     }).sort((a, b) => b.saldoPendiente - a.saldoPendiente || b.totalFacturado - a.totalFacturado);
 
     return {
+      moneda: { id: moneda.id, codigo: moneda.codigo, simbolo: moneda.simbolo, esDefault: moneda.esDefault },
       pagos,
       resumenPorMetodo: resumenMetodo.map((r: any) => ({
         metodoPago: r.tipoPagoId ? (nombreTipoPago.get(r.tipoPagoId) ?? 'Otro') : 'Sin especificar',
@@ -453,8 +500,9 @@ export class ReportesService {
     };
   }
 
-  async reporteCaja(filtros: FiltroReporte) {
-    const where: any = {};
+  async reporteCaja(filtros: FiltroReporte & { monedaId?: string }) {
+    const moneda = await this.resolveMoneda(filtros.monedaId);
+    const where: any = { ...this.filtroCajaPorMoneda(moneda.id, moneda.esDefault) };
     if (filtros.desde || filtros.hasta) {
       where.fecha = {};
       if (filtros.desde) where.fecha.gte = new Date(filtros.desde);
@@ -491,14 +539,19 @@ export class ReportesService {
       { ingresos: 0, egresos: 0 }
     );
 
-    return { cajas: resumen, totalesGlobales };
+    return {
+      moneda: { id: moneda.id, codigo: moneda.codigo, simbolo: moneda.simbolo, esDefault: moneda.esDefault },
+      cajas: resumen,
+      totalesGlobales,
+    };
   }
 
   // El retiro de dinero del banco hacia una caja chica (MovimientoCuentaV2 con
   // categoriaEgreso = CAJA_CHICA) es una transferencia interna, no un gasto real
   // — se excluye aquí para no duplicarlo. El gasto real se registra cuando esa
   // plata se usa (MovimientoCaja categorizado dentro de la caja abierta).
-  async reporteEgresos(filtros: FiltroReporte) {
+  async reporteEgresos(filtros: FiltroReporte & { monedaId?: string }) {
+    const moneda = await this.resolveMoneda(filtros.monedaId);
     const whereFecha: any = {};
     if (filtros.desde || filtros.hasta) {
       whereFecha.fecha = {};
@@ -508,7 +561,7 @@ export class ReportesService {
 
     const [egresosCuenta, egresosCaja] = await Promise.all([
       prisma.movimientoCuentaV2.findMany({
-        where: { tipo: 'EGRESO', anulado: false, categoriaEgreso: { not: 'CAJA_CHICA' }, ...whereFecha },
+        where: { tipo: 'EGRESO', anulado: false, categoriaEgreso: { notIn: CATEGORIAS_EGRESO_NO_GASTO }, monedaId: moneda.id, ...whereFecha },
         orderBy: { fecha: 'desc' },
         include: {
           cuenta: { select: { id: true, nombre: true, tipoCuenta: true } },
@@ -516,7 +569,7 @@ export class ReportesService {
         },
       }),
       prisma.movimientoCaja.findMany({
-        where: { tipo: 'EGRESO', anulado: false, ...whereFecha },
+        where: { tipo: 'EGRESO', anulado: false, ...this.filtroMovimientoCajaPorMoneda(moneda.id, moneda.esDefault), ...whereFecha },
         orderBy: { fecha: 'desc' },
         include: {
           caja: { select: { id: true, nombre: true, usuario: { select: { id: true, nombre: true } } } },
@@ -543,6 +596,7 @@ export class ReportesService {
     const totalEgresos = egresos.reduce((s: number, g: any) => s + Number(g.monto), 0);
 
     return {
+      moneda: { id: moneda.id, codigo: moneda.codigo, simbolo: moneda.simbolo, esDefault: moneda.esDefault },
       egresos,
       totales: { cantidad: egresos.length, totalEgresos },
     };
@@ -552,7 +606,8 @@ export class ReportesService {
   // Incluye tanto los egresos de Movimientos ya "relacionados" a un vehículo
   // (MantenimientoDetalle) como los egresos de Mantenimiento pagados con caja
   // chica (MovimientoCaja categorizado, con vehículo asignado).
-  async reporteMantenimiento(filtros: FiltroReporte & { vehiculoId?: string }) {
+  async reporteMantenimiento(filtros: FiltroReporte & { vehiculoId?: string; monedaId?: string }) {
+    const moneda = await this.resolveMoneda(filtros.monedaId);
     const whereFecha: any = {};
     if (filtros.desde || filtros.hasta) {
       whereFecha.fecha = {};
@@ -561,12 +616,13 @@ export class ReportesService {
     }
     const vehiculoIdNum = filtros.vehiculoId ? parseInt(filtros.vehiculoId) : undefined;
 
-    const whereCuenta: any = { tipo: 'EGRESO', anulado: false, categoriaEgreso: 'MANTENIMIENTO', ...whereFecha };
+    const whereCuenta: any = { tipo: 'EGRESO', anulado: false, categoriaEgreso: 'MANTENIMIENTO', monedaId: moneda.id, ...whereFecha };
     if (vehiculoIdNum) whereCuenta.mantenimiento = { vehiculoId: vehiculoIdNum };
 
     const whereCaja: any = {
       tipo: 'EGRESO', anulado: false, categoriaEgreso: 'MANTENIMIENTO',
       vehiculoId: vehiculoIdNum ?? { not: null },
+      ...this.filtroMovimientoCajaPorMoneda(moneda.id, moneda.esDefault),
       ...whereFecha,
     };
 
@@ -615,6 +671,7 @@ export class ReportesService {
     }
 
     return {
+      moneda: { id: moneda.id, codigo: moneda.codigo, simbolo: moneda.simbolo, esDefault: moneda.esDefault },
       gastos: relacionados,
       totalGastado,
       cantidad: relacionados.length,
@@ -628,31 +685,33 @@ export class ReportesService {
     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
   ];
 
-  async reporteAnual(anio: number) {
+  async reporteAnual(anio: number, monedaId?: string) {
     const inicioAnio = new Date(anio, 0, 1);
     const finAnio = new Date(anio, 11, 31, 23, 59, 59);
+    const moneda = await this.resolveMoneda(monedaId);
 
     const [pedidos, facturas, pagos, gastosCuenta, gastosCaja] = await Promise.all([
       prisma.pedido.findMany({
         where: { fechaPedido: { gte: inicioAnio, lte: finAnio } },
         select: { fechaPedido: true, tarifa: true },
       }),
+      // La facturación no tiene moneda propia (siempre soles): no se filtra por `moneda`.
       prisma.factura.findMany({
         where: { fechaEmision: { gte: inicioAnio, lte: finAnio }, estado: { not: 'ANULADA' } },
         select: { fechaEmision: true, total: true },
       }),
       prisma.pagoV2.findMany({
-        where: { fechaPago: { gte: inicioAnio, lte: finAnio }, anulado: false },
+        where: { fechaPago: { gte: inicioAnio, lte: finAnio }, anulado: false, monedaId: moneda.id },
         select: { fechaPago: true, monto: true },
       }),
       // Excluye CAJA_CHICA: es una transferencia a la caja chica, no un gasto real.
       prisma.movimientoCuentaV2.findMany({
-        where: { tipo: 'EGRESO', anulado: false, categoriaEgreso: { not: 'CAJA_CHICA' }, fecha: { gte: inicioAnio, lte: finAnio } },
+        where: { tipo: 'EGRESO', anulado: false, categoriaEgreso: { notIn: CATEGORIAS_EGRESO_NO_GASTO }, fecha: { gte: inicioAnio, lte: finAnio }, monedaId: moneda.id },
         select: { fecha: true, monto: true },
       }),
       // Gasto real de lo efectivamente pagado con caja chica.
       prisma.movimientoCaja.findMany({
-        where: { tipo: 'EGRESO', anulado: false, fecha: { gte: inicioAnio, lte: finAnio } },
+        where: { tipo: 'EGRESO', anulado: false, fecha: { gte: inicioAnio, lte: finAnio }, ...this.filtroMovimientoCajaPorMoneda(moneda.id, moneda.esDefault) },
         select: { fecha: true, monto: true },
       }),
     ]);
@@ -679,14 +738,22 @@ export class ReportesService {
       ? Math.round((conActividad.reduce((s, m) => s + m.utilidad, 0) / conActividad.length) * 100) / 100
       : 0;
 
-    const clasificar = (m: (typeof mesesConUtilidad)[number]): 'BUEN_MES' | 'MES_REGULAR' | 'MAL_MES' | 'SIN_DATOS' => {
+    // Facturado está siempre en soles; restarle gastos de otra moneda no
+    // tiene sentido, así que la utilidad y su clasificación solo se calculan
+    // para la moneda por defecto.
+    const clasificar = (m: (typeof mesesConUtilidad)[number]): 'BUEN_MES' | 'MES_REGULAR' | 'MAL_MES' | 'SIN_DATOS' | 'NO_APLICA' => {
+      if (!moneda.esDefault) return 'NO_APLICA';
       if (m.pedidos === 0 && m.facturado === 0 && m.cobrado === 0 && m.gastos === 0) return 'SIN_DATOS';
       if (m.utilidad >= promedioUtilidad * 1.1) return 'BUEN_MES';
       if (m.utilidad < promedioUtilidad * 0.9) return 'MAL_MES';
       return 'MES_REGULAR';
     };
 
-    const tabla = mesesConUtilidad.map((m) => ({ ...m, clasificacion: clasificar(m) }));
+    const tabla = mesesConUtilidad.map((m) => ({
+      ...m,
+      utilidad: moneda.esDefault ? m.utilidad : null,
+      clasificacion: clasificar(m),
+    }));
 
     const totales = mesesConUtilidad.reduce(
       (acc, m) => ({
@@ -701,14 +768,15 @@ export class ReportesService {
 
     return {
       anio,
-      promedioUtilidadMensual: promedioUtilidad,
+      moneda: { id: moneda.id, codigo: moneda.codigo, simbolo: moneda.simbolo, esDefault: moneda.esDefault },
+      promedioUtilidadMensual: moneda.esDefault ? promedioUtilidad : null,
       meses: tabla,
       totales: {
         ...totales,
         facturado: Math.round(totales.facturado * 100) / 100,
         cobrado: Math.round(totales.cobrado * 100) / 100,
         gastos: Math.round(totales.gastos * 100) / 100,
-        utilidad: Math.round(totales.utilidad * 100) / 100,
+        utilidad: moneda.esDefault ? Math.round(totales.utilidad * 100) / 100 : null,
       },
     };
   }
@@ -779,12 +847,13 @@ export class ReportesService {
     return { periodo, ganador: ranking[0], ranking };
   }
 
-  async dashboardGeneral(filtros: { desde?: string; hasta?: string } = {}) {
+  async dashboardGeneral(filtros: { desde?: string; hasta?: string; monedaId?: string } = {}) {
     const hoy = new Date();
     const inicioMesActual = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
 
     const desde = filtros.desde ? new Date(filtros.desde) : inicioMesActual;
     const hasta = filtros.hasta ? new Date(filtros.hasta + 'T23:59:59') : hoy;
+    const moneda = await this.resolveMoneda(filtros.monedaId);
 
     const [
       totalClientes,
@@ -799,22 +868,23 @@ export class ReportesService {
       prisma.pedido.count({ where: { creadoEn: { gte: desde, lte: hasta } } }),
       // Por fecha de EMISIÓN, no de creación del registro — una importación
       // masiva hecha hoy con facturas de meses anteriores no debe contarse
-      // como facturado del mes actual.
+      // como facturado del mes actual. La facturación no tiene moneda propia
+      // (siempre soles), así que no se filtra por `moneda`.
       prisma.factura.aggregate({
         where: { fechaEmision: { gte: desde, lte: hasta }, estado: { not: 'ANULADA' } },
         _sum: { total: true },
       }),
       prisma.pagoV2.aggregate({
-        where: { fechaPago: { gte: desde, lte: hasta }, anulado: false },
+        where: { fechaPago: { gte: desde, lte: hasta }, anulado: false, monedaId: moneda.id },
         _sum: { monto: true },
       }),
       // Excluye CAJA_CHICA (transferencia interna, no gasto real).
       prisma.movimientoCuentaV2.aggregate({
-        where: { tipo: 'EGRESO', anulado: false, categoriaEgreso: { not: 'CAJA_CHICA' }, fecha: { gte: desde, lte: hasta } },
+        where: { tipo: 'EGRESO', anulado: false, categoriaEgreso: { notIn: CATEGORIAS_EGRESO_NO_GASTO }, fecha: { gte: desde, lte: hasta }, monedaId: moneda.id },
         _sum: { monto: true },
       }),
       prisma.movimientoCaja.aggregate({
-        where: { tipo: 'EGRESO', anulado: false, fecha: { gte: desde, lte: hasta } },
+        where: { tipo: 'EGRESO', anulado: false, fecha: { gte: desde, lte: hasta }, ...this.filtroMovimientoCajaPorMoneda(moneda.id, moneda.esDefault) },
         _sum: { monto: true },
       }),
       prisma.pedido.groupBy({
@@ -831,11 +901,13 @@ export class ReportesService {
     // "Por cobrar" es el saldo pendiente ACTUAL (no limitado al período): una
     // factura que quedó por cobrar de un mes anterior sigue sumando hasta que
     // se cobre. Mismo cálculo que el módulo Cobranza (neto de detracción).
+    // También siempre en soles — las facturas no tienen moneda propia.
     const pendientes = await cobranzaService.facturasPendientes();
     const porCobrar = Math.round(pendientes.reduce((s, f) => s + f.saldoPendiente, 0) * 100) / 100;
 
     return {
       periodo: { desde, hasta },
+      moneda: { id: moneda.id, codigo: moneda.codigo, simbolo: moneda.simbolo, esDefault: moneda.esDefault },
       clientes: { total: totalClientes },
       pedidos: {
         totalMes: pedidosPeriodo,
@@ -846,7 +918,10 @@ export class ReportesService {
         cobrado,
         porCobrar,
         gastos,
-        utilidadBruta: facturado - gastos,
+        // Facturado está siempre en soles; restarle gastos de otra moneda no
+        // tiene sentido, así que la utilidad solo se calcula para la moneda
+        // por defecto.
+        utilidadBruta: moneda.esDefault ? facturado - gastos : null,
       },
     };
   }

@@ -260,6 +260,9 @@ export interface MovimientosGlobalResponse {
 
 export interface DashboardData {
   periodo: { desde: string; hasta: string };
+  // Moneda a la que quedaron filtrados cobrado/gastos/utilidadBruta.
+  // facturado/porCobrar son siempre en soles (la facturación no tiene moneda propia).
+  moneda: { id: number; codigo: string; simbolo: string; esDefault: boolean };
   clientes: { total: number };
   pedidos: {
     totalMes: number;
@@ -270,7 +273,9 @@ export interface DashboardData {
     cobrado: number;
     porCobrar: number;
     gastos: number;
-    utilidadBruta: number;
+    // null cuando la moneda filtrada no es la default: facturado (soles) menos
+    // gastos (otra moneda) no es una resta válida.
+    utilidadBruta: number | null;
   };
 }
 

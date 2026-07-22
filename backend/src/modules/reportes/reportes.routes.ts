@@ -9,10 +9,10 @@ const router = Router();
 
 router.use(verificarToken, adminOSecretario, verificarModulo('reportes'));
 
-// GET /api/reportes/dashboard
+// GET /api/reportes/dashboard?desde=2024-01-01&hasta=2024-12-31&monedaId=1
 router.get('/dashboard', reportesController.dashboard.bind(reportesController));
 
-// GET /api/reportes/anual?anio=2026
+// GET /api/reportes/anual?anio=2026&monedaId=1
 router.get('/anual', reportesController.anual.bind(reportesController));
 
 // GET /api/reportes/conductor-del-mes
@@ -27,16 +27,16 @@ router.get('/pedidos', reportesController.pedidos.bind(reportesController));
 // GET /api/reportes/facturacion?desde=2024-01-01&hasta=2024-12-31
 router.get('/facturacion', reportesController.facturacion.bind(reportesController));
 
-// GET /api/reportes/cobranza?desde=2024-01-01&hasta=2024-12-31
+// GET /api/reportes/cobranza?desde=2024-01-01&hasta=2024-12-31&monedaId=1
 router.get('/cobranza', reportesController.cobranza.bind(reportesController));
 
-// GET /api/reportes/caja?desde=2024-01-01&hasta=2024-12-31
+// GET /api/reportes/caja?desde=2024-01-01&hasta=2024-12-31&monedaId=1
 router.get('/caja', reportesController.caja.bind(reportesController));
 
-// GET /api/reportes/egresos?desde=2024-01-01&hasta=2024-12-31
+// GET /api/reportes/egresos?desde=2024-01-01&hasta=2024-12-31&monedaId=1
 router.get('/egresos', reportesController.egresos.bind(reportesController));
 
-// GET /api/reportes/mantenimiento?desde=2024-01-01&hasta=2024-12-31&vehiculoId=1
+// GET /api/reportes/mantenimiento?desde=2024-01-01&hasta=2024-12-31&vehiculoId=1&monedaId=1
 router.get('/mantenimiento', reportesController.mantenimiento.bind(reportesController));
 
 // GET /api/reportes/rentabilidad-cliente?desde=2024-01-01&hasta=2024-12-31
